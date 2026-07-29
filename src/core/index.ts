@@ -12,6 +12,8 @@ export * from './types';
 export * from './commands';
 export * from './state';
 export * from './schemas';
+export * from './allocate';
+export * from './reduce';
 export * from './runtime-contract';
 export * from './ports';
 export * from './sag/events';
