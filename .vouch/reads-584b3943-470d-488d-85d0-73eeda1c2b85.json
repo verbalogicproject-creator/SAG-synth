@@ -1,0 +1,12 @@
+[
+  "/root/projects2/SAG-synth/synth-research/01_architecture_overview.md",
+  "/root/projects2/SAG-synth/synth-research/02_oscillators_and_wave_shapes.md",
+  "/root/projects2/SAG-synth/synth-research/03_envelope_filter_lfo.md",
+  "/root/projects2/SAG-synth/synth-research/04_effects_chain.md",
+  "/root/projects2/SAG-synth/synth-research/05_sequencer.md",
+  "/root/projects2/SAG-synth/synth-research/06_midi_file_import.md",
+  "/root/projects2/SAG-synth/synth-research/07_preset_system.md",
+  "/root/projects2/SAG-synth/synth-research/08_song_persistence.md",
+  "/root/projects2/SAG-synth/synth-research/09_data_models_and_state.md",
+  "/root/projects2/SAG-synth/synth-research/10_extra_features_checklist.md"
+]
