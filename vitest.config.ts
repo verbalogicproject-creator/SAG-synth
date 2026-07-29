@@ -2,9 +2,13 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
 
-// Two test projects with a filename convention agents can follow without asking:
-//   *.audio.test.ts  -> headless chromium (real Web Audio, Tone.Offline renders)
-//   *.test.ts        -> plain Node (pure domain core, fast)
+// Three test projects with a filename convention agents can follow without asking:
+//   *.audio.test.ts    -> headless chromium (real Web Audio, Tone.Offline renders)
+//   *.browser.test.ts  -> headless chromium (DOM APIs with no audio: IndexedDB, File)
+//   *.test.ts          -> plain Node (pure domain core, fast)
+//
+// audio and browser are split rather than merged so `--project audio` stays exactly the
+// gate the build plan documents, and so a storage failure never reads as an audio one.
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -15,7 +19,7 @@ export default defineConfig({
           name: 'core',
           environment: 'node',
           include: ['src/**/*.test.ts'],
-          exclude: ['src/**/*.audio.test.ts'],
+          exclude: ['src/**/*.audio.test.ts', 'src/**/*.browser.test.ts'],
         },
       },
       {
@@ -23,6 +27,25 @@ export default defineConfig({
         test: {
           name: 'audio',
           include: ['src/**/*.audio.test.ts'],
+          browser: {
+            enabled: true,
+            // PRoot/Termux cannot use the chromium sandbox.
+            provider: playwright({
+              launchOptions: {
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+              },
+            }),
+            headless: true,
+            screenshotFailures: false,
+            instances: [{ browser: 'chromium' }],
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'dom',
+          include: ['src/**/*.browser.test.ts'],
           browser: {
             enabled: true,
             // PRoot/Termux cannot use the chromium sandbox.

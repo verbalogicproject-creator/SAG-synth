@@ -13,4 +13,5 @@ export * from './commands';
 export * from './state';
 export * from './schemas';
 export * from './runtime-contract';
+export * from './ports';
 export * from './sag/events';
