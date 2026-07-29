@@ -209,6 +209,15 @@ export interface PauseCommand {
   type: 'pause';
 }
 
+/**
+ * Move the playhead. Drives the runtime without touching `EngineState` — the playhead
+ * lives in the audio clock, not the reducer — so it does not advance `revision`.
+ */
+export interface SeekCommand {
+  type: 'seek';
+  position: Beats;
+}
+
 export interface SetLoopCommand {
   type: 'setLoop';
   enabled: boolean;
@@ -281,6 +290,7 @@ export type SynthCommand =
   | PlayCommand
   | StopCommand
   | PauseCommand
+  | SeekCommand
   | SetLoopCommand
   | NoteOnCommand
   | NoteOffCommand
@@ -326,6 +336,7 @@ export const SYNTH_COMMAND_TYPES = [
   'play',
   'stop',
   'pause',
+  'seek',
   'setLoop',
   'noteOn',
   'noteOff',
@@ -344,16 +355,42 @@ const _commandTypesAreExhaustive: _CommandTypesAreExhaustive = true;
 void _commandTypesAreExhaustive;
 
 /**
- * Commands that take the latency hot path: they bypass the reducer, mutate only the
- * transient held-note set, call the runtime synchronously, journal asynchronously,
- * and do NOT advance `revision` (KIND-synth_command_applied §5).
+ * Commands that drive the runtime without mutating `EngineState`, and therefore do NOT
+ * advance `revision` (KIND-synth_command_applied §5). They are still validated, still
+ * journaled, and still consume a `seq` — they are performance and playback gestures,
+ * not document edits.
+ *
+ * `seek` and `panic` are here for the same structural reason as the note commands:
+ * the playhead lives in the audio clock and held notes live in `TransientState`, so
+ * neither has anything in `EngineState` to change. Replaying them through the reducer
+ * is a no-op, which is exactly what F59 needs.
  */
-export const HOT_PATH_COMMAND_TYPES = ['noteOn', 'noteOff'] as const satisfies readonly SynthCommandType[];
+export const TRANSIENT_COMMAND_TYPES = [
+  'noteOn',
+  'noteOff',
+  'seek',
+  'panic',
+] as const satisfies readonly SynthCommandType[];
+
+export type TransientCommandType = (typeof TRANSIENT_COMMAND_TYPES)[number];
+
+/**
+ * The latency subset of the above: these additionally bypass the dispatcher entirely,
+ * calling the runtime synchronously and journaling asynchronously. Widening this set
+ * changes the engine's latency profile; widening TRANSIENT_COMMAND_TYPES changes what
+ * `revision` means. They are deliberately separate lists.
+ */
+export const HOT_PATH_COMMAND_TYPES = ['noteOn', 'noteOff'] as const satisfies readonly TransientCommandType[];
 
 export type HotPathCommandType = (typeof HOT_PATH_COMMAND_TYPES)[number];
 
 export function isHotPathCommand(command: SynthCommand): boolean {
   return (HOT_PATH_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+/** True when an accepted command bumps `EngineState.revision`. */
+export function advancesRevision(command: SynthCommand): boolean {
+  return !(TRANSIENT_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 // ---------------------------------------------------------------------------

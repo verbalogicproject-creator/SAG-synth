@@ -21,7 +21,7 @@ import { defaultPreset, defaultSong } from '../core/state';
 import { PRESET_SCHEMA_VERSION, SONG_SCHEMA_VERSION } from '../core/types';
 
 describe('every command has a schema', () => {
-  it('covers all 32 verbs with no orphans', () => {
+  it('covers all 33 verbs with no orphans', () => {
     expect(Object.keys(COMMAND_PAYLOAD_SCHEMAS).sort()).toEqual([...SYNTH_COMMAND_TYPES].sort());
   });
 
@@ -71,6 +71,7 @@ describe('every command has a schema', () => {
       play: { type: 'play' },
       stop: { type: 'stop' },
       pause: { type: 'pause' },
+      seek: { type: 'seek', position: 8 },
       setLoop: { type: 'setLoop', enabled: true, start: 0, end: 8 },
       noteOn: { type: 'noteOn', note: 'C4', velocity: 0.8 },
       noteOff: { type: 'noteOff', note: 'C4' },
@@ -154,6 +155,12 @@ describe('validateCommand rejects', () => {
 
   it('a loop whose end precedes its start', () => {
     expect(validateCommand({ type: 'setLoop', enabled: true, start: 8, end: 4 }).ok).toBe(false);
+  });
+
+  it('a seek to a negative or non-finite position', () => {
+    expect(validateCommand({ type: 'seek', position: -1 }).ok).toBe(false);
+    expect(validateCommand({ type: 'seek', position: Infinity }).ok).toBe(false);
+    expect(validateCommand({ type: 'seek', position: 0 }).ok).toBe(true);
   });
 
   it('a track param whose value type does not match its path', () => {

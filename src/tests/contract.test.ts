@@ -19,6 +19,8 @@ import {
   HOT_PATH_COMMAND_TYPES,
   SYNTH_COMMAND_TYPES,
   SYNTH_QUERY_TYPES,
+  TRANSIENT_COMMAND_TYPES,
+  advancesRevision,
   assertEnvelopeConsistent,
   createEnvelope,
 } from '../core/commands';
@@ -38,7 +40,7 @@ import { MAX_LFOS } from '../core/types';
 
 // ---------------------------------------------------------------------------
 
-/** The command surface, verbatim from the frozen contract. 32 verbs. */
+/** The command surface, verbatim from the frozen contract. 33 verbs. */
 const FROZEN_COMMAND_TYPES = [
   // patch
   'loadPreset',
@@ -70,6 +72,7 @@ const FROZEN_COMMAND_TYPES = [
   'play',
   'stop',
   'pause',
+  'seek',
   'setLoop',
   'noteOn',
   'noteOff',
@@ -79,7 +82,7 @@ const FROZEN_COMMAND_TYPES = [
 ];
 
 describe('command surface is frozen', () => {
-  it('declares exactly the 32 verbs in the contract, in order', () => {
+  it('declares exactly the 33 verbs in the contract, in order', () => {
     expect([...SYNTH_COMMAND_TYPES]).toEqual(FROZEN_COMMAND_TYPES);
   });
 
@@ -88,9 +91,31 @@ describe('command surface is frozen', () => {
   });
 
   it('marks exactly noteOn and noteOff as hot path', () => {
-    // These bypass the reducer and do not advance `revision`
-    // (KIND-synth_command_applied §5). Widening this set changes replay semantics.
+    // The latency bypass: synchronous runtime call, asynchronous journal. Widening
+    // this set changes the engine's latency profile.
     expect([...HOT_PATH_COMMAND_TYPES]).toEqual(['noteOn', 'noteOff']);
+  });
+
+  it('marks exactly the four transient commands as not advancing revision', () => {
+    // None of these has anything in EngineState to change, so bumping `revision` for
+    // them would make it a meaningless counter rather than a document version
+    // (KIND-synth_command_applied §5). Widening this set changes replay semantics.
+    expect([...TRANSIENT_COMMAND_TYPES]).toEqual(['noteOn', 'noteOff', 'seek', 'panic']);
+  });
+
+  it('keeps the hot path a strict subset of the transient set', () => {
+    for (const type of HOT_PATH_COMMAND_TYPES) {
+      expect(TRANSIENT_COMMAND_TYPES).toContain(type);
+    }
+  });
+
+  it('advancesRevision agrees with the transient set for every verb', () => {
+    const transient = new Set<string>(TRANSIENT_COMMAND_TYPES);
+    for (const type of SYNTH_COMMAND_TYPES) {
+      // Only the discriminant is read, so a bare stub is enough here.
+      const command = { type } as unknown as Parameters<typeof advancesRevision>[0];
+      expect(advancesRevision(command), type).toBe(!transient.has(type));
+    }
   });
 
   it('accepts ui, agent, and replay as command sources', () => {

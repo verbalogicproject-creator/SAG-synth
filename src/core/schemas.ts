@@ -644,6 +644,12 @@ export const PlayPayloadSchema = z.object({ type: z.literal('play') });
 export const StopPayloadSchema = z.object({ type: z.literal('stop') });
 export const PausePayloadSchema = z.object({ type: z.literal('pause') });
 
+export const SeekPayloadSchema = z.object({
+  type: z.literal('seek'),
+  /** Beats from the start of the song. Bounded so a stray value cannot hang playback. */
+  position: z.number().nonnegative().finite().max(100_000),
+});
+
 export const SetLoopPayloadSchema = z
   .object({
     type: z.literal('setLoop'),
@@ -720,6 +726,7 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   play: PlayPayloadSchema,
   stop: StopPayloadSchema,
   pause: PausePayloadSchema,
+  seek: SeekPayloadSchema,
   setLoop: SetLoopPayloadSchema,
   noteOn: NoteOnPayloadSchema,
   noteOff: NoteOffPayloadSchema,
