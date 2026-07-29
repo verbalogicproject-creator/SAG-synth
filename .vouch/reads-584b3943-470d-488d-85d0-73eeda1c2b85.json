@@ -1,4 +1,17 @@
 [
+  "/root/ngf-kernel/kinds/KIND-event_stream.ngf.md",
+  "/root/ngf-kernel/kinds/KIND-functional_journey.ngf.md",
+  "/root/ngf-kernel/kinds/KIND-saga.ngf.md",
+  "/root/ngf-kernel/kinds/KIND-state_serializer.ngf.md",
+  "/root/projects2/SAG-synth/.gitignore",
+  "/root/projects2/SAG-synth/index.html",
+  "/root/projects2/SAG-synth/package.json",
+  "/root/projects2/SAG-synth/spike-b.mjs",
+  "/root/projects2/SAG-synth/spike-c.mjs",
+  "/root/projects2/SAG-synth/spike-d.mjs",
+  "/root/projects2/SAG-synth/src/App.tsx",
+  "/root/projects2/SAG-synth/src/index.css",
+  "/root/projects2/SAG-synth/src/main.tsx",
   "/root/projects2/SAG-synth/synth-research/01_architecture_overview.md",
   "/root/projects2/SAG-synth/synth-research/02_oscillators_and_wave_shapes.md",
   "/root/projects2/SAG-synth/synth-research/03_envelope_filter_lfo.md",
@@ -8,5 +21,10 @@
   "/root/projects2/SAG-synth/synth-research/07_preset_system.md",
   "/root/projects2/SAG-synth/synth-research/08_song_persistence.md",
   "/root/projects2/SAG-synth/synth-research/09_data_models_and_state.md",
-  "/root/projects2/SAG-synth/synth-research/10_extra_features_checklist.md"
+  "/root/projects2/SAG-synth/synth-research/10_extra_features_checklist.md",
+  "/root/projects2/SAG-synth/tsconfig.json",
+  "/root/projects2/SAG-synth/vite.config.ts",
+  "/tmp/claude-0/-root-projects2-SAG-synth/584b3943-470d-488d-85d0-73eeda1c2b85/scratchpad/alsa-null.conf",
+  "/tmp/claude-0/-root-projects2-SAG-synth/584b3943-470d-488d-85d0-73eeda1c2b85/scratchpad/spike-a-native.mjs",
+  "/tmp/claude-0/-root-projects2-SAG-synth/ad116bf6-5ec4-4beb-b47c-eb7205157b47/tasks/bcj4kv0ew.output"
 ]

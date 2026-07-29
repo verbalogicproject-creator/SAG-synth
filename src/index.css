@@ -1,0 +1,15 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0d0d10;
+  color: #e8e8ea;
+}
+
+main {
+  padding: 2rem;
+}
