@@ -256,6 +256,27 @@ export interface ImportMidiCommand {
 }
 
 // ---------------------------------------------------------------------------
+// History commands
+// ---------------------------------------------------------------------------
+
+/**
+ * Undo and redo are journaled like everything else, but the REDUCER never sees them —
+ * `src/core/history.ts` interprets them by moving whole states between past and future.
+ *
+ * They exist as verbs rather than as a client-side cursor because of F59. If undo were
+ * invisible to the journal, replaying it would rebuild the pre-undo state and live
+ * state would silently disagree with its own history; an undo would also not survive a
+ * reload. Journaling them keeps the journal the single truth, at the cost of two verbs.
+ */
+export interface UndoCommand {
+  type: 'undo';
+}
+
+export interface RedoCommand {
+  type: 'redo';
+}
+
+// ---------------------------------------------------------------------------
 // The union
 // ---------------------------------------------------------------------------
 
@@ -296,7 +317,10 @@ export type SynthCommand =
   | NoteOffCommand
   | PanicCommand
   // midi
-  | ImportMidiCommand;
+  | ImportMidiCommand
+  // history
+  | UndoCommand
+  | RedoCommand;
 
 export type SynthCommandType = SynthCommand['type'];
 
@@ -342,6 +366,8 @@ export const SYNTH_COMMAND_TYPES = [
   'noteOff',
   'panic',
   'importMidi',
+  'undo',
+  'redo',
 ] as const satisfies readonly SynthCommandType[];
 
 /** Compile-time completeness: fails if SYNTH_COMMAND_TYPES is missing a union member. */
@@ -388,8 +414,22 @@ export function isHotPathCommand(command: SynthCommand): boolean {
   return (HOT_PATH_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
+/**
+ * Undo and redo RESTORE a revision rather than advancing one, and they are the only
+ * commands the reducer refuses outright — `src/core/history.ts` handles them, because
+ * they need the state stack and the reducer must stay a pure function of one state.
+ */
+export const HISTORY_COMMAND_TYPES = ['undo', 'redo'] as const satisfies readonly SynthCommandType[];
+
+export type HistoryCommandType = (typeof HISTORY_COMMAND_TYPES)[number];
+
+export function isHistoryCommand(command: SynthCommand): boolean {
+  return (HISTORY_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
 /** True when an accepted command bumps `EngineState.revision`. */
 export function advancesRevision(command: SynthCommand): boolean {
+  if (isHistoryCommand(command)) return false;
   return !(TRANSIENT_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 

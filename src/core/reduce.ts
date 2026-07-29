@@ -498,6 +498,15 @@ export function reduce(
       }
       return applied(withSong(state, validated.data as Song), warnings);
     }
+
+    // -- history ----------------------------------------------------------
+
+    // Deliberately refused here. Undo needs the state stack, and giving the reducer
+    // access to history would make it a function of more than (state, command) — the
+    // exact property F59's replay proof depends on. src/core/history.ts owns these.
+    case 'undo':
+    case 'redo':
+      return rejected(`${command.type} is handled by the history driver, not the reducer`);
   }
 }
 

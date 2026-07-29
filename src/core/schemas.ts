@@ -676,6 +676,9 @@ export const NoteOffPayloadSchema = z.object({
 
 export const PanicPayloadSchema = z.object({ type: z.literal('panic') });
 
+export const UndoPayloadSchema = z.object({ type: z.literal('undo') });
+export const RedoPayloadSchema = z.object({ type: z.literal('redo') });
+
 /** Base64, RFC 4648 alphabet with optional padding. */
 export const Base64Schema = z
   .string()
@@ -732,6 +735,8 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   noteOff: NoteOffPayloadSchema,
   panic: PanicPayloadSchema,
   importMidi: ImportMidiPayloadSchema,
+  undo: UndoPayloadSchema,
+  redo: RedoPayloadSchema,
 } satisfies Record<(typeof SYNTH_COMMAND_TYPES)[number], z.ZodType>;
 
 export type CommandValidation =

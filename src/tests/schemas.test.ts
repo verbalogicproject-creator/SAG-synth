@@ -21,7 +21,7 @@ import { defaultPreset, defaultSong } from '../core/state';
 import { PRESET_SCHEMA_VERSION, SONG_SCHEMA_VERSION } from '../core/types';
 
 describe('every command has a schema', () => {
-  it('covers all 33 verbs with no orphans', () => {
+  it('covers all 34 verbs with no orphans', () => {
     expect(Object.keys(COMMAND_PAYLOAD_SCHEMAS).sort()).toEqual([...SYNTH_COMMAND_TYPES].sort());
   });
 
@@ -77,6 +77,8 @@ describe('every command has a schema', () => {
       noteOff: { type: 'noteOff', note: 'C4' },
       panic: { type: 'panic' },
       importMidi: { type: 'importMidi', bytes: 'TVRoZAAAAAY=' },
+      undo: { type: 'undo' },
+      redo: { type: 'redo' },
     } satisfies Record<(typeof SYNTH_COMMAND_TYPES)[number], unknown>;
 
     for (const type of SYNTH_COMMAND_TYPES) {

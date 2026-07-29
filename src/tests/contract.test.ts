@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_SOURCES,
+  HISTORY_COMMAND_TYPES,
   HOT_PATH_COMMAND_TYPES,
   SYNTH_COMMAND_TYPES,
   SYNTH_QUERY_TYPES,
@@ -40,7 +41,7 @@ import { MAX_LFOS } from '../core/types';
 
 // ---------------------------------------------------------------------------
 
-/** The command surface, verbatim from the frozen contract. 33 verbs. */
+/** The command surface, verbatim from the frozen contract. 34 verbs. */
 const FROZEN_COMMAND_TYPES = [
   // patch
   'loadPreset',
@@ -79,10 +80,13 @@ const FROZEN_COMMAND_TYPES = [
   'panic',
   // midi
   'importMidi',
+  // history
+  'undo',
+  'redo',
 ];
 
 describe('command surface is frozen', () => {
-  it('declares exactly the 33 verbs in the contract, in order', () => {
+  it('declares exactly the 34 verbs in the contract, in order', () => {
     expect([...SYNTH_COMMAND_TYPES]).toEqual(FROZEN_COMMAND_TYPES);
   });
 
@@ -109,12 +113,26 @@ describe('command surface is frozen', () => {
     }
   });
 
-  it('advancesRevision agrees with the transient set for every verb', () => {
+  it('marks exactly undo and redo as history commands', () => {
+    // These RESTORE a revision rather than advancing one, and are the only commands the
+    // reducer refuses outright — src/core/history.ts owns them, because they need the
+    // state stack and `reduce` must stay a pure function of a single state.
+    expect([...HISTORY_COMMAND_TYPES]).toEqual(['undo', 'redo']);
+  });
+
+  it('keeps the transient and history categories disjoint', () => {
     const transient = new Set<string>(TRANSIENT_COMMAND_TYPES);
+    for (const type of HISTORY_COMMAND_TYPES) {
+      expect(transient.has(type), `${type} cannot be both transient and history`).toBe(false);
+    }
+  });
+
+  it('advancesRevision agrees with the transient and history sets for every verb', () => {
+    const nonAdvancing = new Set<string>([...TRANSIENT_COMMAND_TYPES, ...HISTORY_COMMAND_TYPES]);
     for (const type of SYNTH_COMMAND_TYPES) {
       // Only the discriminant is read, so a bare stub is enough here.
       const command = { type } as unknown as Parameters<typeof advancesRevision>[0];
-      expect(advancesRevision(command), type).toBe(!transient.has(type));
+      expect(advancesRevision(command), type).toBe(!nonAdvancing.has(type));
     }
   });
 
