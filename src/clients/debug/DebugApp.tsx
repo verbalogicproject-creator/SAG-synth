@@ -329,8 +329,9 @@ export function DebugApp() {
     <main style={styles.page}>
       <h1 style={styles.h1}>SAG-synth — debug surface</h1>
       <p style={styles.sub}>
-        Stage 1 vertical slice. Every note goes through the dispatcher and lands in the
-        journal. Disposable by design.
+        Complete voice, modulation and effects chain. Every note goes through the
+        dispatcher and lands in the journal. Disposable by design — the designed surface
+        replaces this rather than restyling it.
       </p>
 
       {/*
@@ -553,10 +554,17 @@ export function DebugApp() {
           <dd style={styles.dd}>{unimplemented.join(', ') || 'none'}</dd>
         </dl>
         <p style={styles.dim}>
-          Schema version 2. The cutoff collision is resolved — voice.filter.frequency is
-          gone and voice.filterEnvelope.baseFrequency is the cutoff. Routing, EQ and the
-          per-voice amp/pan bases are declared but not yet mapped to the audio graph, so
-          they will read back correctly and make no sound until Stage 2 finishes.
+          Schema version 2. <strong>All 97 declared addresses now reach the audio graph</strong>
+          — voice, modulation routing, the effects chain, the EQ and the master stage. What
+          is left is song playback: tracks, tempo and the step grid need Tone.Transport,
+          which is v0.3.0, and that is what “applySong.transport” above means.
+        </p>
+        <p style={styles.dim}>
+          The two rows above are read live from the runtime, but this paragraph is prose and
+          prose goes stale. It claimed routing, EQ and the amp/pan bases were unmapped for
+          three stages after they were mapped — a gaps panel listing gaps that no longer
+          exist is worse than no panel, because it sends you looking for a fault that was
+          fixed. Trust the rows; treat this sentence as dated.
         </p>
       </section>
     </main>
