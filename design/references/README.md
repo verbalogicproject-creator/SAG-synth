@@ -1,6 +1,6 @@
 # Design references
 
-The v0.2.0 UI target, set by Eyal on 2026-07-30. Copied into the repo because the
+The v0.2.0 UI target, set by Eyal on 2026-07-30; the patch-bay reference added the same evening. Copied into the repo because the
 originals were in `/storage/emulated/0/Download/` on the phone — a downloads folder that
 gets cleared.
 
@@ -14,6 +14,7 @@ like square, sine, adsr. orginized in intuitive content aware pipeline."*
 | `02-exakt-lite-visual-language.jpg` | **Visual language.** Sonicbits EXAKT Lite. Dark slate panels, centred header bars, arc-indicator knobs each with a numeric readout box beneath, lettered tabs for repeated modules, a draggable envelope curve, a live waveform scope, keyboard as a persistent bottom strip. This is the closest single image to the target. |
 | `03-exakt-in-context-and-peers.jpg` | The same plugin in a browser, plus a strip of peer synths (ToneZ, OB-Xd) for range. Note ToneZ's output-row EQ. |
 | `04-current-debug-keyboard-before.jpg` | **The before.** Our throwaway debug keyboard in landscape. |
+| `05-subharmonicon-patch-bay.jpg` | **The routing surface.** Moog Subharmonicon, patch bay circled by Eyal. Not a styling reference — a *shape* reference: modulation drawn as jacks and cables rather than as a table of rows. See PHASE-4-BRIEF decision 2, which it settles. |
 
 ## Two readings that need confirming before the design cycle commits to them
 
