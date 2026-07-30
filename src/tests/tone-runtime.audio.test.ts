@@ -29,8 +29,9 @@ import {
   hfEnergyRatio,
   spectralEdgeOctaves,
 } from '../test-harness/audio-assertions';
-import { defaultPreset, defaultSong } from '../core/state';
+import { defaultPreset, defaultSong, initialEngineState } from '../core/state';
 import { PARAM_PATHS } from '../core/schemas';
+import { modulationLoad } from '../core/modulation';
 import { SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS } from '../core/sag/events';
 import { createEngine } from '../app/create-engine';
 import type { SynthCommand } from '../core/commands';
@@ -1762,6 +1763,57 @@ describe('ToneRuntime — modulation routing', () => {
     // cycle, exactly as the KIND's §3.3 says it does. An exponential sweep never can.
     expect(sweepDynamicRangeDb(low)).toBeLessThan(15);
     expect(sweepDynamicRangeDb(high)).toBeLessThan(15);
+  });
+
+  it('two amplitude ducks push the voice above its own level, exactly as modulationLoad says', async () => {
+    // The route-overflow indicator's central claim, checked against a rendered buffer
+    // rather than against itself. `rewireRoutes` assigns the re-centred resting gain once
+    // per route, so a second duck route wins the centre while BOTH scalers still sum: the
+    // peak lands above the patch's own amplitude, which is the one thing a one-directional
+    // duck is supposed to make impossible.
+    //
+    // Arithmetic agreeing with arithmetic would prove nothing here, so the prediction comes
+    // out of `modulationLoad` and the measurement out of the audio.
+    const second = (patch: SynthPreset) => {
+      patch.voice.modRoutes = [
+        ...patch.voice.modRoutes,
+        { id: 'route-1', enabled: true, source: 'lfo.0', destination: 'voice.amplitude', depth: 0.5 },
+      ];
+    };
+    const duck = { destination: 'voice.amplitude', depth: 0.5, rate: 4 } as const;
+    const [unmodulated, single, doubled] = await Promise.all([
+      renderRouted({ ...duck, enabled: false }),
+      renderRouted({ ...duck, enabled: true }),
+      renderRouted({ ...duck, enabled: true, mutate: second }),
+    ]);
+
+    // Past the attack, so the envelope is not what is being measured.
+    const sustained = (data: Float32Array) => peak(data, Math.floor(0.15 * SR), data.length);
+
+    // One duck only attenuates: the peak is the patch's own level, untouched.
+    expect(sustained(single) / sustained(unmodulated)).toBeLessThan(1.02);
+
+    const state = {
+      ...initialEngineState(),
+      patch: patchWith((patch) => {
+        patch.voice.modRoutes = [
+          { id: 'route-0', enabled: true, source: 'lfo.0', destination: 'voice.amplitude', depth: 0.5 },
+          { id: 'route-1', enabled: true, source: 'lfo.0', destination: 'voice.amplitude', depth: 0.5 },
+        ];
+      }),
+    };
+    const [load] = modulationLoad(state);
+    expect(load?.overflows).toBe(true);
+
+    // The indicator says the peak reaches `load.reach.max` where the base is 1.0, and the
+    // render has to agree. Measured 1.4829 against a predicted 1.4842 — 0.09% apart, so the
+    // 2% tolerance is slop for finding a waveform peak inside a 4 Hz cycle and nothing more.
+    // If this ever needs loosening, the model has drifted from the graph; do not loosen it.
+    const predicted = (load?.reach.max ?? 0) / (load?.base ?? 1);
+    const measured = sustained(doubled) / sustained(unmodulated);
+    expect(predicted).toBeGreaterThan(1.2);
+    expect(measured).toBeGreaterThan(1.2);
+    expect(Math.abs(measured - predicted) / predicted).toBeLessThan(0.02);
   });
 
   it('a faster LFO modulates more often than a slow one over the same window', async () => {

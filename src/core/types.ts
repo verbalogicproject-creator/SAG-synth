@@ -141,7 +141,7 @@ export interface LFOConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.7)
+// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.8)
 // ---------------------------------------------------------------------------
 //
 // An LFO used to carry its own destination in a four-value `LfoTarget` union. That

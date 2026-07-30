@@ -101,10 +101,23 @@ describeDepth('voice.oscillator.detune', 0.5)             // '±600 cents'
 the three cases in a component. The debug `ModPanel` already renders it under each route's
 depth slider, which is the throwaway version of what the designed surface should show.
 
-Still open under the same stage heading, and **not** a blocker: the route-overflow
-indicator. Web Audio sums connections into an `AudioParam` and clamps silently, so two deep
-routes at one destination lose travel with nothing saying so. The designed surface would
-naturally want to show it; see ROADMAP.
+**The route-overflow indicator landed with it.** `modulationLoad(state)` in
+`src/core/modulation.ts` returns one entry per destination the enabled routes point at,
+with `reach`, `limit` and an `overflows` flag; `describeLoad(load)` renders the line. The
+designed surface should show it somewhere — two deep routes at one destination lose travel
+and Web Audio clamps silently, which is exactly the class of thing this instrument keeps
+shipping. `ModPanel` has the throwaway version, and `mod-panel.browser.test.ts` gates that
+it appears when it should and stays absent when it should not.
+
+Two design consequences worth knowing before drawing anything:
+
+- **A parameter resting at the end of its own range wastes half of every route.**
+  `effects.distortion.wet` ships at 1.0, so any bipolar route there spends half its travel
+  above full wet. The indicator flags it on the factory patch. Whether the fix is a
+  different default, a `duckDb`-style curve, or just showing it, is a design call.
+- **Two `duckDb` routes at one destination overflow upward** — the peak goes above the
+  patch's own amplitude. Declared in KIND §3.3 rather than corrected, so the surface has to
+  be able to say so rather than assume it cannot happen.
 
 ## Suggested shape for the session
 

@@ -18,5 +18,6 @@ export * from './history';
 export * from './runtime-contract';
 export * from './ports';
 export * from './params';
+export * from './modulation';
 export * from './groups';
 export * from './sag/events';

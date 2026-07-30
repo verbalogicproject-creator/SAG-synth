@@ -1,4 +1,4 @@
-# SAG-synth roadmap — 0.1.11 → 0.2.0
+# SAG-synth roadmap — 0.1.12 → 0.2.0
 
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
@@ -7,8 +7,8 @@ from the repo, not recalled; where something is unverified it says so.
 
 ## Where we actually are
 
-**Version 0.1.11 — the engine is complete.** 319 tests across three projects. Build clean.
-Preset schema version 2, framework KINDs at tag `v0.0.7`.
+**Version 0.1.12 — the engine is complete.** 340 tests across three projects. Build clean.
+Preset schema version 2, framework KINDs at tag `v0.0.8`.
 
 **All 97 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
 and three tests keep it honest. The signal path:
@@ -34,7 +34,7 @@ The original plan said "ship v0.1.0 after Stage 4", and increments got bumped al
 until the number and the plan disagreed. Settled as:
 
 - **0.1.x** — the throwaway debug surface over a growing engine.
-- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.11.**
+- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.12.**
 
   0.1.9 was labelled "the last 0.1" when it shipped. That was a prediction and it did not
   hold: three separate EQ reports followed, each a genuinely different cause — a command
@@ -163,7 +163,7 @@ since the research inferred it without running a byte-diff.
 
 **Stage 3 green is the design stage's trigger.**
 
-## Stage 3.5 — the modulation curve bump · *curves done, overflow indicator open*
+## Stage 3.5 — the modulation curve bump · *done*
 
 "One depth semantic across every destination" was the wrong target. No studied system tries
 for it: 50% of a linear Hz range and 50% of a linear dB range are not the same amount of
@@ -193,12 +193,30 @@ parameter declare its own *curve*.
   `±600 cents`. The designed surface reads it instead of carrying a `switch` over curve
   names, which `arch/clients.ngf.md` forbids.
 
-**Still open here:** a **route-overflow indicator**. Web Audio sums connections into an
-`AudioParam` and clamps silently, which is correct and standard — auto-normalising would
-make one route's effect depend on whether a sibling is enabled, fighting determinism rather
-than serving it. The gap is visibility. Compute the summed depth in destination units at
-authoring time and flag it; the signal chain does not change. Not a blocker for the design
-cycle, but it is a thing the designed surface would naturally want to show.
+**The route-overflow indicator, also done at 0.1.12**, framework tag `v0.0.8`:
+
+`modulationLoad(state)` in `src/core/modulation.ts` computes where the enabled routes at
+each destination can drive it, in that destination's own unit and under its own curve, and
+compares that against the declared range. `describeLoad()` renders the line; `ModPanel`
+shows it. **The signal chain is untouched** — Web Audio still sums and clamps, because
+auto-normalising would make one route's effect depend on whether a sibling is enabled.
+
+It found two things on its first run, which is the argument for having built it:
+
+- **`effects.distortion.wet` ships at 1.0**, the top of its own 0..1 range, so *any*
+  bipolar route there spends half its travel above full wet. Same shape of problem as
+  `voice.amplitude`, which is what `duckDb` answers; distortion wet has no such curve.
+- **Two `duckDb` routes at one destination overflow upward.** `rewireRoutes` assigns the
+  re-centred resting gain once per route, so the last one wins the centre while both
+  scalers still sum — the peak lands *above* the patch's own amplitude, which is the one
+  thing a one-directional duck exists to prevent. Predicted 1.4842 × base, rendered
+  1.4829. Declared in KIND §3.3 rather than corrected: re-centring on a combination would
+  make each route's effect depend on which siblings are enabled, the same objection that
+  rules out auto-normalising. **F81** is that principle as a check.
+
+Its negative probes are the load-bearing half and are written as such — a patch whose
+routes fit must not be flagged, and the panel must render nothing. An indicator that is
+always on is furniture.
 
 ## Stage 4 — the design stage · *triggered, Stage 3 is green*
 

@@ -19,6 +19,7 @@
 import { MODULATION_DESTINATIONS, type ModDestination, type ParamPath, type ParamValue } from '../../core/types';
 import { PARAM_SPECS } from '../../core/schemas';
 import { describeDepth, getParam } from '../../core/params';
+import { describeLoad, modulationLoad } from '../../core/modulation';
 import type { EngineState } from '../../core/state';
 import type { SynthCommand } from '../../core/commands';
 import { ParamControl } from './ParamControl';
@@ -80,8 +81,23 @@ const slot: React.CSSProperties = {
 
 const dim: React.CSSProperties = { color: '#888', fontSize: '0.8rem' };
 
+/** Overflow is a warning, not an error — the patch is legal, it just cannot have it all. */
+const warn: React.CSSProperties = {
+  border: '1px solid #7a5c00',
+  background: '#221c05',
+  color: '#e8c95a',
+  borderRadius: 4,
+  padding: '0.5rem',
+  marginBottom: '0.5rem',
+  fontSize: '0.8rem',
+};
+
 export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
   const { lfos, modRoutes } = state.patch.voice;
+  // Web Audio sums routes into an AudioParam and clamps the result silently. Nothing in
+  // the signal chain changes here; this is the part that says so out loud.
+  const loads = modulationLoad(state);
+  const overflowing = loads.filter((load) => load.overflows);
 
   return (
     <>
@@ -230,6 +246,24 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
           </div>
         </div>
       ))}
+
+      {overflowing.length > 0 && (
+        <div style={warn}>
+          <strong>more travel than the parameter has</strong>
+          <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
+            {overflowing.map((load) => (
+              <li key={load.destination}>
+                <code>{load.destination}</code> — {describeLoad(load)}
+              </li>
+            ))}
+          </ul>
+          <p style={{ margin: '0.4rem 0 0' }}>
+            Nothing is broken and nothing is being corrected: the depths are what the patch
+            asked for, and auto-normalising them would make one route&apos;s effect depend on
+            whether a sibling is enabled. Lower a depth, or accept the clamp.
+          </p>
+        </div>
+      )}
 
       <p style={dim}>
         {WIRED_DESTINATIONS.length} of {MODULATION_DESTINATIONS.length} declared destinations
