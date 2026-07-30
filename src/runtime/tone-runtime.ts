@@ -621,24 +621,63 @@ export const SHARED_LFO_PHASE_DEPARTURE = {
 } as const;
 
 /**
- * Contract parameters this runtime deliberately does not read, and why.
+ * Contract parameters this runtime does not read yet, and which stage lands each.
  *
  * Listed rather than silently skipped: the debug surface displays them, so a parameter
  * that does nothing says so instead of looking broken.
  *
- * This list is now EMPTY, and how it emptied is worth recording. Its only entry was
- * `voice.filter.frequency`, which collided with `voice.filterEnvelope.baseFrequency`:
- * in `Tone.MonoSynth` the cutoff is driven entirely by the filter envelope, which sweeps
- * `baseFrequency` up to `baseFrequency × 2^octaves` and overwrites the filter's own
- * `frequency`. Only one of the two could be the cutoff, so the other was a decoy knob —
- * it validated, journalled and replayed while changing nothing audible.
+ * This list was briefly EMPTY and that was wrong. It had only ever tracked one entry —
+ * `voice.filter.frequency`, a genuine decoy that collided with
+ * `voice.filterEnvelope.baseFrequency` — and when schema_version 2 deleted that parameter
+ * outright, emptying the list read as "everything is mapped now". It was not. Two dozen
+ * addresses were, and still are, unread; they had been recorded in a prose SCOPE note at
+ * the top of this file instead, which the UI cannot display. The panel showed
+ * "unmapped: none" while a quarter of the surface did nothing.
  *
- * Declaring it here was the honest interim move. Deleting the parameter at
- * schema_version 2 was the actual fix: a contract should not carry an address the engine
- * has no behaviour for, and "we document that it does nothing" is a weaker guarantee
- * than "it is not addressable".
+ * The sharpest case is `voice.oscillator.detune`. It is a wired MODULATION DESTINATION —
+ * a route to it moves the pitch — while its own base value never reaches the graph,
+ * because `monoSynthOptions` maps only `oscillator.type`. So routing to detune works and
+ * setting detune does not, which is a worse failure than either being broken outright.
  */
-export const UNMAPPED_PARAMS: readonly string[] = [];
+export const UNMAPPED_PARAMS: readonly string[] = [
+  // Stage 2c — oscillator mapping. `detune` is the odd one out: modulatable today, but
+  // its base is dropped. `width` also needs its range corrected (Tone uses -1..1 with 0
+  // meaning square; the contract currently declares 0..1 with a default of 0.5, which is
+  // a 75% duty cycle rather than the neutral it looks like).
+  'voice.oscillator.detune',
+  'voice.oscillator.count',
+  'voice.oscillator.spread',
+  'voice.oscillator.width',
+
+  // Stage 2d — velocity response. Note that velocity itself DOES sound: it is passed to
+  // `triggerAttack` and MonoSynth scales the amp envelope with it. What is unread is the
+  // patch's control over how much it scales, which is why this is a gap and not silence.
+  'voice.velocity.toAmplitude',
+  'voice.velocity.toFilterOctaves',
+
+  // Stage 3 — the effects chain and master. `master.volume` is overridden by
+  // STAGE1_MASTER_VOLUME_DB for headroom until the limiter design lands.
+  'effects.distortion.amount',
+  'effects.distortion.wet',
+  'effects.chorus.frequency',
+  'effects.chorus.delayTime',
+  'effects.chorus.depth',
+  'effects.chorus.wet',
+  'effects.delay.delayTime',
+  'effects.delay.feedback',
+  'effects.delay.wet',
+  'effects.reverb.roomSize',
+  'effects.reverb.dampening',
+  'effects.reverb.wet',
+  'effects.eq.enabled',
+  'effects.eq.band0.gain',
+  'effects.eq.band1.gain',
+  'effects.eq.band2.gain',
+  'effects.eq.band3.gain',
+  'effects.eq.band4.gain',
+  'master.volume',
+  'master.limiterThreshold',
+];
 
 interface MonoSynthOptions {
   oscillator: { type: 'sine' | 'triangle' | 'sawtooth' | 'square' };

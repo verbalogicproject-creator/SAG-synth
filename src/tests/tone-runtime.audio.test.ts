@@ -16,9 +16,10 @@
 
 import { describe, expect, it } from 'vitest';
 import * as Tone from 'tone';
-import { ToneRuntime } from '../runtime';
+import { ToneRuntime, UNMAPPED_PARAMS, monoSynthOptions } from '../runtime';
 import { rms, peak, estimatePitch, hfEnergyRatio } from '../test-harness/audio-assertions';
 import { defaultPreset, defaultSong } from '../core/state';
+import { PARAM_PATHS } from '../core/schemas';
 import type { SynthPreset } from '../core/types';
 
 const SR = 44100;
@@ -350,6 +351,43 @@ describe('ToneRuntime — readouts', () => {
     // when unlock() resolved was wrong twice over — resume() resolves whether or not
     // the browser honoured it, and Android re-suspends on backgrounding.
     expect(['suspended', 'running', 'closed']).toContain(state);
+  });
+});
+
+describe('ToneRuntime — the unmapped-parameter list stays honest', () => {
+  // This list read "none" for one commit while a quarter of the parameter surface did
+  // nothing, because it had only ever tracked a single decoy and emptying it looked like
+  // completion. These checks make both failure directions cost a test.
+
+  it('lists only real parameter addresses', () => {
+    // Catches a stale entry after a rename — a listed path that no longer exists reports
+    // a gap nobody can close.
+    for (const path of UNMAPPED_PARAMS) {
+      expect(PARAM_PATHS, `"${path}" is listed unmapped but is not an address`).toContain(path);
+    }
+  });
+
+  it('does not list anything the runtime demonstrably reads', () => {
+    // The other direction: claiming a working parameter is unmapped sends someone to
+    // implement what already works.
+    const mapped = monoSynthOptions(defaultPreset());
+    expect(mapped.oscillator.type).toBeDefined();
+    for (const path of [
+      'voice.oscillator.type',
+      'voice.envelope.attack',
+      'voice.filter.type',
+      'voice.filterEnvelope.baseFrequency',
+    ]) {
+      expect(UNMAPPED_PARAMS, `"${path}" is mapped but listed unmapped`).not.toContain(path);
+    }
+  });
+
+  it('lists every wired modulation destination whose BASE value is dropped', () => {
+    // voice.oscillator.detune is the case that motivated this. It is a live destination —
+    // a route to it moves the pitch — while monoSynthOptions never applies its base, so
+    // routing works and setting does not. Whichever way that is eventually resolved, it
+    // must not be silent.
+    expect(UNMAPPED_PARAMS).toContain('voice.oscillator.detune');
   });
 });
 
