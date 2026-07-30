@@ -72,11 +72,11 @@ function bandLabel(path: ParamPath): string {
  * rather than as a note that quietly became false.
  */
 const BAND_REALITY: Record<string, string> = {
-  'effects.eq.band0.gain': '+4 dB · below most phone speakers',
-  'effects.eq.band1.gain': '+11 dB · the obvious one',
-  'effects.eq.band2.gain': '+6 dB',
-  'effects.eq.band3.gain': '+3 dB · near the default cutoff',
-  'effects.eq.band4.gain': '±0 dB · nothing up there to lift',
+  'effects.eq.band0.gain': '+10 dB',
+  'effects.eq.band1.gain': '+7 dB',
+  'effects.eq.band2.gain': '+5 dB',
+  'effects.eq.band3.gain': '+4 dB',
+  'effects.eq.band4.gain': '+2 dB',
 };
 
 const group: React.CSSProperties = {
@@ -166,11 +166,10 @@ export function FxPanel({ state, onChange, onCommand }: FxPanelProps) {
           </p>
         )}
         <p style={dim}>
-          The dB figures above are measured on the factory patch, whose filter settles near
-          2.8 kHz. An EQ can only boost what is there — that is why the top band moves
-          nothing and the bottom one moves something you cannot hear on a phone.{' '}
-          <strong>Start with 250 Hz.</strong> Raise the filter cutoff and the upper bands
-          come alive.
+          The dB figures are what +18 does on the factory patch, measured. Bands are spaced
+          by equal ratio — 250 Hz to 5 kHz, each 1.08 octaves above the last — because pitch
+          is heard logarithmically. The gradient is the default cutoff at ~2.8 kHz leaving
+          the upper bands less to lift; raise it and they even out.
         </p>
       </div>
 

@@ -56,14 +56,18 @@ import type {
 } from '../core/runtime-contract';
 
 /**
- * Q for every EQ band.
+ * Q for every EQ band, matched to the spacing rather than picked.
  *
- * The bands sit roughly two octaves apart, so ~1.0 (a little over one octave of
- * bandwidth) gives negligible interaction between neighbours even under full boost. It is
- * not load-bearing for transparency: a peaking filter at 0 dB gain is an identity filter
- * at any Q, so a flat EQ is exactly flat regardless of what this is set to.
+ * `BW = 2·asinh(1/2Q)/ln2` octaves. The bands sit 1.080 octaves apart, and Q 1.3 gives
+ * 1.084 octaves of bandwidth — so each band covers its own share of the spectrum and
+ * little of its neighbour's. Q 1.0, the previous value, gives 1.388 octaves: sensible when
+ * the centres were two octaves apart, and now wide enough that boosting two adjacent
+ * bands would compound in the overlap rather than shaping two regions.
+ *
+ * Not load-bearing for transparency either way: a peaking filter at 0 dB gain is an
+ * identity filter at any Q, so a flat EQ is exactly flat whatever this is.
  */
-const EQ_BAND_Q = 1.0;
+const EQ_BAND_Q = 1.3;
 
 /**
  * The safety clip's transfer curve: everything outside ±1 is folded onto ±1.

@@ -537,20 +537,24 @@ describe('effects chain and master stage (Stage 3)', () => {
     expect(window(boosted)).toBeGreaterThan(window(flat) * 1.5);
   });
 
-  it('every band is audible ON THE FACTORY PATCH, or is honestly labelled as not', async () => {
+  it('EVERY band is audible on the factory patch — the reason the centres moved', async () => {
     // The gate above this one opens the filter to 16 kHz so all five bands have content.
-    // That tests a patch nobody has. On the factory patch the cutoff settles near 2.8 kHz
-    // and the measured reality is very different:
+    // That tests a patch nobody has, and it is why a two-dead-band EQ passed while being
+    // reported as broken. This one uses the shipped default.
     //
-    //   band0    60 Hz  +4.14 dB
-    //   band1   250 Hz  +11.02 dB
-    //   band2  1000 Hz  +5.87 dB
-    //   band3  4000 Hz  +3.50 dB
-    //   band4 12000 Hz  +0.12 dB   <- inaudible, and correctly so
+    // Old centres, 60 Hz – 12 kHz, measured here:
+    //   60 Hz +4.14 · 250 Hz +11.02 · 1k +5.87 · 4k +3.50 · 12k +0.12
+    // Two of five did nothing a player could hear: 60 Hz is below a phone speaker and
+    // 12 kHz has no content above a 2.8 kHz cutoff to lift.
     //
-    // band4 is not broken; there is nothing above 2.8 kHz for it to lift. This pins that
-    // so the panel's claim about it stays true, and so a future change that makes the
-    // factory patch brighter shows up here rather than as a confusing report.
+    // New centres, 250 Hz – 5 kHz at equal ratio:
+    //   250 +10.46 · 530 +7.16 · 1120 +4.79 · 2360 +3.54 · 5000 +2.20
+    // Every control now moves the sound. The gradient is real and expected — the upper
+    // bands still have less to work with under the default cutoff — but none is inert.
+    //
+    // The assertion is deliberately "all five do something" rather than a table of
+    // figures: pinning exact dB would break on any harmless change to the factory patch,
+    // while the property worth defending is that no shipped control is dead.
     const play = (band: number | null) =>
       Tone.Offline(
         () => {
@@ -580,11 +584,12 @@ describe('effects chain and master stage (Stage 3)', () => {
     const base = level(await play(null));
     const gain = async (band: number) => 20 * Math.log10(level(await play(band)) / base);
 
-    // The band a player will actually reach for must be unmistakable.
-    expect(await gain(1)).toBeGreaterThan(8);
-    // ...and the top band must stay honestly near-silent on this patch, so the UI note
-    // saying so does not quietly become a lie.
-    expect(Math.abs(await gain(4))).toBeLessThan(1);
+    for (let band = 0; band < 5; band += 1) {
+      const moved = await gain(band);
+      expect(moved, `band${band} is inert on the factory patch`).toBeGreaterThan(1.5);
+    }
+    // ...and the lowest band, the one a player reaches for first, must be unmistakable.
+    expect(await gain(0)).toBeGreaterThan(8);
   });
 
   it('an enabled but flat EQ is transparent — which is why it can look broken', async () => {

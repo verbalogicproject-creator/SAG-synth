@@ -310,8 +310,24 @@ export interface ReverbConfig {
   wet: Unit;
 }
 
-/** Centre frequencies of the five graphic-EQ bands, Hz. Fixed — see `EqConfig`. */
-export const EQ_BAND_FREQUENCIES = [60, 250, 1000, 4000, 12000] as const;
+/**
+ * Centre frequencies of the five graphic-EQ bands, Hz. Fixed — see `EqConfig`.
+ *
+ * 250 Hz to 5 kHz, spaced by equal RATIO rather than equal difference: 5000/250 is 20,
+ * and 20^(1/4) ≈ 2.115, so every neighbour sits 1.08 octaves above the last. Pitch is
+ * perceived logarithmically, so equal ratios are what "evenly spaced" means to an ear —
+ * linear spacing would crowd four of the five bands into the top of the range.
+ *
+ * The span was chosen against the device rather than tradition. The previous set ran
+ * 60 Hz to 12 kHz, which is the textbook spread and was measured, on the factory patch,
+ * as **+4.14 dB at 60 Hz and +0.12 dB at 12 kHz** — one band below what a phone speaker
+ * reproduces and one with no content to lift above a 2.8 kHz cutoff. Two of five controls
+ * did nothing audible, which is how a working EQ gets reported as broken twice.
+ *
+ * Free to change because band CENTRES are not parameters: the addresses are
+ * `effects.eq.bandN.gain` and a saved patch stores gains. No schema bump, no migration.
+ */
+export const EQ_BAND_FREQUENCIES = [250, 530, 1120, 2360, 5000] as const;
 
 export type EqBandIndex = 0 | 1 | 2 | 3 | 4;
 
