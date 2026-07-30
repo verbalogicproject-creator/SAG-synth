@@ -142,7 +142,8 @@ export const OscillatorConfigSchema = z.object({
   detune: finite().min(-1200).max(1200),
   count: z.number().int().min(1).max(8),
   spread: finite().min(0).max(200),
-  width: unit(),
+  // Not unit(): Tone's pulse width runs -1..1 with 0 as square. See OscillatorConfig.
+  width: finite().min(-1).max(1),
 });
 
 export const EnvelopeConfigSchema = z.object({
@@ -462,7 +463,8 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.oscillator.detune': modNum(-1200, 1200, 'cents', true),
   'voice.oscillator.count': num(1, 8, 'voices', true),
   'voice.oscillator.spread': modNum(0, 200, 'cents', true),
-  'voice.oscillator.width': modNum(0, 1, undefined, true),
+  // -1..1 with 0 meaning square, matching Tone's PulseOscillator. See OscillatorConfig.
+  'voice.oscillator.width': modNum(-1, 1, undefined, true),
 
   'voice.envelope.attack': num(0, 20, 's'),
   'voice.envelope.decay': num(0, 20, 's'),

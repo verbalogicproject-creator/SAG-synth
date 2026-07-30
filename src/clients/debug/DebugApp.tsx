@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ToneRuntime, UNMAPPED_PARAMS } from '../../runtime';
+import { ToneRuntime, UNMAPPED_PARAMS, unsupportedOscillatorFeatures } from '../../runtime';
 import { createEngine } from '../../app/create-engine';
 import { MemorySagJournal } from '../../core/sag/events';
 import { DEFAULT_PRESET_ID } from '../../core/state';
@@ -23,6 +23,7 @@ import { clampOctave, isMusicalKey, noteForKey } from './keyboard';
 import { VirtualKeyboard } from './VirtualKeyboard';
 import { FilterPanel } from './FilterPanel';
 import { ModPanel } from './ModPanel';
+import { OscillatorPanel } from './OscillatorPanel';
 import type { ParamPath, ParamValue } from '../../core/types';
 
 /**
@@ -321,6 +322,17 @@ export function DebugApp() {
           Multi-touch works — hold two or three keys for a chord. Slide across keys to
           glissando.
         </p>
+      </section>
+
+      <section style={styles.panel}>
+        <h2 style={styles.h2}>Oscillator</h2>
+        <OscillatorPanel
+          state={dispatcher.getState()}
+          onChange={setParamValue}
+          unsupported={unsupportedOscillatorFeatures(
+            dispatcher.getState().patch.voice.oscillator,
+          )}
+        />
       </section>
 
       <section style={styles.panel}>

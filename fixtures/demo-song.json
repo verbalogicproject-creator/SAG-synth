@@ -21,7 +21,7 @@
             "detune": -7,
             "count": 2,
             "spread": 12,
-            "width": 0.5
+            "width": 0
           },
           "envelope": {
             "attack": 0.005,

@@ -70,8 +70,20 @@ export interface OscillatorConfig {
   count: number;
   /** Unison detune spread, cents. */
   spread: number;
-  /** Pulse width 0..1 — only meaningful for 'pulse' / 'pwm'. */
-  width: Unit;
+  /**
+   * Pulse duty cycle, **-1..1, where 0 is a square wave** — Tone's own convention, and
+   * only meaningful for `'pulse'`.
+   *
+   * Declared `0..1` with a default of `0.5` until 2026-07-30, which was wrong twice over:
+   * half of Tone's range was unreachable, and 0.5 is a 75% duty cycle wearing the costume
+   * of a neutral value. Corrected without a schema bump because the runtime had never
+   * read this field, so no stored patch's sound could depend on it — widening a range and
+   * moving a default are only safe together while the parameter is silent.
+   *
+   * Not meaningful for `'pwm'`, which has no width at all; its analogous control is the
+   * rate at which width is swept.
+   */
+  width: number;
 }
 
 export interface EnvelopeConfig {

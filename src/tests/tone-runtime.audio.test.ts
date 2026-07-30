@@ -16,7 +16,12 @@
 
 import { describe, expect, it } from 'vitest';
 import * as Tone from 'tone';
-import { ToneRuntime, UNMAPPED_PARAMS, monoSynthOptions } from '../runtime';
+import {
+  ToneRuntime,
+  UNMAPPED_PARAMS,
+  monoSynthOptions,
+  unsupportedOscillatorFeatures,
+} from '../runtime';
 import { rms, peak, estimatePitch, hfEnergyRatio } from '../test-harness/audio-assertions';
 import { defaultPreset, defaultSong } from '../core/state';
 import { PARAM_PATHS } from '../core/schemas';
@@ -354,6 +359,156 @@ describe('ToneRuntime — readouts', () => {
   });
 });
 
+describe('ToneRuntime — oscillator mapping (Stage 2c)', () => {
+  function renderOsc(mutate: (patch: SynthPreset) => void, seconds = 0.6): Promise<Float32Array> {
+    return render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          // Flat amp and a pinned, wide-open filter, so what the spectrum shows is the
+          // OSCILLATOR and not a contour moving underneath it.
+          patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+          patch.voice.filterEnvelope = {
+            attack: 0.005,
+            decay: 0.01,
+            sustain: 1,
+            release: 0.1,
+            baseFrequency: 12000,
+            octaves: 0,
+          };
+          mutate(patch);
+        }),
+      );
+      runtime.noteOn({ voiceId: 0, note: 'A3', velocity: 0.8, portamento: 0 });
+    }, seconds);
+  }
+
+  it('maps the type string, not just the four basic shapes', () => {
+    const optionsFor = (mutate: (patch: SynthPreset) => void) =>
+      monoSynthOptions(patchWith(mutate)).oscillator;
+
+    expect(optionsFor((p) => { p.voice.oscillator.type = 'sawtooth'; }).type).toBe('sawtooth');
+    // count > 1 selects the fat variant; count 1 must NOT, or every patch pays for an
+    // extra oscillator producing an identical sound.
+    expect(
+      optionsFor((p) => { p.voice.oscillator.type = 'sawtooth'; p.voice.oscillator.count = 3; }).type,
+    ).toBe('fatsawtooth');
+    expect(optionsFor((p) => { p.voice.oscillator.type = 'pulse'; }).type).toBe('pulse');
+    expect(optionsFor((p) => { p.voice.oscillator.type = 'pwm'; }).type).toBe('pwm');
+  });
+
+  it('applies base detune, which used to be modulatable but unset', async () => {
+    // The decoy this stage closes: voice.oscillator.detune was a wired modulation
+    // destination whose base value never reached the graph, so routing to it moved the
+    // pitch and setting it did nothing.
+    const data = await renderOsc((patch) => {
+      patch.voice.oscillator.detune = 1200; // one octave up
+    });
+
+    // A3 is 220 Hz; +1200 cents is 440 Hz. A generous window — this asks whether the
+    // value reached the oscillator at all, not for tuning accuracy.
+    const pitch = estimatePitch(data, SR, 0.3);
+    expect(pitch).toBeGreaterThan(400);
+    expect(pitch).toBeLessThan(480);
+  });
+
+  it('unison detunes into a thicker sound than the plain shape', async () => {
+    const [plain, fat] = await Promise.all([
+      renderOsc((patch) => {
+        patch.voice.oscillator.count = 1;
+        patch.voice.oscillator.spread = 40;
+      }),
+      renderOsc((patch) => {
+        patch.voice.oscillator.count = 5;
+        patch.voice.oscillator.spread = 40;
+      }),
+    ]);
+
+    // Detuned copies beat against each other, so the amplitude envelope of the sustained
+    // tone wanders where a single oscillator's is steady. Comparing spectra would not
+    // separate them nearly as cleanly — the harmonic series is the same shape.
+    const spread = (data: Float32Array) => {
+      const points = Array.from({ length: 20 }, (_unused, i) => {
+        const start = Math.floor((0.15 + i * 0.02) * SR);
+        return rms(data, start, start + Math.floor(0.02 * SR));
+      });
+      return Math.max(...points) - Math.min(...points);
+    };
+    expect(spread(fat)).toBeGreaterThan(spread(plain) * 2);
+  });
+
+  it('pulse width changes the harmonic content', async () => {
+    const [square, narrow] = await Promise.all([
+      renderOsc((patch) => {
+        patch.voice.oscillator.type = 'pulse';
+        patch.voice.oscillator.width = 0; // square — even harmonics cancel
+      }),
+      renderOsc((patch) => {
+        patch.voice.oscillator.type = 'pulse';
+        patch.voice.oscillator.width = 0.8; // narrow pulse — much brighter
+      }),
+    ]);
+
+    const hf = (data: Float32Array) => hfEnergyRatio(data, SR, 3000, Math.floor(0.3 * SR));
+    expect(hf(narrow)).toBeGreaterThan(hf(square));
+  });
+
+  it('width 0 really is the neutral value, not 0.5', async () => {
+    // The contract correction. Tone's pulse width runs -1..1 with 0 meaning square, and
+    // our declared default was 0.5 — a 75% duty cycle wearing the costume of neutral.
+    const [atZero, square] = await Promise.all([
+      renderOsc((patch) => {
+        patch.voice.oscillator.type = 'pulse';
+        patch.voice.oscillator.width = 0;
+      }),
+      renderOsc((patch) => {
+        patch.voice.oscillator.type = 'square';
+      }),
+    ]);
+
+    const hf = (data: Float32Array) => hfEnergyRatio(data, SR, 3000, Math.floor(0.3 * SR));
+    // A pulse at width 0 IS a square wave, so the two should sit close together.
+    expect(Math.abs(hf(atZero) - hf(square))).toBeLessThan(Math.max(hf(square), 0.01));
+  });
+
+  it('names every combination the oscillator type cannot honour', () => {
+    const gaps = (mutate: (patch: SynthPreset) => void) =>
+      unsupportedOscillatorFeatures(patchWith(mutate).voice.oscillator);
+
+    // noise is not an OmniOscillator type in any form; it sounds as a sawtooth.
+    expect(gaps((p) => { p.voice.oscillator.type = 'noise'; })).toContain('oscillator.noise');
+    // there is no fatpulse — unison and the pulse family are mutually exclusive in Tone.
+    expect(
+      gaps((p) => { p.voice.oscillator.type = 'pulse'; p.voice.oscillator.count = 3; }),
+    ).toContain('oscillator.unison.pulse');
+    // width belongs to PulseOscillator alone; pwm has no width at all.
+    expect(
+      gaps((p) => { p.voice.oscillator.type = 'pwm'; p.voice.oscillator.width = 0.5; }),
+    ).toContain('oscillator.width.pwm');
+    // ...and a legal patch reports nothing, or the check would pass by always complaining.
+    expect(gaps((p) => { p.voice.oscillator.type = 'sawtooth'; p.voice.oscillator.count = 3; })).toEqual([]);
+    expect(gaps((p) => { p.voice.oscillator.type = 'pulse'; p.voice.oscillator.width = 0.4; })).toEqual([]);
+  });
+
+  it('reports those gaps through the runtime, not just the pure function', async () => {
+    let reported: readonly string[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.oscillator.type = 'noise';
+          }),
+        );
+        reported = runtime.getUnimplemented();
+      },
+      0.05,
+      1,
+      SR,
+    );
+    expect(reported).toContain('oscillator.noise');
+  });
+});
+
 describe('ToneRuntime — the unmapped-parameter list stays honest', () => {
   // This list read "none" for one commit while a quarter of the parameter surface did
   // nothing, because it had only ever tracked a single decoy and emptying it looked like
@@ -382,12 +537,22 @@ describe('ToneRuntime — the unmapped-parameter list stays honest', () => {
     }
   });
 
-  it('lists every wired modulation destination whose BASE value is dropped', () => {
-    // voice.oscillator.detune is the case that motivated this. It is a live destination —
-    // a route to it moves the pitch — while monoSynthOptions never applies its base, so
-    // routing works and setting does not. Whichever way that is eventually resolved, it
-    // must not be silent.
-    expect(UNMAPPED_PARAMS).toContain('voice.oscillator.detune');
+  it('no longer lists the oscillator group, because Stage 2c mapped it', () => {
+    // voice.oscillator.detune is the case that motivated the whole list: a live
+    // modulation destination whose base value was dropped, so routing to it worked and
+    // setting it did nothing. Now read, so it must be off the list AND actually applied —
+    // the second half matters, since removing an entry is the easy way to fake progress.
+    for (const path of [
+      'voice.oscillator.detune',
+      'voice.oscillator.count',
+      'voice.oscillator.spread',
+      'voice.oscillator.width',
+    ]) {
+      expect(UNMAPPED_PARAMS, `"${path}" is mapped now`).not.toContain(path);
+    }
+    const patch = defaultPreset();
+    patch.voice.oscillator.detune = 550;
+    expect(monoSynthOptions(patch).detune).toBe(550);
   });
 });
 

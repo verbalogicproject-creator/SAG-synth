@@ -29,6 +29,7 @@ import type {
   FilterRolloff,
   FilterType,
   ModDestination,
+  OscillatorConfig,
   Song,
   SynthPreset,
   Unit,
@@ -299,6 +300,9 @@ export class ToneRuntime implements Runtime {
    */
   applyPatch(patch: SynthPreset): void {
     const options = monoSynthOptions(patch);
+    for (const gap of unsupportedOscillatorFeatures(patch.voice.oscillator)) {
+      this.notImplemented(gap);
+    }
     this.patch = patch;
     for (const nodes of this.voices.values()) {
       nodes.synth.set(options);
@@ -634,20 +638,18 @@ export const SHARED_LFO_PHASE_DEPARTURE = {
  * the top of this file instead, which the UI cannot display. The panel showed
  * "unmapped: none" while a quarter of the surface did nothing.
  *
- * The sharpest case is `voice.oscillator.detune`. It is a wired MODULATION DESTINATION —
- * a route to it moves the pitch — while its own base value never reaches the graph,
- * because `monoSynthOptions` maps only `oscillator.type`. So routing to detune works and
- * setting detune does not, which is a worse failure than either being broken outright.
+ * The sharpest case was `voice.oscillator.detune`: a wired MODULATION DESTINATION whose
+ * own base value never reached the graph, so routing to it moved the pitch and setting it
+ * did nothing. Fixed in Stage 2c, and the cause is worth keeping — the value was being
+ * passed nested under `oscillator`, where `MonoSynth`'s constructor overwrites it with the
+ * top-level `detune` default of 0. It typechecked and left the pitch exactly where it was.
  */
 export const UNMAPPED_PARAMS: readonly string[] = [
-  // Stage 2c — oscillator mapping. `detune` is the odd one out: modulatable today, but
-  // its base is dropped. `width` also needs its range corrected (Tone uses -1..1 with 0
-  // meaning square; the contract currently declares 0..1 with a default of 0.5, which is
-  // a 75% duty cycle rather than the neutral it looks like).
-  'voice.oscillator.detune',
-  'voice.oscillator.count',
-  'voice.oscillator.spread',
-  'voice.oscillator.width',
+  // Stage 2c closed the oscillator group. All four are read now, but `count`/`spread`
+  // and `width` are only MEANINGFUL on certain types — Tone's grammar makes unison and
+  // the pulse family mutually exclusive. That is a property of the patch, not of the
+  // runtime, so it is reported per-patch by `unsupportedOscillatorFeatures` through
+  // `getUnimplemented()` rather than listed here as a blanket gap.
 
   // Stage 2d — velocity response. Note that velocity itself DOES sound: it is passed to
   // `triggerAttack` and MonoSynth scales the amp envelope with it. What is unread is the
@@ -679,8 +681,35 @@ export const UNMAPPED_PARAMS: readonly string[] = [
   'master.limiterThreshold',
 ];
 
+/**
+ * The four shapes Tone will accept a `fat` prefix on. `pulse` and `pwm` are standalone
+ * types in the grammar, not prefixable — there is no `fatpulse`.
+ */
+type BasicShape = 'sine' | 'triangle' | 'sawtooth' | 'square';
+
+/**
+ * A discriminated union rather than one interface with optional fields, because that is
+ * what Tone's `OmniOscillator` options actually are: `count`/`spread` exist only on the
+ * `fat*` variants and `width` only on `pulse`. Modelling it flatly compiles and then
+ * lets a caller build `{ type: 'pulse', count: 3 }`, which is precisely the illegal
+ * combination this stage exists to stop being silent about.
+ */
+type OscillatorOptions =
+  | { type: BasicShape }
+  | { type: `fat${BasicShape}`; count: number; spread: number }
+  | { type: 'pulse'; width: number }
+  | { type: 'pwm' };
+
 interface MonoSynthOptions {
-  oscillator: { type: 'sine' | 'triangle' | 'sawtooth' | 'square' };
+  /**
+   * Top level, NOT nested under `oscillator`, and the distinction is not cosmetic.
+   * `MonoSynth`'s constructor does
+   * `Object.assign(options.oscillator, { detune: options.detune })`, so a detune passed
+   * inside the oscillator options is silently overwritten by the top-level default of 0.
+   * Nesting it looked right, typechecked, and left the pitch exactly where it started.
+   */
+  detune: number;
+  oscillator: OscillatorOptions;
   envelope: { attack: number; decay: number; sustain: number; release: number };
   filter: { type: FilterType; Q: number; rolloff: FilterRolloff };
   filterEnvelope: {
@@ -705,13 +734,15 @@ interface MonoSynthOptions {
  * exact matches for Tone's `BiquadFilterType` and rolloff union, so both pass straight
  * through.
  *
- * Still not read (later stages, each with its own gate): oscillator `count` / `spread` /
- * `width`, `velocity.*`, and `lfos`.
+ * Still not read (later stages, each with its own gate): `velocity.*` and the effects
+ * chain. `lfos` are handled separately, by `syncLfos`, because they are generators rather
+ * than voice options.
  */
 export function monoSynthOptions(patch: SynthPreset): MonoSynthOptions {
   const { oscillator, envelope, filter, filterEnvelope } = patch.voice;
   return {
-    oscillator: { type: basicWaveShape(oscillator.type) },
+    detune: oscillator.detune,
+    oscillator: oscillatorOptions(oscillator),
     envelope: {
       attack: envelope.attack,
       decay: envelope.decay,
@@ -735,16 +766,7 @@ export function monoSynthOptions(patch: SynthPreset): MonoSynthOptions {
   };
 }
 
-/**
- * Stage 1 handles only the four basic periodic shapes.
- *
- * `pulse` and `pwm` need a width parameter and `noise` is a different node type
- * entirely; mapping them onto Tone's type-string encoding is the Stage 2 job listed as
- * a known hard spot. Falling back to `sawtooth` is a visible placeholder rather than a
- * silent wrong sound — the patch is unchanged, so widening the mapping later changes
- * only what is heard, never what is stored.
- */
-function basicWaveShape(shape: string): 'sine' | 'triangle' | 'sawtooth' | 'square' {
+function basicShape(shape: string): BasicShape {
   switch (shape) {
     case 'sine':
     case 'triangle':
@@ -753,4 +775,57 @@ function basicWaveShape(shape: string): 'sine' | 'triangle' | 'sawtooth' | 'squa
     default:
       return 'sawtooth';
   }
+}
+
+/**
+ * Our four oscillator parameters onto Tone's type-string grammar, which is not the
+ * orthogonal parameter space they look like.
+ *
+ * `count` and `spread` exist only on `FatOscillator`, selected by prefixing one of the
+ * four basic shapes with `fat`. `pulse` and `pwm` are standalone types that cannot take
+ * that prefix — there is no `fatpulse` — so unison and pulse shapes are mutually
+ * exclusive families. `width` belongs to `PulseOscillator` alone: `pwm` has no width at
+ * all, only a rate at which width is swept. And `noise` is not an `OmniOscillator` type
+ * in any form; it is a separate class needing a differently-shaped voice.
+ *
+ * Every combination this cannot honour is reported by `unsupportedOscillatorFeatures`
+ * rather than dropped, which is the difference between a gap and the silent
+ * fall-back-to-sawtooth this replaces.
+ */
+function oscillatorOptions(oscillator: OscillatorConfig): OscillatorOptions {
+  const { type, count, spread, width } = oscillator;
+
+  if (type === 'pulse') return { type: 'pulse', width };
+  if (type === 'pwm') return { type: 'pwm' };
+
+  const shape = basicShape(type);
+  // count 1 is "no unison", and `fat<shape>` with count 1 is a needless extra oscillator
+  // producing an identical sound, so the plain type is used.
+  return count > 1 ? { type: `fat${shape}` as const, count, spread } : { type: shape };
+}
+
+/**
+ * Parameters a patch sets that its own oscillator type cannot honour.
+ *
+ * Separate from `oscillatorOptions` so that function stays a pure translation — the
+ * runtime calls this and routes each entry through `notImplemented`, so the debug surface
+ * names them. Replay is unaffected either way: the patch is stored verbatim and the
+ * mapping is deterministic, so what gets ignored is ignored identically every time.
+ */
+export function unsupportedOscillatorFeatures(oscillator: OscillatorConfig): string[] {
+  const { type, count, width } = oscillator;
+  const gaps: string[] = [];
+
+  if (type === 'noise') {
+    // Sounds as a sawtooth. Honouring it needs a voice built around Tone.Noise instead of
+    // MonoSynth, which is a different voice shape rather than another case here.
+    gaps.push('oscillator.noise');
+  }
+  if (count > 1 && (type === 'pulse' || type === 'pwm')) {
+    gaps.push(`oscillator.unison.${type}`);
+  }
+  if (width !== 0 && type !== 'pulse') {
+    gaps.push(`oscillator.width.${type}`);
+  }
+  return gaps;
 }
