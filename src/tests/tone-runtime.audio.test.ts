@@ -507,6 +507,86 @@ describe('effects chain and master stage (Stage 3)', () => {
     }
   });
 
+  it('the EQ is reachable through the DISPATCHER, not just through applyPatch', async () => {
+    // Every other EQ gate here calls applyPatch directly. That leaves the whole command
+    // path untested — validation, the reducer, the runtime sync — which is exactly where
+    // the `'eq'` effect id was refused for two stages while the audio was perfect.
+    const play = (setBand: boolean) =>
+      Tone.Offline(
+        () => {
+          const runtime = new ToneRuntime();
+          let n = 0;
+          const dispatcher = createEngine({
+            runtime,
+            overrides: { newId: () => `c${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+          });
+          dispatcher.dispatch({ type: 'loadPreset', preset: defaultPreset() });
+          dispatcher.dispatch({ type: 'setEffectEnabled', effectId: 'eq', enabled: true });
+          if (setBand) {
+            dispatcher.dispatch({ type: 'setParam', path: 'effects.eq.band1.gain', value: 18 });
+          }
+          dispatcher.dispatch({ type: 'noteOn', note: 'C3', velocity: 0.9 });
+        },
+        1,
+        1,
+        SR,
+      ).then((buffer) => buffer.getChannelData(0));
+
+    const [flat, boosted] = await Promise.all([play(false), play(true)]);
+    const window = (d: Float32Array) => rms(d, Math.floor(0.2 * SR), Math.floor(0.8 * SR));
+    expect(window(boosted)).toBeGreaterThan(window(flat) * 1.5);
+  });
+
+  it('every band is audible ON THE FACTORY PATCH, or is honestly labelled as not', async () => {
+    // The gate above this one opens the filter to 16 kHz so all five bands have content.
+    // That tests a patch nobody has. On the factory patch the cutoff settles near 2.8 kHz
+    // and the measured reality is very different:
+    //
+    //   band0    60 Hz  +4.14 dB
+    //   band1   250 Hz  +11.02 dB
+    //   band2  1000 Hz  +5.87 dB
+    //   band3  4000 Hz  +3.50 dB
+    //   band4 12000 Hz  +0.12 dB   <- inaudible, and correctly so
+    //
+    // band4 is not broken; there is nothing above 2.8 kHz for it to lift. This pins that
+    // so the panel's claim about it stays true, and so a future change that makes the
+    // factory patch brighter shows up here rather than as a confusing report.
+    const play = (band: number | null) =>
+      Tone.Offline(
+        () => {
+          const runtime = new ToneRuntime();
+          let n = 0;
+          const dispatcher = createEngine({
+            runtime,
+            overrides: { newId: () => `c${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+          });
+          dispatcher.dispatch({ type: 'loadPreset', preset: defaultPreset() });
+          dispatcher.dispatch({ type: 'setEffectEnabled', effectId: 'eq', enabled: true });
+          if (band !== null) {
+            dispatcher.dispatch({
+              type: 'setParam',
+              path: `effects.eq.band${band}.gain` as never,
+              value: 18,
+            });
+          }
+          dispatcher.dispatch({ type: 'noteOn', note: 'C3', velocity: 0.9 });
+        },
+        1,
+        1,
+        SR,
+      ).then((buffer) => buffer.getChannelData(0));
+
+    const level = (d: Float32Array) => rms(d, Math.floor(0.2 * SR), Math.floor(0.8 * SR));
+    const base = level(await play(null));
+    const gain = async (band: number) => 20 * Math.log10(level(await play(band)) / base);
+
+    // The band a player will actually reach for must be unmistakable.
+    expect(await gain(1)).toBeGreaterThan(8);
+    // ...and the top band must stay honestly near-silent on this patch, so the UI note
+    // saying so does not quietly become a lie.
+    expect(Math.abs(await gain(4))).toBeLessThan(1);
+  });
+
   it('an enabled but flat EQ is transparent — which is why it can look broken', async () => {
     // Not a bug, and the reason a user reports the EQ as dead: ticking the box changes
     // NOTHING until a band moves, unlike every other effect in the chain, which all ship

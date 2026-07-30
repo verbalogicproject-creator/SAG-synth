@@ -59,6 +59,26 @@ function bandLabel(path: ParamPath): string {
   return hz >= 1000 ? `${hz / 1000}k` : `${hz}`;
 }
 
+/**
+ * What +18 dB on each band actually does to the FACTORY patch, measured.
+ *
+ * Not decoration. "The EQ doesn't work" was reported twice, and both times every band was
+ * functioning exactly as designed — the factory cutoff settles near 2.8 kHz, so the top
+ * band has nothing to lift and the bottom one is below what a phone reproduces. A player
+ * cannot tell "this control is broken" from "this control has nothing to act on", and
+ * without the numbers neither could I.
+ *
+ * Pinned by a gate on the factory patch, so a brighter default shows up as a failing test
+ * rather than as a note that quietly became false.
+ */
+const BAND_REALITY: Record<string, string> = {
+  'effects.eq.band0.gain': '+4 dB · below most phone speakers',
+  'effects.eq.band1.gain': '+11 dB · the obvious one',
+  'effects.eq.band2.gain': '+6 dB',
+  'effects.eq.band3.gain': '+3 dB · near the default cutoff',
+  'effects.eq.band4.gain': '±0 dB · nothing up there to lift',
+};
+
 const group: React.CSSProperties = {
   border: '1px solid #333',
   borderRadius: 4,
@@ -128,7 +148,7 @@ export function FxPanel({ state, onChange, onCommand }: FxPanelProps) {
             <ParamControl
               key={path}
               path={path}
-              label={`${bandLabel(path)} Hz`}
+              label={`${bandLabel(path)} Hz — ${BAND_REALITY[path] ?? ''}`}
               spec={PARAM_SPECS[path]}
               value={getParam(state, path)}
               onChange={onChange}
@@ -146,11 +166,11 @@ export function FxPanel({ state, onChange, onCommand }: FxPanelProps) {
           </p>
         )}
         <p style={dim}>
-          An EQ can only boost what is there. With the cutoff low, the 4k and 12k bands have
-          almost no content to lift — measured slightly QUIETER at +18 dB on a patch filtered
-          at 1.2 kHz. Open the filter first. And on a phone speaker 60 Hz and 12 kHz are
-          largely outside what the hardware reproduces at all; 250 Hz–4 kHz is where this
-          device can hear you working.
+          The dB figures above are measured on the factory patch, whose filter settles near
+          2.8 kHz. An EQ can only boost what is there — that is why the top band moves
+          nothing and the bottom one moves something you cannot hear on a phone.{' '}
+          <strong>Start with 250 Hz.</strong> Raise the filter cutoff and the upper bands
+          come alive.
         </p>
       </div>
 
