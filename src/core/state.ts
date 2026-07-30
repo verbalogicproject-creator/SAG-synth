@@ -158,7 +158,13 @@ export function defaultVoiceConfig(): VoiceConfig {
 
 export function defaultEffectsConfig(): EffectsConfig {
   return {
-    distortion: { enabled: false, amount: 0.2, wet: 1 },
+    // 0.5, and measured rather than picked. Distortion ships DISABLED, so this is not a
+    // neutral resting value the way a flat EQ is — it is what you get the moment you
+    // switch it on, and "on" has to be unmistakably on. At the previous 0.2 the crest
+    // factor fell 16% and the effect was reported from the device as not working, three
+    // times. At 0.5 it falls 43% with the level moving 0.1 dB: the sound changes and the
+    // loudness does not. `audible the moment it is switched on` gates this.
+    distortion: { enabled: false, amount: 0.5, wet: 1 },
     chorus: { enabled: false, frequency: 4, delayTime: 2.5, depth: 0.5, wet: 0.5 },
     delay: { enabled: false, delayTime: 0.25, feedback: 0.3, wet: 0.3 },
     reverb: { enabled: false, roomSize: 0.7, dampening: 3000, wet: 0.3 },

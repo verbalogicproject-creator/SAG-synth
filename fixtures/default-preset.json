@@ -44,7 +44,7 @@
   "effects": {
     "distortion": {
       "enabled": false,
-      "amount": 0.2,
+      "amount": 0.5,
       "wet": 1
     },
     "chorus": {
@@ -89,5 +89,5 @@
   "category": "Lead",
   "author": "SAG-synth",
   "factory": true,
-  "description": "Bright sawtooth lead with a moving filter — the blank canvas patch."
+  "description": "Bright sawtooth lead with a moving filter \u2014 the blank canvas patch."
 }

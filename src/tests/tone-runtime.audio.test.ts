@@ -499,6 +499,48 @@ describe('effects chain and master stage (Stage 3)', () => {
     expect(above9k(full)).toBeGreaterThan(above9k(clean) * 10);
   });
 
+  it('distortion is audible the moment it is switched on, at the value that ships', async () => {
+    // The gate that would have saved three rounds of this. Every other distortion check
+    // sets its own `amount` — including the one directly above — so all of them passed
+    // while the value a player actually gets was too polite to register as an effect at
+    // all. This one touches nothing: load the factory preset, tick the box, listen.
+    //
+    // `amount` ships at 0.5 rather than 0.2 because distortion ships DISABLED. That makes
+    // it not a neutral resting value the way a flat EQ is, but the answer to "what does
+    // switching this on sound like", and the answer has to be "different".
+    const [clean, on] = await Promise.all([playDistorted(), playDistorted()]);
+    expect(defaultPreset().effects.distortion.enabled, 'distortion now ships enabled').toBe(false);
+
+    const shipped = await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        let n = 0;
+        const dispatcher = createEngine({
+          runtime,
+          overrides: { newId: () => `c${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+        });
+        dispatcher.dispatch({ type: 'loadPreset', preset: defaultPreset() });
+        // The ONLY thing that varies. No setParam, so the shipped `amount` is under test.
+        dispatcher.dispatch({ type: 'setEffectEnabled', effectId: 'distortion', enabled: true });
+        dispatcher.dispatch({ type: 'noteOn', note: 'C3', velocity: 0.9 });
+      },
+      1.5,
+      1,
+      SR,
+    ).then((buffer) => buffer.getChannelData(0));
+
+    // Sanity: the two clean renders are the same sound, so any difference below is the
+    // toggle and not the harness.
+    expect(crest(on)).toBeCloseTo(crest(clean), 6);
+
+    // Measured 2.95 -> 1.70, a 43% drop, with the level moving 0.1 dB. The floor is set at
+    // 30% because that is comfortably past what the old 0.2 default managed, and a default
+    // quieter than this is one nobody can hear switch on.
+    expect(1 - crest(shipped) / crest(clean)).toBeGreaterThan(0.3);
+    expect(above9k(shipped)).toBeGreaterThan(above9k(clean) * 20);
+    expect(Math.abs(20 * Math.log10(level(shipped) / level(clean)))).toBeLessThan(1.5);
+  });
+
   it('the knob keeps working past its first quarter', async () => {
     // The other failure this mapping replaced. At the drive it shipped with, saturation was
     // complete by amount 0.2 and the remaining four fifths of the control were
