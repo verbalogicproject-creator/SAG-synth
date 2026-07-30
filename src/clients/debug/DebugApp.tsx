@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ToneRuntime, UNMAPPED_PARAMS, unsupportedOscillatorFeatures } from '../../runtime';
 import { createEngine } from '../../app/create-engine';
+import { connectHotCommandBridge } from '../../app/hot-command-bridge';
 import { HttpSagObserver } from '../../app/http-observer';
 import { MemorySagJournal } from '../../core/sag/events';
 import { DEFAULT_PRESET_ID } from '../../core/state';
@@ -120,6 +121,10 @@ function getEngine(): EngineHandle {
  */
 if (import.meta.hot) {
   import.meta.hot.dispose(disposeEngine);
+
+  // Let the dev server play this engine. `'agent'` rather than `'ui'` so the journal
+  // records who moved the knob, which is the distinction CommandSource exists for.
+  connectHotCommandBridge(import.meta.hot, (command) => getEngine().dispatcher.dispatch(command, 'agent'));
 }
 
 /**

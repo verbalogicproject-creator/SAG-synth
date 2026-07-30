@@ -3,12 +3,15 @@ import react from '@vitejs/plugin-react';
 // @ts-expect-error — plain .mjs, deliberately outside tsconfig's include. Typing it would
 // mean adding @types/node, which the contract refuses so that core stays environment-free.
 import { sagObserveReceiver } from './scripts/sag-observe-plugin.mjs';
+// @ts-expect-error — see above; the same reason applies to this one.
+import { sagCommandBridge } from './scripts/sag-command-plugin.mjs';
 
 // App build config only. Test configuration lives in vitest.config.ts.
 export default defineConfig({
-  // sagObserveReceiver applies only on `serve`, so the observation endpoint exists in the
-  // dev server and in no built artifact.
-  plugins: [react(), sagObserveReceiver()],
+  // Both SAG plugins apply only on `serve`, so neither endpoint exists in a built
+  // artifact. That matters more for the command bridge than for the observer: one
+  // reports, the other plays the instrument.
+  plugins: [react(), sagObserveReceiver(), sagCommandBridge()],
   server: {
     // Bound to all interfaces rather than loopback: the dev server is opened from a
     // browser outside this PRoot environment, where 127.0.0.1 is not the same host.
