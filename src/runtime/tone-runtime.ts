@@ -626,6 +626,7 @@ export class ToneRuntime implements Runtime {
    * would put audio-shaped data in a layer that has no business holding any.
    */
   observeAudio(): Omit<SynthAudioObservedEvent, 'instance_id' | 'observed_at'> {
+    const level = this.getLevel();
     const wave = this.getWaveform();
     let peak = 0;
     let sumSquares = 0;
@@ -638,9 +639,11 @@ export class ToneRuntime implements Runtime {
 
     return {
       context_state: this.getContextState(),
-      // Already floored at SILENCE_FLOOR_DB and collapsed to -Infinity — F76 is satisfied
-      // at the source rather than left to every consumer to defend against.
-      level_db: this.getLevel(),
+      // `getLevel()` floors denormals and returns -Infinity for silence, which is right
+      // in memory and unrepresentable in JSON — it serialises to null regardless. Mapping
+      // it here makes the null deliberate and typed rather than a serialisation accident
+      // that a consumer can coerce back to zero (F76).
+      level_db: Number.isFinite(level) ? level : null,
       peak,
       rms: wave.length === 0 ? 0 : Math.sqrt(sumSquares / wave.length),
       voices: this.voices.size,

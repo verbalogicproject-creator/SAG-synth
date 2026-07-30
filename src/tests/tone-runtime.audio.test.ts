@@ -402,17 +402,34 @@ describe('audio observation (Stage 2f) — KIND-synth_audio_observed', () => {
     expect(sounding.voices).toBe(2);
   });
 
-  it('F76 — level is -Infinity or above the floor, never a denormal', async () => {
+  it('F76 — level is null for silence or a real value, never a denormal and never zero', async () => {
     const observation = await observeDuring((runtime) => {
       runtime.applyPatch(defaultPreset());
     });
 
-    // Tone.Meter has been seen returning -2105.3 dBFS from a denormal, which
-    // Number.isFinite passes straight through. Every consumer would otherwise have to
-    // defend against it, so it is collapsed at the source.
-    expect(
-      observation.level_db === Number.NEGATIVE_INFINITY || observation.level_db > -100,
-    ).toBe(true);
+    // Two failure modes. Tone.Meter has been seen returning -2105.3 dBFS from a denormal,
+    // which Number.isFinite passes straight through — floored at the source. And the
+    // natural floored value, -Infinity, is unrepresentable in JSON: it serialises to null,
+    // which a consumer reducing with Math.max reads as ZERO and reports as full scale for
+    // a silent synth. That happened on this channel's first live run.
+    expect(observation.level_db === null || observation.level_db > -100).toBe(true);
+  });
+
+  it('F76 — silence survives a JSON round trip as null, not as zero', async () => {
+    // The gate the first live run needed and did not have. Asserting on the in-memory
+    // value proves nothing about the wire, and the wire is the whole point of this KIND.
+    const observation = await observeDuring((runtime) => {
+      runtime.applyPatch(defaultPreset());
+    });
+
+    const roundTripped = JSON.parse(
+      JSON.stringify({ ...observation, instance_id: 'x', observed_at: 1 }),
+    ) as { level_db: number | null };
+
+    expect(roundTripped.level_db === null || roundTripped.level_db > -100).toBe(true);
+    // The specific fabrication to rule out: a reader must never see 0 dBFS — full scale —
+    // where the engine reported silence.
+    expect(roundTripped.level_db).not.toBe(0);
   });
 
   it('carries every required slot the KIND declares', async () => {

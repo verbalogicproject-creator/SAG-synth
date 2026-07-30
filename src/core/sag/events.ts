@@ -189,8 +189,15 @@ export interface SynthAudioObservedEvent {
   observed_at: number;
   /** 'running' | 'suspended' | 'closed'. The only truth about whether audio CAN sound. */
   context_state: string;
-  /** Master bus dBFS. `-Infinity` when silent, never a denormal-derived huge negative. */
-  level_db: number;
+  /**
+   * Master bus dBFS, or `null` when silent (F76).
+   *
+   * `null` rather than `-Infinity`, and the difference is not pedantic: JSON cannot carry
+   * `-Infinity`, so it serialises to `null` anyway — and a consumer that reduced those
+   * with `Math.max` read them as **zero** and reported full scale for a silent synth.
+   * Declaring the null makes every consumer handle it instead of coercing it by accident.
+   */
+  level_db: number | null;
   peak: number;
   rms: number;
   /** Tone voices currently built in the pool. */
