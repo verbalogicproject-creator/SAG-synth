@@ -206,12 +206,22 @@ Measured on the actual target (Android / Termux / PRoot, headless chromium, Tone
    staging.
 
 4. **`Tone.Limiter(-1)` measured a *higher* peak than no limiter at all** — 3.3448 vs
-   3.0972 on the same source material. This is unresolved and may be a measurement
-   artifact rather than a Tone bug; it is tracked as open question Q1 and currently
-   blocks committing to a master-limiter design. **A follow-up research question worth
-   asking:** what is the correct way to verify `Tone.Limiter` behaviour in an offline
-   render, and does its look-ahead shift the signal in a way that breaks naive
-   peak comparison between two separately-rendered buffers?
+   3.0972 on the same source material.
+
+   **RESOLVED 2026-07-30 — it was never an anomaly.** This is the textbook behaviour of a
+   feedforward compressor used as a peak-safety device: `DynamicsCompressorNode` has knee,
+   attack and release and no contractual ceiling, so a transient arriving faster than the
+   attack passes through before gain reduction engages. Our test was the problem, in two
+   ways. It compared two separately-rendered buffers, which are not guaranteed
+   sample-aligned when a node carries internal latency; and it asserted the wrong
+   invariant. "Did the limiter reduce the peak" is not something a compressor promises —
+   it converges toward its threshold over its release time. The assertion belongs against
+   the **ceiling**, on a true-peak (upsampled) measurement, tapped at two points of ONE
+   render.
+
+   The design consequence is larger than the fix: no Web Audio node gives `|x| <= 1` by
+   contract, so a guaranteed ceiling needs a `WaveShaper` hard-clip stage after the
+   musical limiter. See `research-adoption-2026-07-30.md` §1.
 
 5. **`Tone.MonoSynth`'s option shape is very close to a 1:1 fit** for a
    voice model of oscillator + amp envelope + filter + filter envelope. This made the
@@ -271,15 +281,36 @@ Worth stating, so the delta above isn't read as a verdict on the whole pack:
 
 ## If you are writing follow-up research for v0.2.0
 
-Useful, in rough priority order:
+**Status 2026-07-30: this list has been answered.** Two research passes ran — an aligned
+re-read in `synth-research/updated/65157ca9/`, then a targeted one in
+`synth-research/final/4c9cb5bb/` written to force disagreement rather than confirmation.
+What survives is recorded in `research-adoption-2026-07-30.md`. Kept below for the record,
+each with its outcome.
 
-1. **Q1 above** — the `Tone.Limiter` measurement question.
-2. **`Tone.Transport` + a manual voice pool.** Doc 05 assumes `Tone.Part` feeding a
-   PolySynth. How do `Part`/`Sequence` scheduling and lookahead interact with a pool
-   where an external pure function assigns the voice for each scheduled note?
-3. **Per-voice LFO phase.** Our patch spec says all voices share an LFO *configuration*
-   but own independent *phase* (that's what a `retrigger` flag means). Honouring that
-   literally implies up to 4 × 32 `Tone.LFO` instances. Is there a cheaper construction?
-4. **Deterministic offline rendering of effects.** Which Tone effects are
-   bit-reproducible across runs and which are not? We know `Tone.Reverb` is not. A
-   definitive list would let us gate far more of the chain.
+1. **Q1 — the `Tone.Limiter` measurement question.** *Closed.* Not an anomaly; the test
+   asserted the wrong invariant and no Web Audio node offers a contractual ceiling. See
+   finding 4 above.
+2. **`Tone.Transport` + a manual voice pool.** *Still open, and still the v0.2.0 blocker.*
+   The lookahead window is the crux: Tone schedules ahead of the audio clock while a pure
+   allocator expects to decide at dispatch time. Filed as LP1 in the final pack.
+3. **Per-voice LFO phase.** *Answered by construction, then declined.* One `Tone.LFO` can
+   feed an AudioParam on every voice, so generator count tracks slots rather than slots ×
+   polyphony — 1 for 8 voices, measured, against 128 at the declared maxima. The question
+   as posed asked for literal per-voice phase; we decided it is not worth 32×, which the
+   research supports. See finding 6.
+4. **Deterministic offline rendering of effects.** *Answered, unmeasured.* Only
+   `Tone.Reverb` is non-deterministic at construction. Chorus and FeedbackDelay are
+   deterministic but sensitive to phase and buffer-state alignment between renders — a
+   different and far more tractable problem, and conflating the two would mean seeding
+   effects that need no seed. The classification is inferred from construction, not
+   byte-diffed; worth measuring in Stage 3.
+
+### Open after both passes
+
+- **Transport lookahead versus an external allocator** (2 above) — unchanged, v0.2.0.
+- **Does `Tone.Chorus` / `FeedbackDelay` actually byte-diff clean** under a harness that
+  holds phase and pre-roll constant? Nobody has run it.
+- **Whether a normalised depth with a per-destination curve is the right model for an
+  agent-facing API**, as opposed to a human-facing one. The research answered it for
+  plugin UIs; an agent setting `depth: 0.5` over a wire has different needs from a player
+  turning a knob, and no surveyed system is agent-first.
