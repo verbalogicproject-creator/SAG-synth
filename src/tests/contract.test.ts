@@ -337,7 +337,13 @@ describe('layer rule D2', () => {
    * gate with a hole in it is worse than no gate, because it is believed.
    */
   const SPECIFIER_PATTERNS = [
-    /^[ \t]*(?:import|export)\b[\s\S]*?from\s*['"]([^'"]+)['"]/gm, // static import/re-export
+    // Static import / re-export. The span between the keyword and `from` excludes `;`
+    // and quotes deliberately: with a plain `[\s\S]*?` an `export class Foo {` would
+    // scan its entire body looking for the next `from "…"`, and find one inside a
+    // doc comment. That false positive was real — a comment reading `splits "…" from
+    // "our signal path is broken"` was reported as an illegal package import.
+    // Multi-line `import {\n a,\n} from '…'` still matches: braces contain neither.
+    /^[ \t]*(?:import|export)\b[^;'"]*?from\s*['"]([^'"]+)['"]/gm,
     /^[ \t]*import\s+['"]([^'"]+)['"]/gm, // side-effect import
     /\bimport\s*\(\s*['"]([^'"]+)['"]/g, // dynamic import
     /\brequire\s*\(\s*['"]([^'"]+)['"]/g, // cjs escape hatch
@@ -361,6 +367,21 @@ describe('layer rule D2', () => {
     expect(specifiersIn("const t = await import('tone');")).toContain('tone');
     expect(specifiersIn("const t = require('tone');")).toContain('tone');
     expect(specifiersIn("import {\n  a,\n} from './types';")).toContain('./types');
+  });
+
+  it('does not mistake prose for an import', () => {
+    // A gate that cries wolf gets disabled, which is the same as not having one. This
+    // exact source shape produced a false "imports package" report.
+    const prose = [
+      "import { z } from 'zod';",
+      '',
+      'export class Thing {',
+      '  /** Splits "cannot produce audio" from "our signal path is broken". */',
+      '  method(): void {}',
+      '}',
+    ].join('\n');
+
+    expect(specifiersIn(prose)).toEqual(['zod']);
   });
 
   it('core imports only zod and its own siblings', () => {
