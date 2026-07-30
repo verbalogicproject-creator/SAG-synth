@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SAG-SYNTH | MOD MATRIX</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .knob-track {
+            background: conic-gradient(from 180deg, var(--tw-primary-fixed-dim) 0%, transparent 0%);
+        }
+        .inset-well {
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.05);
+        }
+        .active-glow {
+            box-shadow: 0 0 15px rgba(0, 219, 233, 0.3);
+        }
+        /* Custom scrollbar for pro-audio look */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #131315; }
+        ::-webkit-scrollbar-thumb { background: #3b494b; border-radius: 2px; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#7df4ff",
+                        "error": "#ffb4ab",
+                        "secondary": "#ffb59a",
+                        "on-surface": "#e5e1e4",
+                        "on-error-container": "#ffdad6",
+                        "tertiary": "#e5ffbe",
+                        "surface-container": "#201f21",
+                        "on-secondary-fixed": "#370e00",
+                        "on-primary": "#00363a",
+                        "surface-container-low": "#1b1b1d",
+                        "surface-bright": "#39393b",
+                        "surface-container-high": "#2a2a2c",
+                        "surface-dim": "#131315",
+                        "surface-container-highest": "#353437",
+                        "on-secondary-fixed-variant": "#802a00",
+                        "surface-tint": "#00dbe9",
+                        "on-secondary-container": "#531900",
+                        "tertiary-container": "#9ef000",
+                        "on-primary-fixed-variant": "#004f54",
+                        "secondary-fixed-dim": "#ffb59a",
+                        "primary": "#dbfcff",
+                        "inverse-primary": "#006970",
+                        "inverse-on-surface": "#303032",
+                        "tertiary-fixed-dim": "#90db00",
+                        "primary-container": "#00f0ff",
+                        "on-primary-container": "#006970",
+                        "on-tertiary-fixed-variant": "#314f00",
+                        "outline": "#849495",
+                        "on-tertiary": "#203600",
+                        "on-primary-fixed": "#002022",
+                        "tertiary-fixed": "#a5fa00",
+                        "primary-fixed-dim": "#00dbe9",
+                        "on-surface-variant": "#b9cacb",
+                        "on-background": "#e5e1e4",
+                        "surface-variant": "#353437",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "outline-variant": "#3b494b",
+                        "on-secondary": "#5a1b00",
+                        "surface-container-lowest": "#0e0e10",
+                        "background": "#131315",
+                        "surface": "#131315",
+                        "on-tertiary-fixed": "#112000",
+                        "secondary-container": "#ff5e07",
+                        "inverse-surface": "#e5e1e4",
+                        "secondary-fixed": "#ffdbce",
+                        "on-tertiary-container": "#436900"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "module-padding": "12px",
+                        "gutter": "4px",
+                        "touch-target-min": "44px",
+                        "control-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "readout-lg": ["JetBrains Mono"],
+                        "module-header": ["Space Grotesk"],
+                        "label-caps": ["JetBrains Mono"],
+                        "body-sm": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "readout-lg": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+                        "module-header": ["14px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "label-caps": ["10px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}],
+                        "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-sm selection:bg-primary-container selection:text-on-primary-container min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface text-primary-fixed-dim dark:text-primary-fixed-dim font-module-header text-module-header docked full-width top-0 border-b border-outline-variant flat no shadows transition-colors duration-200 flex justify-between items-center px-module-padding h-12 w-full z-50">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined">settings_input_component</span>
+<h1 class="font-module-header text-module-header uppercase tracking-widest text-primary-fixed-dim">SAG-SYNTH</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 px-2 py-1 bg-surface-container-high rounded border border-outline-variant">
+<span class="text-label-caps font-label-caps text-outline">CPU</span>
+<div class="w-12 h-1.5 bg-surface-container-lowest rounded-full overflow-hidden">
+<div class="w-[24%] h-full bg-primary-fixed-dim shadow-[0_0_8px_rgba(0,219,233,0.5)]"></div>
+</div>
+</div>
+<span class="material-symbols-outlined hover:bg-surface-variant cursor-pointer p-1 rounded transition-colors">settings</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow p-module-padding mb-16 overflow-y-auto">
+<!-- Module Header & Visualization Area -->
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-gutter mb-gutter">
+<!-- Mod Visualizer (Oscilloscope style) -->
+<div class="lg:col-span-3 bg-surface-container rounded-lg p-module-padding relative overflow-hidden border-t border-white/5 h-48">
+<div class="flex justify-between items-start mb-4">
+<h2 class="font-module-header text-module-header text-primary-fixed-dim flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">waves</span>
+                        MODULATION ROUTING MATRIX
+                    </h2>
+<div class="flex gap-2">
+<button class="bg-surface-container-highest px-3 py-1 rounded-sm border border-outline-variant font-label-caps text-label-caps text-on-surface hover:bg-primary-fixed-dim hover:text-on-primary-fixed transition-colors">CLEAR ALL</button>
+<button class="bg-primary-fixed-dim px-3 py-1 rounded-sm border border-outline-variant font-label-caps text-label-caps text-on-primary-fixed">INIT MAP</button>
+</div>
+</div>
+<!-- SVG Visualization Background -->
+<div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: linear-gradient(#3b494b 1px, transparent 1px), linear-gradient(90deg, #3b494b 1px, transparent 1px); background-size: 20px 20px;"></div>
+<div class="relative h-24 flex items-center justify-center">
+<!-- Animated Vector placeholder for modulation movement -->
+
+</div>
+</div>
+<!-- Global Mod Info -->
+<div class="bg-surface-container rounded-lg p-module-padding border-t border-white/5 flex flex-col justify-between">
+<div>
+<h3 class="font-label-caps text-label-caps text-outline mb-2">MOD STATUS</h3>
+<div class="space-y-2">
+<div class="flex justify-between">
+<span class="text-label-caps font-label-caps text-on-surface-variant">ACTIVE SLOTS</span>
+<span class="text-readout-lg font-readout-lg text-primary-fixed-dim">08/16</span>
+</div>
+<div class="flex justify-between">
+<span class="text-label-caps font-label-caps text-on-surface-variant">MOD DENSITY</span>
+<span class="text-readout-lg font-readout-lg text-secondary">42%</span>
+</div>
+</div>
+</div>
+<div class="pt-4 border-t border-outline-variant">
+<span class="text-label-caps font-label-caps text-outline block mb-1">PATCH NAME</span>
+<span class="font-readout-lg text-readout-lg text-on-surface">OBSIDIAN_DRONE_01</span>
+</div>
+</div>
+</div>
+<!-- The Matrix Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-gutter">
+<!-- Matrix Slot Generator (8 slots) -->
+<script>
+                const sources = ["LFO 1", "LFO 2", "ENV 1", "ENV 2", "VELO", "AFTCH", "MOD W", "RAND"];
+                const destinations = ["OSC PITCH", "FILTER CUT", "RESONANCE", "AMP LVL", "PAN", "LFO RATE", "FX DRY", "WAVE"];
+                const values = [75, -20, 100, 45, -60, 30, 15, 0];
+
+                for (let i = 0; i < 8; i++) {
+                    document.write(`
+                        <div class="bg-surface-container rounded-lg p-module-padding border border-outline-variant/30 hover:border-primary-fixed-dim/50 transition-all duration-300 group">
+                            <div class="flex justify-between items-center mb-3">
+                                <span class="font-label-caps text-label-caps text-outline">SLOT ${String(i+1).padStart(2, '0')}</span>
+                                <div class="w-2 h-2 rounded-full ${values[i] !== 0 ? 'bg-primary-fixed-dim active-glow' : 'bg-outline-variant'}"></div>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                <!-- Source Selection -->
+                                <div class="relative">
+                                    <label class="font-label-caps text-[8px] text-outline absolute -top-2 left-2 bg-surface-container px-1">SOURCE</label>
+                                    <div class="inset-well bg-surface-container-lowest h-10 flex items-center justify-between px-3 rounded border border-outline-variant">
+                                        <span class="font-readout-lg text-[14px] text-on-surface">${sources[i]}</span>
+                                        <span class="material-symbols-outlined text-[16px] text-outline">unfold_more</span>
+                                    </div>
+                                </div>
+
+                                <!-- Destination Selection -->
+                                <div class="relative">
+                                    <label class="font-label-caps text-[8px] text-outline absolute -top-2 left-2 bg-surface-container px-1">DESTINATION</label>
+                                    <div class="inset-well bg-surface-container-lowest h-10 flex items-center justify-between px-3 rounded border border-outline-variant">
+                                        <span class="font-readout-lg text-[14px] text-primary-fixed-dim">${destinations[i]}</span>
+                                        <span class="material-symbols-outlined text-[16px] text-outline">unfold_more</span>
+                                    </div>
+                                </div>
+
+                                <!-- Amount Control -->
+                                <div class="flex flex-col items-center pt-2">
+                                    <div class="relative w-16 h-16 flex items-center justify-center">
+                                        <!-- Knob SVG Visualization -->
+                                        <svg class="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 40 40">
+                                            <circle cx="20" cy="20" r="16" fill="none" stroke="currentColor" class="text-surface-container-highest" stroke-width="3" />
+                                            <circle cx="20" cy="20" r="16" fill="none" stroke="currentColor" class="text-primary-fixed-dim" stroke-width="3" stroke-dasharray="100" stroke-dashoffset="${100 - Math.abs(values[i])}" />
+                                        </svg>
+                                        <div class="w-10 h-10 bg-surface-container-lowest rounded-full border border-outline-variant flex items-center justify-center z-10 shadow-inner">
+                                            <div class="w-0.5 h-3 bg-primary-fixed-dim absolute top-3 origin-bottom" style="transform: rotate(${(values[i] * 1.5)}deg)"></div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2 bg-surface-container-lowest px-2 py-0.5 rounded border border-outline-variant">
+                                        <span class="font-readout-lg text-[12px] text-on-surface">${values[i] > 0 ? '+' : ''}${values[i]}%</span>
+                                    </div>
+                                    <span class="font-label-caps text-label-caps text-outline mt-1">AMOUNT</span>
+                                </div>
+                            </div>
+                        </div>
+                    `);
+                }
+            </script>
+</div>
+<!-- Background Atmospheric Element -->
+<div class="fixed inset-0 -z-10 opacity-20 pointer-events-none">
+
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="bg-surface-container-lowest dark:bg-surface-container-lowest text-primary-fixed-dim dark:text-primary-fixed-dim fixed bottom-0 w-full z-50 border-t border-outline-variant flat no shadows flex justify-around items-center h-16 w-full">
+<!-- OSC -->
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">graphic_eq</span>
+<span class="font-label-caps text-label-caps">OSC</span>
+</a>
+<!-- ADSR -->
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-caps text-label-caps">ADSR</span>
+</a>
+<!-- FILTER -->
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">filter_list</span>
+<span class="font-label-caps text-label-caps">FILTER</span>
+</a>
+<!-- MOD (ACTIVE) -->
+<a class="flex flex-col items-center justify-center text-primary-fixed-dim bg-on-primary-fixed-variant rounded-full px-4 py-1 scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">reorder</span>
+<span class="font-label-caps text-label-caps">MOD</span>
+</a>
+<!-- FX -->
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">blur_on</span>
+<span class="font-label-caps text-label-caps">FX</span>
+</a>
+</nav>
+<script>
+        // Micro-interaction: Update CPU readout randomly to simulate activity
+        const cpuReadout = document.querySelector('.bg-primary-fixed-dim');
+        setInterval(() => {
+            const val = 20 + Math.random() * 15;
+            cpuReadout.style.width = val + '%';
+        }, 2000);
+
+        // Knob drag simulation (visual only)
+        document.querySelectorAll('.w-16.h-16').forEach(knob => {
+            knob.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                // This would normally update state and re-render
+                const direction = e.deltaY > 0 ? -5 : 5;
+                const readout = knob.parentNode.querySelector('.font-readout-lg');
+                let currentVal = parseInt(readout.innerText);
+                let newVal = Math.max(-100, Math.min(100, currentVal + direction));
+                readout.innerText = (newVal > 0 ? '+' : '') + newVal + '%';
+                
+                const indicator = knob.querySelector('.origin-bottom');
+                indicator.style.transform = `rotate(${newVal * 1.5}deg)`;
+                
+                const dashOffset = 100 - Math.abs(newVal);
+                knob.querySelector('.text-primary-fixed-dim').setAttribute('stroke-dashoffset', dashOffset);
+            });
+        });
+    </script>
+</body></html>

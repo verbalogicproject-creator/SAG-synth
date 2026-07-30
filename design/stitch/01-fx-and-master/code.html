@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EXAKT MOBILE - FX &amp; MASTER</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .knob-track {
+            background: conic-gradient(from 180deg, var(--tw-primary-fixed-dim) 0deg, var(--tw-outline-variant) 0deg);
+        }
+        .module-well {
+            background-color: #0e0e10;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .active-glow {
+            box-shadow: 0 0 8px var(--tw-primary-fixed-dim);
+        }
+        body {
+            background-color: #131315;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .canvas-area {
+            flex: 1;
+            overflow-y: auto;
+            padding-bottom: 80px; /* Spacer for bottom nav */
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #131315;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b494b;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-primary-container": "#006970",
+                        "tertiary-fixed-dim": "#90db00",
+                        "secondary-fixed": "#ffdbce",
+                        "surface-container-high": "#2a2a2c",
+                        "on-secondary-fixed-variant": "#802a00",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "primary-fixed": "#7df4ff",
+                        "surface": "#131315",
+                        "tertiary": "#e5ffbe",
+                        "on-primary-fixed-variant": "#004f54",
+                        "outline-variant": "#3b494b",
+                        "secondary-fixed-dim": "#ffb59a",
+                        "surface-container-lowest": "#0e0e10",
+                        "secondary-container": "#ff5e07",
+                        "on-secondary-fixed": "#370e00",
+                        "surface-variant": "#353437",
+                        "primary": "#dbfcff",
+                        "surface-container": "#201f21",
+                        "surface-dim": "#131315",
+                        "surface-container-low": "#1b1b1d",
+                        "on-surface": "#e5e1e4",
+                        "error": "#ffb4ab",
+                        "surface-tint": "#00dbe9",
+                        "on-surface-variant": "#b9cacb",
+                        "on-tertiary-fixed-variant": "#314f00",
+                        "tertiary-fixed": "#a5fa00",
+                        "on-tertiary-fixed": "#112000",
+                        "background": "#131315",
+                        "on-primary-fixed": "#002022",
+                        "on-tertiary-container": "#436900",
+                        "inverse-primary": "#006970",
+                        "surface-container-highest": "#353437",
+                        "on-background": "#e5e1e4",
+                        "on-tertiary": "#203600",
+                        "outline": "#849495",
+                        "inverse-surface": "#e5e1e4",
+                        "surface-bright": "#39393b",
+                        "primary-container": "#00f0ff",
+                        "on-secondary-container": "#531900",
+                        "tertiary-container": "#9ef000",
+                        "primary-fixed-dim": "#00dbe9",
+                        "inverse-on-surface": "#303032",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary": "#5a1b00",
+                        "secondary": "#ffb59a",
+                        "on-primary": "#00363a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    spacing: {
+                        "touch-target-min": "44px",
+                        "unit": "4px",
+                        "control-gap": "8px",
+                        "module-padding": "12px",
+                        "gutter": "4px"
+                    },
+                    fontFamily: {
+                        "body-sm": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"],
+                        "readout-lg": ["JetBrains Mono"],
+                        "module-header": ["Space Grotesk"]
+                    },
+                    fontSize: {
+                        "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                        "label-caps": ["10px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}],
+                        "readout-lg": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+                        "module-header": ["14px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="dark font-body-sm text-on-surface">
+<!-- TopAppBar from JSON -->
+<header class="flex justify-between items-center px-module-padding h-12 w-full bg-surface dark:bg-surface border-b border-outline-variant fixed top-0 z-50">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-fixed-dim" data-icon="settings_input_component">settings_input_component</span>
+<h1 class="font-module-header text-module-header uppercase tracking-widest text-primary-fixed-dim">EXAKT MOBILE</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-surface-container-low px-3 py-1 rounded border border-outline-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]" data-icon="arrow_left">arrow_left</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant">02: Late Bass</span>
+<span class="material-symbols-outlined text-[14px]" data-icon="arrow_right">arrow_right</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant transition-colors duration-200 p-1 cursor-pointer" data-icon="settings">settings</span>
+</div>
+</header>
+<main class="canvas-area pt-16 px-gutter">
+<div class="grid grid-cols-12 gap-gutter">
+<!-- DELAY MODULE -->
+<section class="col-span-12 md:col-span-6 bg-surface-container border border-outline-variant p-module-padding rounded-lg">
+<header class="flex justify-between items-center mb-4 border-b border-outline-variant pb-1">
+<h2 class="font-module-header text-module-header text-secondary">DELAY</h2>
+<div class="flex gap-2">
+<button class="bg-secondary-container text-on-secondary-container font-label-caps text-label-caps px-2 py-0.5 rounded active-glow">ACTIVE</button>
+</div>
+</header>
+<div class="grid grid-cols-3 gap-control-gap">
+<!-- Knob 1 -->
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-container-lowest">
+<div class="absolute inset-0 rounded-full border-t-2 border-secondary" style="transform: rotate(45deg);"></div>
+<div class="w-1 h-4 bg-secondary absolute top-1 rounded-full origin-bottom"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">TIME</span>
+<div class="bg-surface-container-lowest border border-outline-variant px-2 rounded font-readout-lg text-readout-lg text-secondary">1/8</div>
+</div>
+<!-- Knob 2 -->
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-container-lowest">
+<div class="absolute inset-0 rounded-full border-t-2 border-outline" style="transform: rotate(-30deg);"></div>
+<div class="w-1 h-4 bg-outline absolute top-1 rounded-full origin-bottom"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">FEEDBACK</span>
+<div class="bg-surface-container-lowest border border-outline-variant px-2 rounded font-readout-lg text-readout-lg text-secondary">42%</div>
+</div>
+<!-- Knob 3 -->
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-container-lowest">
+<div class="w-1 h-4 bg-outline absolute top-1 rounded-full origin-bottom"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">MIX</span>
+<div class="bg-surface-container-lowest border border-outline-variant px-2 rounded font-readout-lg text-readout-lg text-secondary">25%</div>
+</div>
+</div>
+</section>
+<!-- CHORUS MODULE -->
+<section class="col-span-12 md:col-span-6 bg-surface-container border border-outline-variant p-module-padding rounded-lg">
+<header class="flex justify-between items-center mb-4 border-b border-outline-variant pb-1">
+<h2 class="font-module-header text-module-header text-tertiary-fixed-dim">CHORUS</h2>
+<div class="flex gap-2">
+<button class="bg-surface-container-high text-outline font-label-caps text-label-caps px-2 py-0.5 rounded">BYPASS</button>
+</div>
+</header>
+<div class="grid grid-cols-3 gap-control-gap">
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-container-lowest">
+<div class="w-1 h-4 bg-outline absolute top-1 rounded-full origin-bottom" style="transform: rotate(-120deg);"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">RATE</span>
+<div class="bg-surface-container-lowest border border-outline-variant px-2 rounded font-readout-lg text-readout-lg text-tertiary-fixed-dim">0.5Hz</div>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-container-lowest">
+<div class="w-1 h-4 bg-outline absolute top-1 rounded-full origin-bottom" style="transform: rotate(60deg);"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">DEPTH</span>
+<div class="bg-surface-container-lowest border border-outline-variant px-2 rounded font-readout-lg text-readout-lg text-tertiary-fixed-dim">75</div>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-container-lowest">
+<div class="w-1 h-4 bg-outline absolute top-1 rounded-full origin-bottom" style="transform: rotate(-90deg);"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">WET</span>
+<div class="bg-surface-container-lowest border border-outline-variant px-2 rounded font-readout-lg text-readout-lg text-tertiary-fixed-dim">0%</div>
+</div>
+</div>
+</section>
+<!-- REVERB MODULE -->
+<section class="col-span-12 md:col-span-8 bg-surface-container border border-outline-variant p-module-padding rounded-lg">
+<header class="flex justify-between items-center mb-4 border-b border-outline-variant pb-1">
+<h2 class="font-module-header text-module-header text-primary-fixed-dim">REVERB</h2>
+<button class="bg-surface-container-highest border border-outline px-3 py-0.5 font-label-caps text-label-caps rounded">PLATE</button>
+</header>
+<div class="grid grid-cols-4 gap-control-gap">
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-10 h-10 rounded-full border-2 border-outline-variant bg-surface-container-lowest"></div>
+<span class="font-label-caps text-label-caps text-outline">DECAY</span>
+<div class="text-primary-fixed-dim font-readout-lg text-readout-lg">2.4s</div>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-10 h-10 rounded-full border-2 border-outline-variant bg-surface-container-lowest"></div>
+<span class="font-label-caps text-label-caps text-outline">SIZE</span>
+<div class="text-primary-fixed-dim font-readout-lg text-readout-lg">Large</div>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-10 h-10 rounded-full border-2 border-outline-variant bg-surface-container-lowest"></div>
+<span class="font-label-caps text-label-caps text-outline">DAMP</span>
+<div class="text-primary-fixed-dim font-readout-lg text-readout-lg">45</div>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="relative w-10 h-10 rounded-full border-2 border-outline-variant bg-surface-container-lowest active-glow"></div>
+<span class="font-label-caps text-label-caps text-outline">MIX</span>
+<div class="text-primary-fixed-dim font-readout-lg text-readout-lg">35%</div>
+</div>
+</div>
+</section>
+<!-- MASTER OUTPUT & ANALYZER -->
+<section class="col-span-12 md:col-span-4 bg-surface-container border border-outline-variant p-module-padding rounded-lg flex flex-col gap-4">
+<header class="border-b border-outline-variant pb-1">
+<h2 class="font-module-header text-module-header text-on-surface">MASTER</h2>
+</header>
+<div class="flex-1 module-well relative overflow-hidden h-24 rounded border border-outline-variant">
+
+<div class="absolute inset-0 pointer-events-none" style="background: repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(255,255,255,0.05) 20px), repeating-linear-gradient(0deg, transparent, transparent 19px, rgba(255,255,255,0.05) 20px);"></div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex-1 flex flex-col gap-1">
+<div class="h-2 bg-surface-container-lowest rounded-full relative overflow-hidden border border-outline-variant">
+<div class="absolute top-0 left-0 h-full bg-primary-fixed-dim w-4/5"></div>
+</div>
+<div class="flex justify-between font-label-caps text-label-caps text-outline">
+<span>L</span>
+<span>-6dB</span>
+</div>
+<div class="h-2 bg-surface-container-lowest rounded-full relative overflow-hidden border border-outline-variant">
+<div class="absolute top-0 left-0 h-full bg-primary-fixed-dim w-[78%]"></div>
+</div>
+<div class="flex justify-between font-label-caps text-label-caps text-outline">
+<span>R</span>
+<span>-7dB</span>
+</div>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="h-20 w-8 bg-surface-container-lowest border border-outline-variant rounded flex flex-col justify-end p-0.5">
+<div class="w-full bg-primary-fixed-dim h-12 rounded-sm shadow-[0_0_10px_rgba(0,219,233,0.3)]"></div>
+</div>
+<span class="font-label-caps text-label-caps text-outline">GAIN</span>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar from JSON -->
+<nav class="flex justify-around items-center h-16 w-full fixed bottom-0 z-50 bg-surface-container-lowest dark:bg-surface-container-lowest border-t border-outline-variant">
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="graphic_eq">graphic_eq</span>
+<span class="font-label-caps text-label-caps">OSC</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-label-caps text-label-caps">ADSR</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="filter_list">filter_list</span>
+<span class="font-label-caps text-label-caps">FILTER</span>
+</a>
+<a class="flex flex-col items-center justify-center text-primary-fixed-dim bg-on-primary-fixed-variant rounded-full px-4 py-1 transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="blur_on">blur_on</span>
+<span class="font-label-caps text-label-caps">FX</span>
+</a>
+</nav>
+<script>
+        // Simple interactive simulation for knobs
+        document.querySelectorAll('.rounded-full').forEach(knob => {
+            knob.addEventListener('touchstart', (e) => {
+                knob.classList.add('active-glow');
+            });
+            knob.addEventListener('touchend', (e) => {
+                knob.classList.remove('active-glow');
+            });
+        });
+    </script>
+</body></html>

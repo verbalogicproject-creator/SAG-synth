@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SAG-SYNTH - OSC Engine</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-surface": "#e5e1e4",
+                    "outline-variant": "#3b494b",
+                    "tertiary-fixed": "#a5fa00",
+                    "surface-bright": "#39393b",
+                    "on-secondary-fixed": "#370e00",
+                    "on-primary-fixed-variant": "#004f54",
+                    "surface-container-lowest": "#0e0e10",
+                    "on-tertiary-container": "#436900",
+                    "primary-fixed": "#7df4ff",
+                    "primary-fixed-dim": "#00dbe9",
+                    "surface-container-high": "#2a2a2c",
+                    "surface-container-highest": "#353437",
+                    "surface-container-low": "#1b1b1d",
+                    "on-surface-variant": "#b9cacb",
+                    "tertiary-fixed-dim": "#90db00",
+                    "surface": "#131315",
+                    "error-container": "#93000a",
+                    "on-error": "#690005",
+                    "primary": "#dbfcff",
+                    "secondary-fixed-dim": "#ffb59a",
+                    "on-secondary-container": "#531900",
+                    "tertiary": "#e5ffbe",
+                    "secondary-fixed": "#ffdbce",
+                    "on-tertiary-fixed": "#112000",
+                    "on-error-container": "#ffdad6",
+                    "on-surface": "#e5e1e4",
+                    "inverse-on-surface": "#303032",
+                    "on-background": "#e5e1e4",
+                    "on-primary": "#00363a",
+                    "inverse-primary": "#006970",
+                    "on-secondary": "#5a1b00",
+                    "on-primary-container": "#006970",
+                    "error": "#ffb4ab",
+                    "surface-variant": "#353437",
+                    "secondary": "#ffb59a",
+                    "secondary-container": "#ff5e07",
+                    "surface-tint": "#00dbe9",
+                    "outline": "#849495",
+                    "on-tertiary-fixed-variant": "#314f00",
+                    "on-primary-fixed": "#002022",
+                    "primary-container": "#00f0ff",
+                    "surface-container": "#201f21",
+                    "on-secondary-fixed-variant": "#802a00",
+                    "background": "#131315",
+                    "on-tertiary": "#203600",
+                    "tertiary-container": "#9ef000",
+                    "surface-dim": "#131315"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "1rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "module-padding": "20px",
+                    "touch-target-min": "44px",
+                    "gutter": "16px",
+                    "control-gap": "12px"
+            },
+            "fontFamily": {
+                    "module-header": ["Space Grotesk"],
+                    "readout-lg": ["JetBrains Mono"],
+                    "label-caps": ["JetBrains Mono"],
+                    "body-sm": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "module-header": ["13px", {"lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                    "readout-lg": ["20px", {"lineHeight": "24px", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+                    "label-caps": ["9px", {"lineHeight": "12px", "letterSpacing": "0.12em", "fontWeight": "700"}],
+                    "body-sm": ["11px", {"lineHeight": "16px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        .knob-container {
+            position: relative;
+            width: 48px;
+            height: 48px;
+            cursor: pointer;
+            background: radial-gradient(circle at 30% 30%, #2a2a2c, #0e0e10);
+            border-radius: 50%;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.05);
+        }
+        
+        .knob-track {
+            position: absolute;
+            inset: 4px;
+            border-radius: 9999px;
+            border: 1px solid #3b494b;
+            opacity: 0.5;
+        }
+
+        .knob-value {
+            position: absolute;
+            inset: 4px;
+            border-radius: 9999px;
+            border: 2px solid transparent;
+            border-top-color: #00dbe9;
+            transform: rotate(45deg);
+            filter: drop-shadow(0 0 6px rgba(0, 219, 233, 0.6));
+        }
+
+        .knob-indicator {
+            position: absolute;
+            top: 6px;
+            left: 50%;
+            width: 2px;
+            height: 8px;
+            background: #00dbe9;
+            border-radius: 1px;
+            transform: translateX(-50%);
+            box-shadow: 0 0 4px rgba(0, 219, 233, 0.8);
+        }
+
+        .inset-well {
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.05);
+            background: linear-gradient(180deg, #0e0e10 0%, #131315 100%);
+            border: 1px solid #2a2a2c;
+        }
+
+        .module-panel {
+            background: linear-gradient(145deg, #1e2024 0%, #131315 100%);
+            border: 1px solid #39393b;
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+        }
+
+        .active-led {
+            box-shadow: 0 0 12px rgba(0, 219, 233, 0.8);
+            background-color: #00dbe9 !important;
+        }
+
+        .piano-key-white {
+            background: linear-gradient(180deg, #f0f0f0 0%, #d1cfd2 100%);
+            box-shadow: 0 2px 0 #b0aeb1, inset 0 1px 0 #fff;
+            transition: all 0.1s;
+        }
+
+        .piano-key-white:active {
+            background: #00dbe9;
+            box-shadow: inset 0 4px 8px rgba(0,0,0,0.2);
+            transform: translateY(2px);
+        }
+
+        .piano-key-black {
+            background: linear-gradient(180deg, #2a2a2c 0%, #0e0e10 100%);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1);
+            transition: all 0.1s;
+        }
+
+        .piano-key-black:active {
+            background: #006970;
+            transform: translateY(1px);
+        }
+
+        .oscilloscope-grid {
+            background-image: linear-gradient(rgba(0, 219, 233, 0.05) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(0, 219, 233, 0.05) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        .glow-text {
+            text-shadow: 0 0 8px rgba(0, 219, 233, 0.4);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-sm selection:bg-primary-container selection:text-on-primary-container h-screen overflow-hidden flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-surface/80 backdrop-blur-md border-b border-surface-bright top-0 flex justify-between items-center px-6 h-14 w-full z-50">
+<div class="flex items-center gap-4">
+<div class="p-1.5 bg-on-primary-fixed-variant rounded-lg">
+<span class="material-symbols-outlined text-primary-fixed-dim text-xl block">settings_input_component</span>
+</div>
+<h1 class="font-module-header text-module-header uppercase text-primary-fixed-dim glow-text">SAG-SYNTH</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 bg-surface-container-high px-3 py-1.5 rounded-lg border border-surface-bright">
+<span class="font-label-caps text-label-caps text-outline">PATCH:</span>
+<span class="font-label-caps text-label-caps text-on-surface">02 LATE BASS</span>
+</div>
+<button class="font-label-caps text-label-caps text-on-primary bg-primary-fixed-dim px-4 py-1.5 rounded-lg hover:brightness-110 transition-all active:scale-95">PRESET</button>
+<span class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant cursor-pointer p-2 rounded-full transition-colors duration-200">settings</span>
+</div>
+</header>
+<!-- Main Content Grid -->
+<main class="flex-1 p-gutter grid grid-cols-12 grid-rows-6 gap-gutter overflow-hidden mb-20">
+<!-- OSCILLATOR MODULE -->
+<section class="col-span-8 row-span-4 module-panel rounded-xl p-module-padding flex flex-col">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-module-header text-module-header text-primary-fixed-dim flex items-center gap-3">
+<span class="w-1.5 h-4 bg-primary-fixed-dim rounded-full shadow-[0_0_8px_#00dbe9]"></span>
+                OSCILLATOR ENGINE
+            </h2>
+<div class="flex gap-2 p-1 bg-surface-container-lowest rounded-lg border border-surface-bright">
+<button class="w-8 h-7 font-label-caps text-label-caps rounded bg-primary-fixed-dim text-on-primary active-led transition-all">A</button>
+<button class="w-8 h-7 font-label-caps text-label-caps rounded text-outline hover:text-on-surface transition-colors">B</button>
+<button class="w-8 h-7 font-label-caps text-label-caps rounded text-outline hover:text-on-surface transition-colors">C</button>
+<button class="w-8 h-7 font-label-caps text-label-caps rounded text-outline hover:text-on-surface transition-colors">D</button>
+</div>
+</div>
+<div class="flex-1 grid grid-cols-4 gap-6">
+<!-- Waveform Select -->
+<div class="col-span-1 flex flex-col gap-3">
+<label class="font-label-caps text-label-caps text-outline px-1">WAVEFORM</label>
+<div class="flex flex-col gap-1.5">
+<button class="flex items-center justify-between px-4 py-2.5 bg-on-primary-fixed-variant text-primary rounded-lg border border-primary/20 group">
+<span class="font-body-sm text-body-sm font-bold glow-text">SINE</span>
+<span class="material-symbols-outlined text-[16px]">check</span>
+</button>
+<button class="flex items-center justify-between px-4 py-2.5 bg-surface-container-low/50 text-outline rounded-lg border border-transparent hover:border-outline-variant hover:text-on-surface transition-all">
+<span class="font-body-sm text-body-sm">SAW</span>
+</button>
+<button class="flex items-center justify-between px-4 py-2.5 bg-surface-container-low/50 text-outline rounded-lg border border-transparent hover:border-outline-variant hover:text-on-surface transition-all">
+<span class="font-body-sm text-body-sm">SQUARE</span>
+</button>
+<button class="flex items-center justify-between px-4 py-2.5 bg-surface-container-low/50 text-outline rounded-lg border border-transparent hover:border-outline-variant hover:text-on-surface transition-all">
+<span class="font-body-sm text-body-sm">NOISE</span>
+</button>
+</div>
+</div>
+<!-- Controls -->
+<div class="col-span-3 grid grid-cols-3 gap-4">
+<div class="flex flex-col items-center justify-center gap-3 inset-well rounded-xl p-4">
+<label class="font-label-caps text-label-caps text-outline uppercase">OCTAVE</label>
+<div class="flex items-center gap-4">
+<button class="w-9 h-9 rounded-full bg-surface-container-high border border-surface-bright flex items-center justify-center hover:bg-surface-variant transition-colors active:scale-90">-</button>
+<span class="font-readout-lg text-readout-lg text-primary-fixed-dim bg-primary/5 px-4 py-1.5 rounded-lg border border-primary/10 glow-text">C3</span>
+<button class="w-9 h-9 rounded-full bg-surface-container-high border border-surface-bright flex items-center justify-center hover:bg-surface-variant transition-colors active:scale-90">+</button>
+</div>
+</div>
+<div class="flex flex-col items-center justify-center gap-3 inset-well rounded-xl p-4">
+<label class="font-label-caps text-label-caps text-outline uppercase">DETUNE</label>
+<div class="knob-container">
+<div class="knob-track"></div>
+<div class="knob-value" style="transform: rotate(120deg);"></div>
+<div class="knob-indicator" style="transform: rotate(120deg) translateX(-50%); transform-origin: bottom center;"></div>
+</div>
+<span class="font-label-caps text-label-caps text-primary-fixed-dim glow-text">12 CT</span>
+</div>
+<div class="flex flex-col items-center justify-center gap-3 inset-well rounded-xl p-4">
+<label class="font-label-caps text-label-caps text-outline uppercase">PHASE</label>
+<div class="knob-container">
+<div class="knob-track"></div>
+<div class="knob-value" style="transform: rotate(45deg);"></div>
+<div class="knob-indicator" style="transform: rotate(45deg) translateX(-50%); transform-origin: bottom center;"></div>
+</div>
+<span class="font-label-caps text-label-caps text-primary-fixed-dim glow-text">0 DEG</span>
+</div>
+<!-- Secondary Controls Row -->
+<div class="col-span-3 grid grid-cols-4 gap-4 mt-2">
+<div class="flex flex-col items-center">
+<label class="font-label-caps text-label-caps text-outline mb-2">LEVEL</label>
+<div class="h-24 w-10 bg-surface-container-lowest border border-surface-bright rounded-lg relative flex flex-col justify-end p-1 shadow-inner">
+<div class="w-full bg-primary-fixed-dim rounded-md shadow-[0_0_10px_rgba(0,219,233,0.5)]" style="height: 70%"></div>
+</div>
+<span class="font-label-caps text-label-caps mt-2 text-on-surface">100</span>
+</div>
+<div class="flex flex-col items-center">
+<label class="font-label-caps text-label-caps text-outline mb-2">PAN</label>
+<div class="knob-container scale-90">
+<div class="knob-track"></div>
+<div class="knob-value" style="transform: rotate(0deg);"></div>
+</div>
+<span class="font-label-caps text-label-caps mt-2 text-on-surface">CTR</span>
+</div>
+<div class="flex flex-col items-center">
+<label class="font-label-caps text-label-caps text-outline mb-2">VEL. SENS</label>
+<div class="knob-container scale-90">
+<div class="knob-track"></div>
+<div class="knob-value" style="transform: rotate(60deg);"></div>
+</div>
+<span class="font-label-caps text-label-caps mt-2 text-on-surface">51</span>
+</div>
+<div class="flex flex-col items-center justify-center">
+<label class="font-label-caps text-label-caps text-outline mb-2">SYNC</label>
+<button class="w-12 h-7 bg-surface-container-high rounded-full border border-surface-bright flex items-center px-1">
+<div class="w-5 h-5 bg-primary-fixed-dim rounded-full shadow-[0_0_8px_#00dbe9] translate-x-5 transition-transform"></div>
+</button>
+<span class="font-label-caps text-label-caps mt-2 text-primary-fixed-dim">ON</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- VISUALIZER MODULE -->
+<section class="col-span-4 row-span-4 module-panel rounded-xl p-module-padding flex flex-col">
+<h2 class="font-module-header text-module-header text-primary-fixed-dim mb-6 flex items-center gap-3">
+<span class="w-1.5 h-4 bg-primary-fixed-dim rounded-full shadow-[0_0_8px_#00dbe9]"></span>
+            VISUALIZER
+        </h2>
+<div class="flex-1 inset-well rounded-lg oscilloscope-grid relative overflow-hidden flex items-center justify-center border border-surface-bright">
+<svg class="w-full h-full" viewbox="0 0 400 150">
+<defs>
+<filter id="glow">
+<fegaussianblur result="coloredBlur" stddeviation="2.5"></fegaussianblur>
+<femerge>
+<femergenode in="coloredBlur"></femergenode>
+<femergenode in="SourceGraphic"></femergenode>
+</femerge>
+</filter>
+</defs>
+<path d="M 0 75 Q 50 10, 100 75 T 200 75 T 300 75 T 400 75" fill="none" filter="url(#glow)" stroke="#00dbe9" stroke-width="2.5">
+<animate attributename="d" dur="3s" repeatcount="indefinite" values="M 0 75 Q 50 10, 100 75 T 200 75 T 300 75 T 400 75;
+                                         M 0 75 Q 50 140, 100 75 T 200 75 T 300 75 T 400 75;
+                                         M 0 75 Q 50 10, 100 75 T 200 75 T 300 75 T 400 75"></animate>
+</path>
+</svg>
+<div class="absolute bottom-3 right-3 flex gap-2">
+<span class="font-label-caps text-[8px] tracking-[0.2em] text-primary-fixed-dim/50 bg-black/40 px-2 py-0.5 rounded backdrop-blur-sm">44.1KHZ</span>
+</div>
+</div>
+</section>
+<!-- PLAYABLE KEYBOARD -->
+<section class="col-span-12 row-span-2 module-panel rounded-xl flex flex-col p-2 relative">
+<div class="flex flex-1 gap-px relative bg-surface-container-lowest rounded-lg overflow-hidden border border-surface-bright">
+<!-- White Keys -->
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">C3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">D3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">E3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">F3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">G3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">A3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">B3</span>
+</div>
+<div class="piano-key-white flex-1 flex flex-col justify-end items-center p-3">
+<span class="font-label-caps text-label-caps text-surface-dim/40">C4</span>
+</div>
+<!-- Black Keys -->
+<div class="piano-key-black absolute w-[8.5%] h-[65%] rounded-b-lg z-10 left-[10.125%] flex flex-col justify-end items-center p-2 border-x border-black">
+<span class="font-label-caps text-[8px] text-white/30">C#</span>
+</div>
+<div class="piano-key-black absolute w-[8.5%] h-[65%] rounded-b-lg z-10 left-[22.625%] flex flex-col justify-end items-center p-2 border-x border-black">
+<span class="font-label-caps text-[8px] text-white/30">D#</span>
+</div>
+<div class="piano-key-black absolute w-[8.5%] h-[65%] rounded-b-lg z-10 left-[47.625%] flex flex-col justify-end items-center p-2 border-x border-black">
+<span class="font-label-caps text-[8px] text-white/30">F#</span>
+</div>
+<div class="piano-key-black absolute w-[8.5%] h-[65%] rounded-b-lg z-10 left-[60.125%] flex flex-col justify-end items-center p-2 border-x border-black">
+<span class="font-label-caps text-[8px] text-white/30">G#</span>
+</div>
+<div class="piano-key-black absolute w-[8.5%] h-[65%] rounded-b-lg z-10 left-[72.625%] flex flex-col justify-end items-center p-2 border-x border-black">
+<span class="font-label-caps text-[8px] text-white/30">A#</span>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="bg-surface/90 backdrop-blur-xl fixed bottom-0 w-full z-50 border-t border-surface-bright flex justify-around items-stretch h-20 px-4">
+<a class="flex-1 flex flex-col items-center justify-center text-primary-fixed-dim bg-on-primary-fixed-variant/50 border-t-2 border-primary-fixed-dim transition-all" href="#">
+<span class="material-symbols-outlined mb-1">graphic_eq</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">OSC</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">analytics</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">ADSR</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">filter_list</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">FILTER</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">apps</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">DRUMS</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">reorder</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">SEQ</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">library_music</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">SONG</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">audio_file</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">SAMPLE</span>
+</a>
+<a class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary transition-all group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">blur_on</span>
+<span class="font-label-caps text-[8px] tracking-[0.2em]">FX</span>
+</a>
+</nav>
+<script>
+    // Knob Interaction
+    const knobs = document.querySelectorAll('.knob-container');
+    knobs.forEach(knob => {
+        knob.addEventListener('mousedown', (e) => {
+            const valElem = knob.querySelector('.knob-value');
+            const indicator = knob.querySelector('.knob-indicator');
+            let startY = e.clientY;
+            const currentRotStr = valElem.style.transform.match(/rotate\((.*)deg\)/);
+            let currentRot = currentRotStr ? parseInt(currentRotStr[1]) : 0;
+
+            const handleMove = (moveEvent) => {
+                const delta = startY - moveEvent.clientY;
+                const newRot = (currentRot + delta) % 360;
+                valElem.style.transform = `rotate(${newRot}deg)`;
+                if (indicator) {
+                    indicator.style.transform = `rotate(${newRot}deg) translateX(-50%)`;
+                }
+            };
+
+            const handleUp = () => {
+                document.removeEventListener('mousemove', handleMove);
+                document.removeEventListener('mouseup', handleUp);
+            };
+
+            document.addEventListener('mousemove', handleMove);
+            document.addEventListener('mouseup', handleUp);
+        });
+        
+        // Simple click to increment as fallback
+        knob.addEventListener('dblclick', () => {
+            const valElem = knob.querySelector('.knob-value');
+            const indicator = knob.querySelector('.knob-indicator');
+            const currentRot = parseInt(valElem.style.transform.replace('rotate(', '').replace('deg)', '')) || 0;
+            const nextRot = (currentRot + 30) % 360;
+            valElem.style.transition = 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+            valElem.style.transform = `rotate(${nextRot}deg)`;
+            if (indicator) {
+                indicator.style.transition = 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+                indicator.style.transform = `rotate(${nextRot}deg) translateX(-50%)`;
+            }
+            setTimeout(() => {
+                valElem.style.transition = 'none';
+                if(indicator) indicator.style.transition = 'none';
+            }, 200);
+        });
+    });
+
+    // Keyboard Feedback
+    const whiteKeys = document.querySelectorAll('.piano-key-white');
+    const blackKeys = document.querySelectorAll('.piano-key-black');
+    
+    whiteKeys.forEach(k => {
+        k.addEventListener('mousedown', () => {
+            k.style.background = '#00dbe9';
+            k.style.boxShadow = '0 0 20px rgba(0,219,233,0.6), inset 0 2px 8px rgba(0,0,0,0.2)';
+        });
+        k.addEventListener('mouseup', () => {
+            k.style.background = '';
+            k.style.boxShadow = '';
+        });
+        k.addEventListener('mouseleave', () => {
+            k.style.background = '';
+            k.style.boxShadow = '';
+        });
+    });
+
+    blackKeys.forEach(k => {
+        k.addEventListener('mousedown', () => {
+            k.style.background = '#006970';
+            k.style.boxShadow = '0 0 15px rgba(0,105,112,0.6)';
+        });
+        k.addEventListener('mouseup', () => {
+            k.style.background = '';
+            k.style.boxShadow = '';
+        });
+        k.addEventListener('mouseleave', () => {
+            k.style.background = '';
+            k.style.boxShadow = '';
+        });
+    });
+</script>
+</body></html>

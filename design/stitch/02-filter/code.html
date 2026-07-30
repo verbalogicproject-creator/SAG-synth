@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EXAKT MOBILE - Filter Controls Professional</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-container": "#006970",
+                        "tertiary-fixed-dim": "#90db00",
+                        "secondary-fixed": "#ffdbce",
+                        "surface-container-high": "#2a2a2c",
+                        "on-secondary-fixed-variant": "#802a00",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "primary-fixed": "#7df4ff",
+                        "surface": "#131315",
+                        "tertiary": "#e5ffbe",
+                        "on-primary-fixed-variant": "#004f54",
+                        "outline-variant": "#3b494b",
+                        "secondary-fixed-dim": "#ffb59a",
+                        "surface-container-lowest": "#0e0e10",
+                        "secondary-container": "#ff5e07",
+                        "on-secondary-fixed": "#370e00",
+                        "surface-variant": "#353437",
+                        "primary": "#dbfcff",
+                        "surface-container": "#201f21",
+                        "surface-dim": "#131315",
+                        "surface-container-low": "#1b1b1d",
+                        "on-surface": "#e5e1e4",
+                        "error": "#ffb4ab",
+                        "surface-tint": "#00dbe9",
+                        "on-surface-variant": "#b9cacb",
+                        "on-tertiary-fixed-variant": "#314f00",
+                        "tertiary-fixed": "#a5fa00",
+                        "on-tertiary-fixed": "#112000",
+                        "background": "#131315",
+                        "on-primary-fixed": "#002022",
+                        "on-tertiary-container": "#436900",
+                        "inverse-primary": "#006970",
+                        "surface-container-highest": "#353437",
+                        "on-background": "#e5e1e4",
+                        "on-tertiary": "#203600",
+                        "outline": "#849495",
+                        "inverse-surface": "#e5e1e4",
+                        "surface-bright": "#39393b",
+                        "primary-container": "#00f0ff",
+                        "on-secondary-container": "#531900",
+                        "tertiary-container": "#9ef000",
+                        "primary-fixed-dim": "#00dbe9",
+                        "inverse-on-surface": "#303032",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary": "#5a1b00",
+                        "secondary": "#ffb59a",
+                        "on-primary": "#00363a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "touch-target-min": "44px",
+                        "unit": "4px",
+                        "control-gap": "8px",
+                        "module-padding": "16px",
+                        "gutter": "8px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"],
+                        "readout-lg": ["JetBrains Mono"],
+                        "module-header": ["Space Grotesk"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["11px", {"lineHeight": "14px", "fontWeight": "400"}],
+                        "label-caps": ["9px", {"lineHeight": "12px", "letterSpacing": "0.12em", "fontWeight": "700"}],
+                        "readout-lg": ["16px", {"lineHeight": "20px", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+                        "module-header": ["13px", {"lineHeight": "16px", "letterSpacing": "0.08em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        .knob-container {
+            position: relative;
+            cursor: ns-resize;
+        }
+        
+        .knob-ring {
+            transition: stroke-dashoffset 0.1s ease;
+        }
+
+        .well-inset {
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .active-glow-cyan {
+            box-shadow: 0 0 12px rgba(0, 219, 233, 0.35), inset 0 0 4px rgba(0, 219, 233, 0.2);
+            border: 1px solid rgba(0, 219, 233, 0.5);
+        }
+
+        .active-glow-orange {
+            box-shadow: 0 0 15px rgba(255, 94, 7, 0.3);
+        }
+
+        .xy-pad {
+            background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
+            background-size: 24px 24px;
+        }
+        
+        .nav-item-active {
+            box-shadow: 0 0 10px rgba(0, 219, 233, 0.15);
+        }
+    </style>
+<style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-sm overflow-hidden select-none">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center px-module-padding h-12 w-full bg-surface border-b border-surface-bright fixed top-0 z-50">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-fixed-dim text-lg">settings_input_component</span>
+<h1 class="font-module-header text-module-header uppercase text-primary-fixed-dim">SAG-SYNTH</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="well-inset bg-surface-container-low px-3 py-1 rounded flex gap-2 items-center">
+<span class="text-label-caps font-label-caps text-outline">PATCH:</span>
+<span class="text-readout-lg font-readout-lg text-primary-fixed-dim">02: LATE BASS</span>
+</div>
+<button class="hover:bg-surface-variant p-2 rounded transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">settings</span>
+</button>
+</div>
+</header>
+<main class="mt-12 mb-16 p-gutter h-[calc(100vh-112px)] overflow-hidden">
+<!-- Sub Tabs -->
+<div class="flex gap-1 mb-gutter px-1">
+<button class="flex-1 py-1.5 bg-on-primary-fixed-variant text-primary-fixed-dim font-label-caps text-label-caps rounded-t border-b border-primary-fixed-dim">FILTER</button>
+<button class="flex-1 py-1.5 bg-surface-container text-outline font-label-caps text-label-caps rounded-t hover:bg-surface-variant transition-colors">LFO/EQ</button>
+</div>
+<div class="grid grid-cols-12 grid-rows-6 gap-gutter h-[calc(100%-36px)]">
+<!-- Filter Main Canvas: Curve Visualizer -->
+<section class="col-span-12 row-span-3 bg-surface-container-low rounded-lg p-module-padding border border-surface-bright relative overflow-hidden group">
+<div class="absolute top-4 left-5 z-10 flex items-center gap-3">
+<h2 class="font-module-header text-module-header text-secondary uppercase">FILTER RESPONSE</h2>
+<span class="bg-secondary/10 px-2 py-0.5 rounded text-label-caps font-label-caps text-secondary/80">LP 24dB</span>
+</div>
+<!-- Visualization -->
+<div class="w-full h-full xy-pad rounded border border-outline-variant/20 relative flex items-end">
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 1000 400">
+<defs>
+<lineargradient id="fillGradient" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#ff5e07" stop-opacity="0.08"></stop>
+<stop offset="100%" stop-color="#ff5e07" stop-opacity="0"></stop>
+</lineargradient>
+</defs>
+<!-- Grid lines -->
+<line stroke="white" stroke-opacity="0.03" x1="250" x2="250" y1="0" y2="400"></line>
+<line stroke="white" stroke-opacity="0.03" x1="500" x2="500" y1="0" y2="400"></line>
+<line stroke="white" stroke-opacity="0.03" x1="750" x2="750" y1="0" y2="400"></line>
+<!-- Area Fill -->
+<path d="M 0 100 Q 550 100 750 200 T 900 400 L 1000 400 L 1000 400 L 0 400 Z" fill="url(#fillGradient)"></path>
+<!-- Filter Curve - Refined bezier for "smoothness" -->
+<path class="drop-shadow-[0_0_12px_rgba(255,94,7,0.4)]" d="M 0 100 Q 550 100 750 200 T 900 400" fill="none" stroke="#ff5e07" stroke-linecap="round" stroke-width="2.5"></path>
+<!-- X/Y Handle -->
+<circle class="active-glow-orange" cx="720" cy="180" fill="#ff5e07" r="5"></circle>
+<circle cx="720" cy="180" fill="none" r="14" stroke="#ff5e07" stroke-opacity="0.15" stroke-width="1"></circle>
+</svg>
+<div class="absolute bottom-4 right-5 flex gap-6">
+<div class="text-right">
+<span class="block text-label-caps font-label-caps text-outline mb-1">CUTOFF</span>
+<span class="text-readout-lg font-readout-lg text-secondary">2997 Hz</span>
+</div>
+<div class="text-right">
+<span class="block text-label-caps font-label-caps text-outline mb-1">RESONANCE</span>
+<span class="text-readout-lg font-readout-lg text-secondary">42 %</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Filter Type & Slope -->
+<section class="col-span-4 row-span-3 bg-surface-container-high rounded-lg p-module-padding border border-surface-bright flex flex-col gap-4">
+<h3 class="font-module-header text-module-header text-primary uppercase">TYPE &amp; SLOPE</h3>
+<div class="flex-1 flex flex-col gap-4">
+<div class="space-y-2">
+<span class="text-label-caps font-label-caps text-outline">MODE</span>
+<div class="grid gap-1.5">
+<button class="bg-primary-fixed-dim text-on-primary font-bold py-2.5 rounded-sm text-label-caps active-glow-cyan border border-primary-fixed-dim/50">LOW PASS</button>
+<button class="bg-surface-container text-on-surface-variant py-2.5 rounded-sm text-label-caps border border-outline-variant/10 hover:bg-surface-variant transition-colors">BAND PASS</button>
+<button class="bg-surface-container text-on-surface-variant py-2.5 rounded-sm text-label-caps border border-outline-variant/10 hover:bg-surface-variant transition-colors">HIGH PASS</button>
+</div>
+</div>
+<div class="space-y-2">
+<span class="text-label-caps font-label-caps text-outline">SLOPE</span>
+<div class="grid grid-cols-3 gap-1.5">
+<button class="bg-surface-container text-on-surface-variant py-2 rounded-sm text-label-caps border border-outline-variant/10 hover:bg-surface-variant transition-colors">12</button>
+<button class="bg-primary-fixed-dim text-on-primary font-bold py-2 rounded-sm text-label-caps active-glow-cyan border border-primary-fixed-dim/50">24</button>
+<button class="bg-surface-container text-on-surface-variant py-2 rounded-sm text-label-caps border border-outline-variant/10 hover:bg-surface-variant transition-colors">48</button>
+</div>
+</div>
+</div>
+</section>
+<!-- High Precision Controls -->
+<section class="col-span-8 row-span-3 bg-surface-container-high rounded-lg p-module-padding border border-surface-bright flex flex-col">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-module-header text-module-header text-primary uppercase">PRECISION ADJ</h3>
+<div class="flex gap-2">
+<span class="bg-on-primary-fixed-variant text-primary-fixed px-2 py-0.5 rounded text-label-caps font-bold">LINKED</span>
+<button class="bg-surface-container-highest text-outline px-2 py-0.5 rounded text-label-caps font-bold hover:bg-surface-variant">BYPASS</button>
+</div>
+</div>
+<div class="flex-1 flex justify-around items-center px-2">
+<!-- Cutoff -->
+<div class="flex flex-col items-center gap-3">
+<div class="knob-container group">
+<div class="w-16 h-16 rounded-full bg-surface-container well-inset flex items-center justify-center border border-outline-variant/20 relative">
+<svg class="w-14 h-14 -rotate-90">
+<circle class="text-surface-variant" cx="28" cy="28" fill="none" r="23" stroke="currentColor" stroke-width="3"></circle>
+<circle class="knob-ring drop-shadow-[0_0_6px_rgba(0,219,233,0.4)]" cx="28" cy="28" fill="none" r="23" stroke="#00dbe9" stroke-dasharray="144" stroke-dashoffset="40" stroke-linecap="round" stroke-width="3"></circle>
+</svg>
+<div class="absolute w-0.5 h-3.5 bg-primary-fixed-dim rounded-full origin-bottom -translate-y-3.5 rotate-45"></div>
+</div>
+</div>
+<span class="text-label-caps font-label-caps text-outline">CUTOFF</span>
+<div class="bg-surface-container-lowest px-3 py-1 rounded-sm text-primary-fixed-dim font-readout-lg text-readout-lg border border-outline-variant/10">2.9k</div>
+</div>
+<!-- Envelope -->
+<div class="flex flex-col items-center gap-3">
+<div class="knob-container group">
+<div class="w-16 h-16 rounded-full bg-surface-container well-inset flex items-center justify-center border border-outline-variant/20 relative">
+<svg class="w-14 h-14 -rotate-90">
+<circle class="text-surface-variant" cx="28" cy="28" fill="none" r="23" stroke="currentColor" stroke-width="3"></circle>
+<circle class="knob-ring" cx="28" cy="28" fill="none" r="23" stroke="#90db00" stroke-dasharray="144" stroke-dashoffset="100" stroke-linecap="round" stroke-width="3"></circle>
+</svg>
+<div class="absolute w-0.5 h-3.5 bg-tertiary-fixed-dim rounded-full origin-bottom -translate-y-3.5 -rotate-45"></div>
+</div>
+</div>
+<span class="text-label-caps font-label-caps text-outline">ENV AMT</span>
+<div class="bg-surface-container-lowest px-3 py-1 rounded-sm text-tertiary-fixed-dim font-readout-lg text-readout-lg border border-outline-variant/10">+42</div>
+</div>
+<!-- Drive -->
+<div class="flex flex-col items-center gap-3">
+<div class="knob-container group">
+<div class="w-16 h-16 rounded-full bg-surface-container well-inset flex items-center justify-center border border-outline-variant/20 relative">
+<svg class="w-14 h-14 -rotate-90">
+<circle class="text-surface-variant" cx="28" cy="28" fill="none" r="23" stroke="currentColor" stroke-width="3"></circle>
+<circle class="knob-ring" cx="28" cy="28" fill="none" r="23" stroke="#ffb59a" stroke-dasharray="144" stroke-dashoffset="140" stroke-linecap="round" stroke-width="3"></circle>
+</svg>
+<div class="absolute w-0.5 h-3.5 bg-secondary-fixed-dim rounded-full origin-bottom -translate-y-3.5 -rotate-120"></div>
+</div>
+</div>
+<span class="text-label-caps font-label-caps text-outline">DRIVE</span>
+<div class="bg-surface-container-lowest px-3 py-1 rounded-sm text-secondary-fixed-dim font-readout-lg text-readout-lg border border-outline-variant/10">6.5</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar - Standardized 8 Tabs -->
+<nav class="grid grid-cols-8 items-center h-16 w-full bg-surface-container-lowest border-t border-surface-bright fixed bottom-0 z-50 px-1">
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">graphic_eq</span>
+<span class="text-label-caps">OSC</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">analytics</span>
+<span class="text-label-caps">ENV</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">waves</span>
+<span class="text-label-caps">LFO</span>
+</a>
+<a class="flex flex-col items-center justify-center text-primary-fixed-dim bg-on-primary-fixed-variant nav-item-active rounded-lg py-1 transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">filter_list</span>
+<span class="text-label-caps">FILTER</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">grid_view</span>
+<span class="text-label-caps">DRUM</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">reorder</span>
+<span class="text-label-caps">SEQ</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">blur_on</span>
+<span class="text-label-caps">FX</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline hover:text-primary transition-all scale-95 active:scale-90 gap-0.5" href="#">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+<span class="text-label-caps">MIX</span>
+</a>
+</nav>
+<!-- Visual Polish: Subtle Atmospheric Effects -->
+<div class="fixed inset-0 pointer-events-none opacity-[0.02]" style="background-image: url('https://www.transparenttextures.com/patterns/carbon-fibre.png');"></div>
+<script>
+        // Simple Interaction Logic for Knobs
+        document.querySelectorAll('.knob-container').forEach(knob => {
+            let startY = 0;
+            const ring = knob.querySelector('.knob-ring');
+            let currentOffset = parseFloat(ring.style.strokeDashoffset) || 40;
+            
+            knob.addEventListener('mousedown', (e) => {
+                startY = e.clientY;
+                
+                const moveHandler = (moveEvent) => {
+                    const deltaY = moveEvent.clientY - startY;
+                    let newVal = currentOffset + (deltaY / 2);
+                    newVal = Math.max(0, Math.min(144, newVal));
+                    ring.style.strokeDashoffset = newVal;
+                };
+                
+                const upHandler = () => {
+                    currentOffset = parseFloat(ring.style.strokeDashoffset);
+                    document.removeEventListener('mousemove', moveHandler);
+                    document.removeEventListener('mouseup', upHandler);
+                };
+                
+                document.addEventListener('mousemove', moveHandler);
+                document.addEventListener('mouseup', upHandler);
+            });
+        });
+    </script>
+</body></html>
