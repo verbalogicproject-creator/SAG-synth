@@ -43,8 +43,17 @@ voice-stealing must produce the same verdict during live play and during journal
 years later, on a different machine. A library that decides internally — and hard-codes
 oldest-steal — cannot be replayed. So the decision moved out of the audio layer entirely:
 core decides which voice sounds and which dies, and `ToneRuntime` only executes the
-verdict. Ties are broken explicitly by `voiceId` because `Array.prototype.sort` is stable
-but not deterministic across equal keys on every engine.
+verdict. Ties are broken explicitly by `voiceId`.
+
+**Correction (2026-07-30):** an earlier version of this paragraph justified that tie-break
+by claiming `Array.prototype.sort` is "stable but not deterministic across equal keys on
+every engine". That is wrong — ES2019 mandates stability — and the aligned pack repeated
+it back to us, which is worth noting as a limit of that pack rather than a confirmation.
+The tie-break is still required, for a narrower reason: stable sorting and linear scanning
+both resolve a tie by **input order**, and input order reflects how the array was built
+rather than the state it represents. A live session and a replay can hold the same logical
+voices in a different arrangement. Comparing `voiceId` makes the verdict a function of the
+data alone, which is what F59 needs.
 
 **Credit where due:** doc 09 (line 130) already identified the escape hatch — *"manage a
 manual pool of `Tone.MonoSynth` instances yourself instead of `Tone.PolySynth`"* — but

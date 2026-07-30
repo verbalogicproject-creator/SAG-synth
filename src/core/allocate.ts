@@ -22,10 +22,19 @@ export interface AllocationRequest {
 }
 
 /**
- * Lowest `order` wins, ties broken by lowest `voiceId`. The tie-break is not
- * decorative: two voices can share an `order` after a replay seeds them in one batch,
- * and `Array.prototype.sort` is only stable, not deterministic across equal keys under
- * every engine.
+ * Lowest `order` wins, ties broken by lowest `voiceId`.
+ *
+ * The tie-break is not decorative — two voices can share an `order` after a replay seeds
+ * them in one batch — but the reason it is needed is narrower than it first looks, and
+ * the version of this comment that cited engine-dependent sorting was wrong. ES2019
+ * mandates that `Array.prototype.sort` is stable, and this function does not sort at all;
+ * it scans.
+ *
+ * The real hazard is that both scanning and stable sorting resolve a tie by **input
+ * order**, and input order is a property of how the array was built rather than of the
+ * state it represents. A live session and a replay can hold the same logical voices in a
+ * different arrangement and would then steal different ones. Comparing `voiceId` makes
+ * the verdict a function of the data alone, which is what F59 actually requires.
  */
 function oldest(voices: readonly VoiceSlot[]): VoiceSlot {
   let victim = voices[0]!;
