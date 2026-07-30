@@ -246,7 +246,33 @@ Measured on the actual target (Android / Termux / PRoot, headless chromium, Tone
    per-voice LFO phase matter musically enough to pay 32× for it". Analogue polysynths
    mostly ran free-shared LFOs, which suggests the answer is usually no.
 
-7. **A 20 ms RMS window cannot measure tremolo on a low note.** At C3 (7.6 ms period) a
+7. **`Tone.Distortion` is a gain knob with a saturation character attached**, and doc 04's
+   own fallback is the right answer. The pack recommends `new Tone.Distortion(0.4)` and
+   then, twenty lines later, documents `WaveShaperNode` with a custom curve "for bespoke
+   distortion curves". We now need the second thing, for a reason the pack does not raise.
+
+   Tone's curve is `(3+k)·x·20°/(π + k·|x|)` with `k = 100·amount`, whose slope through the
+   origin is `(3+k)/9`: **0.33 at amount 0, 2.6 at 0.2, 11.4 at 1.0**. The `amount`
+   parameter therefore moves the level far more than it moves the timbre — and a synth
+   voice arrives at the effects chain peaking near 0.2, deep in that linear region, where
+   the curve is a gain and nothing else. Measured on the shipped patch through the
+   dispatcher: enabling distortion raised the level **2.1 dB** and *lowered* the absolute
+   energy above 2 kHz by **22%**. Louder and duller. It was reported from the device as
+   "no distortion", which is a fair description.
+
+   Replaced with `tanh(d·x)/tanh(d)` on a `Tone.WaveShaper`, plus a makeup gain measured
+   by running a reference sine through the curve. `amount` now moves the level **0.1–0.4 dB**
+   across its whole travel while the crest factor runs 2.95 → 1.31 and energy above 9 kHz
+   rises ×120. The dry/wet mix is done with two gains rather than by `Tone.Distortion`,
+   because a makeup gain placed outside the effect would scale the dry path too and break
+   exact bypass.
+
+   **The general lesson, which is not about distortion.** A waveshaper's curve is drawn for
+   ±1 and a synth voice does not reach ±1, so *any* recommendation of the form "use node X
+   with parameter Y" carries an unstated assumption about signal level. The pack's effect
+   examples all do. Worth checking the operating point before trusting the parameter range.
+
+8. **A 20 ms RMS window cannot measure tremolo on a low note.** At C3 (7.6 ms period) a
    20 ms window holds two and a half cycles, so its RMS wobbles with where the window
    happens to land in the waveform. An *unmodulated* note measured 0.0124 of spread
    against 0.0177 for a real tremolo — a gate that nearly cannot tell them apart, and it

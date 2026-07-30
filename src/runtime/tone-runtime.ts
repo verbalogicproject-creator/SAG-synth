@@ -101,6 +101,87 @@ const EQ_BAND_Q = 1.3;
 const HARD_CLIP_CURVE = new Float32Array([-1, 0, 1]);
 
 /**
+ * Drive at `amount: 1.0` — how far into the saturating part of the curve the signal is
+ * pushed. The knee of `tanh(d·x)` sits at `|x| ≈ 1/d`, so this is really "the level above
+ * which everything clips", read backwards.
+ *
+ * 12 was measured, not chosen. On the factory patch through the dispatcher, the crest
+ * factor at the sustain runs 2.95 clean → 2.79 · 2.48 · 1.89 · 1.46 · 1.31 across
+ * amount 0.1 → 1.0: a smooth, monotonic march from untouched to nearly square, using the
+ * whole knob. At 50 the same sweep reached crest 1.37 by amount 0.2 and then had nowhere
+ * left to go — four fifths of the control doing nothing distinguishable.
+ *
+ * The knee of `tanh(d·x)` sits at `|x| ≈ 1/d`, so this is really "the level above which
+ * everything clips", read backwards. What makes 12 right rather than 50 is that the effect
+ * has to bite at the level the instrument actually plays — a voice sustains near 0.1 — and
+ * not at the ±1 full scale a curve is drawn for.
+ */
+const DISTORTION_MAX_DRIVE = 12;
+
+/**
+ * The level the makeup gain is measured against, as a peak amplitude.
+ *
+ * One MonoSynth voice through the factory patch arrives at the effects chain peaking near
+ * 0.2 at its sustain, which is nowhere near the ±1 a waveshaper curve is drawn for. That
+ * mismatch is the whole bug this replaced: at that level, Tone's own distortion curve is a
+ * 2.5x gain and almost nothing else. It measured as louder and slightly duller, which is
+ * exactly what it sounded like.
+ *
+ * Measured too. Taking the makeup reference at 0.3 left the level rising 0.4 → 3.9 dB
+ * across the knob, so "more distortion" still partly meant "louder". At 0.2 — the level
+ * the note actually holds — it runs 0.1 → 0.4 dB, which is flat enough that the knob
+ * changes nothing but character.
+ */
+const DISTORTION_REFERENCE_PEAK = 0.2;
+
+/** Curve resolution. WaveShaper interpolates linearly between entries. */
+const DISTORTION_CURVE_POINTS = 1024;
+
+/**
+ * The transfer curve for one `amount`, and the makeup gain that keeps it level.
+ *
+ * `tanh` rather than Tone's own curve, and the reason is not taste. `Tone.Distortion`
+ * builds `(3+k)·x·20°/(π + k·|x|)` with `k = 100·amount`, whose slope through the origin is
+ * `(3+k)/9` — 0.33 at amount 0, 2.6 at 0.2, 11.4 at 1.0. The knob is therefore a **volume
+ * control** with a saturation character attached, and on a signal peaking at 0.3 the
+ * saturation is the part you cannot hear. Measured through the dispatcher on the factory
+ * patch: enabling it raised the level 2.1 dB and *lowered* the absolute energy above 2 kHz
+ * by 22%. "No distortion" is the correct description of that.
+ *
+ * `tanh(d·x)/tanh(d)` has slope `d/tanh(d)` at the origin and saturates at ±1, so amount
+ * moves the KNEE and nothing else. The remaining level change is then removed outright by
+ * a makeup gain measured on the curve rather than reasoned about — see below.
+ */
+function distortionCurve(amount: Unit): { curve: Float32Array; makeup: number } {
+  const drive = amount * DISTORTION_MAX_DRIVE;
+  // Below this the curve is indistinguishable from identity and `tanh(d)` underflows.
+  const shape =
+    drive < 1e-6 ? (x: number): number => x : (x: number): number => Math.tanh(drive * x) / Math.tanh(drive);
+
+  const curve = new Float32Array(DISTORTION_CURVE_POINTS);
+  for (let i = 0; i < DISTORTION_CURVE_POINTS; i++) {
+    curve[i] = shape((i / (DISTORTION_CURVE_POINTS - 1)) * 2 - 1);
+  }
+
+  // Makeup, measured: run one cycle of a reference sine through the curve and compare RMS
+  // in against RMS out. Computing it from the curve's own slope would only hold for the
+  // linear region, which is precisely the region distortion is supposed to leave.
+  //
+  // The effect of this is that `amount` changes CHARACTER at constant loudness. Without it
+  // the knob is a volume control wearing a distortion label, which is what it was.
+  let inputEnergy = 0;
+  let outputEnergy = 0;
+  const cycle = 512;
+  for (let i = 0; i < cycle; i++) {
+    const x = DISTORTION_REFERENCE_PEAK * Math.sin((2 * Math.PI * i) / cycle);
+    const y = shape(x);
+    inputEnergy += x * x;
+    outputEnergy += y * y;
+  }
+  return { curve, makeup: outputEnergy > 0 ? Math.sqrt(inputEnergy / outputEnergy) : 1 };
+}
+
+/**
  * Minimum spacing between two scheduled events on the SAME voice, in seconds.
  *
  * Tone asserts that a source's start time is strictly greater than its previous one, so
@@ -277,7 +358,21 @@ export class ToneRuntime implements Runtime {
    * Order is `EFFECT_CHAIN_ORDER`, read from core rather than restated here.
    */
   private readonly fxInput: Tone.Gain;
-  private readonly distortion: Tone.Distortion;
+  /**
+   * Distortion is four nodes rather than `Tone.Distortion`, and the split is what makes
+   * the makeup gain possible at all.
+   *
+   * `Tone.Distortion` crossfades dry against wet INSIDE itself, so a compensating gain
+   * placed after it would scale the dry path too and "wet 0 is a true bypass" — the
+   * property the whole disabled-chain-is-transparent gate rests on — would stop holding.
+   * Doing the mix here keeps the makeup inside the wet branch where it belongs, and keeps
+   * bypass exact: at `wet: 0` the dry gain is 1, the wet gain is 0, and the signal is the
+   * input sample for sample.
+   */
+  private readonly distortionDry: Tone.Gain;
+  private readonly distortionShaper: Tone.WaveShaper;
+  private readonly distortionWet: Tone.Gain;
+  private readonly distortionOut: Tone.Gain;
   private readonly chorus: Tone.Chorus;
   private readonly delay: Tone.FeedbackDelay;
   private readonly reverb: Tone.Freeverb;
@@ -287,7 +382,15 @@ export class ToneRuntime implements Runtime {
 
   constructor() {
     this.fxInput = new Tone.Gain(1);
-    this.distortion = new Tone.Distortion({ distortion: 0.2, wet: 0 });
+    this.distortionDry = new Tone.Gain(1);
+    // 4x oversampling: `tanh` at drive 50 is close enough to a hard clip that the
+    // harmonics it generates run past Nyquist and fold back as inharmonic fizz. Aliasing
+    // is a different noise from distortion and reads as a broken effect rather than a
+    // driven one. One node on the shared chain, so the cost is paid once, not per voice.
+    this.distortionShaper = new Tone.WaveShaper(distortionCurve(0.2).curve);
+    this.distortionShaper.oversample = '4x';
+    this.distortionWet = new Tone.Gain(0);
+    this.distortionOut = new Tone.Gain(1);
     // Tone.Chorus is an LFO-modulated delay and does not run until started; an unstarted
     // one passes audio through unchanged, which reads as "chorus does nothing".
     this.chorus = new Tone.Chorus({ frequency: 4, delayTime: 2.5, depth: 0.5, wet: 0 }).start();
@@ -312,9 +415,16 @@ export class ToneRuntime implements Runtime {
     this.analyser = new Tone.Analyser('waveform', WAVEFORM_SIZE);
     this.meter = new Tone.Meter();
 
+    // The distortion stage is a parallel pair rather than a link, so it is wired by hand
+    // and `connectSeries` picks the chain up at its output.
+    this.fxInput.connect(this.distortionDry);
+    this.distortionDry.connect(this.distortionOut);
+    this.fxInput.connect(this.distortionShaper);
+    this.distortionShaper.connect(this.distortionWet);
+    this.distortionWet.connect(this.distortionOut);
+
     Tone.connectSeries(
-      this.fxInput,
-      this.distortion,
+      this.distortionOut,
       this.chorus,
       this.delay,
       this.reverb,
@@ -449,8 +559,14 @@ export class ToneRuntime implements Runtime {
   private applyEffects(effects: EffectsConfig): void {
     const wetOf = (enabled: boolean, value: number) => (enabled ? value : 0);
 
-    this.distortion.distortion = effects.distortion.amount;
-    this.distortion.wet.value = wetOf(effects.distortion.enabled, effects.distortion.wet);
+    const { curve, makeup } = distortionCurve(effects.distortion.amount);
+    this.distortionShaper.curve = curve;
+    const distortionWet = wetOf(effects.distortion.enabled, effects.distortion.wet);
+    // Linear crossfade, and the makeup rides on the wet leg only. Equal-power would keep
+    // the loudness steadier through the middle of the knob, and would also mean wet 0 is
+    // not quite unity dry — the wrong trade for a stage that has to disappear when off.
+    this.distortionDry.gain.value = 1 - distortionWet;
+    this.distortionWet.gain.value = distortionWet * makeup;
 
     this.chorus.frequency.value = effects.chorus.frequency;
     this.chorus.delayTime = effects.chorus.delayTime;

@@ -1,4 +1,4 @@
-# SAG-synth roadmap — 0.1.12 → 0.2.0
+# SAG-synth roadmap — 0.1.13 → 0.2.0
 
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
@@ -7,7 +7,7 @@ from the repo, not recalled; where something is unverified it says so.
 
 ## Where we actually are
 
-**Version 0.1.12 — the engine is complete.** 340 tests across three projects. Build clean.
+**Version 0.1.13 — the engine is complete.** 342 tests across three projects. Build clean.
 Preset schema version 2, framework KINDs at tag `v0.0.8`.
 
 **All 97 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
@@ -34,7 +34,7 @@ The original plan said "ship v0.1.0 after Stage 4", and increments got bumped al
 until the number and the plan disagreed. Settled as:
 
 - **0.1.x** — the throwaway debug surface over a growing engine.
-- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.12.**
+- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.13.**
 
   0.1.9 was labelled "the last 0.1" when it shipped. That was a prediction and it did not
   hold: three separate EQ reports followed, each a genuinely different cause — a command
@@ -57,6 +57,7 @@ reasoning at the end.
 | **2e** polyphony | stealing end to end, driven through the dispatcher | found two of my own gates weaker than their comments |
 | **2f** telemetry | live audio observation from the device | its first run found the synth working and itself broken three ways |
 | **3** effects | the chain, the EQ, the master stage, Q1 closed | found voices connected past the entire chain, and `'eq'` missing from the validator's enum |
+| **3.5** curves | per-destination modulation curves, the overflow indicator | found `Tone.Distortion`'s `amount` to be a volume knob — +2.1 dB and 22% *less* energy above 2 kHz on the shipped patch |
 
 Every one of those was found by a gate or by an ear check, not by reading the code.
 
