@@ -13,3 +13,18 @@ body {
 main {
   padding: 2rem;
 }
+
+/* Touch is the primary input on this project. Android's double-tap-to-zoom imposes a
+   ~300ms delay before a tap registers, which reads as latency on every single note;
+   `manipulation` disables that specific gesture while leaving normal panning alone. */
+button {
+  touch-action: manipulation;
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}

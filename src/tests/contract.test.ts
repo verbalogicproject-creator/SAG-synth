@@ -435,9 +435,25 @@ describe('layer rule D2', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('app never imports the concrete audio runtime', () => {
+    // The package allowlist above bans `tone` directly, but `../runtime/tone-runtime`
+    // is a relative specifier and would sail straight through it — pulling Tone into
+    // src/app/ transitively and breaking the headless path just as effectively.
+    // `createEngine` takes the runtime as a PARAMETER precisely so this stays true.
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(appSources)) {
+      for (const specifier of specifiersIn(source)) {
+        // `../core/runtime-contract` is the interface and is fine; only the directory
+        // is barred, which is why this matches a whole path segment.
+        if (/(^|\/)runtime(\/|$)/.test(specifier)) offenders.push(`${file} imports "${specifier}"`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('detects a UI import if one appeared', () => {
-    // Test-of-the-test: the two matchers above are the whole gate, so prove they fire
-    // on the exact specifiers they exist to catch rather than trusting them to.
+    // Test-of-the-test: the matchers above are the whole gate, so prove they fire on
+    // the exact specifiers they exist to catch rather than trusting them to.
     const uiLike = (s: string) => /(^|\/)clients(\/|$)/.test(s) || /^react(-dom)?(\/|$)/.test(s);
     expect(uiLike('../clients/ui/store')).toBe(true);
     expect(uiLike('react')).toBe(true);
@@ -445,5 +461,65 @@ describe('layer rule D2', () => {
     // ...and stay quiet on things that merely look similar.
     expect(uiLike('../core/ports')).toBe(false);
     expect(uiLike('react-is-not-a-real-dep')).toBe(false);
+
+    const runtimeLike = (s: string) => /(^|\/)runtime(\/|$)/.test(s);
+    expect(runtimeLike('../runtime/tone-runtime')).toBe(true);
+    expect(runtimeLike('../../runtime')).toBe(true);
+    // The interface lives in core and must NOT be caught by the directory ban.
+    expect(runtimeLike('../core/runtime-contract')).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // The audio runtime and the clients. Both are new; neither had a gate before.
+  // -------------------------------------------------------------------------
+
+  const runtimeSources = import.meta.glob('../runtime/**/*.ts', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>;
+
+  const clientSources = import.meta.glob('../clients/**/*.{ts,tsx}', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>;
+
+  it('finds the runtime and client files it is meant to be policing', () => {
+    expect(Object.keys(runtimeSources).length).toBeGreaterThanOrEqual(2);
+    expect(Object.keys(clientSources).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('runtime imports tone and core, and nothing else', () => {
+    // This subtree is the ONLY place `tone` is allowed. Equally important is the other
+    // direction: a runtime that reached up into src/app/ or src/clients/ would invert
+    // the dependency and make NullRuntime unswappable — and that swap IS the SDK seam.
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(runtimeSources)) {
+      for (const specifier of specifiersIn(source)) {
+        if (!specifier.startsWith('.') && specifier !== 'tone') {
+          offenders.push(`${file} imports package "${specifier}"`);
+        }
+        if (/(^|\/)(app|clients)(\/|$)/.test(specifier)) {
+          offenders.push(`${file} reaches upward into "${specifier}"`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('clients never touch the audio graph directly', () => {
+    // A client that called Tone.js itself could make a sound that no journal records,
+    // so the session would replay into a different performance than the one played.
+    // Every note must go through the dispatcher.
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(clientSources)) {
+      for (const specifier of specifiersIn(source)) {
+        if (specifier === 'tone' || specifier.startsWith('tone/')) {
+          offenders.push(`${file} imports "${specifier}"`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
