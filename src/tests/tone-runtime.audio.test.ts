@@ -181,6 +181,47 @@ describe('ToneRuntime — the pool stays lazy', () => {
   });
 });
 
+describe('ToneRuntime — readouts', () => {
+  it('reports silence as -Infinity, never as a huge negative number', async () => {
+    let levels: number[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(defaultPreset());
+        levels.push(runtime.getLevel());
+      },
+      0.05,
+      1,
+      SR,
+    );
+
+    // Tone.Meter smooths toward zero amplitude rather than snapping to it, and
+    // 20·log₁₀ of a denormal is a huge finite negative — -2105.3 dBFS was observed on
+    // device. A caller checking Number.isFinite passes that straight through and
+    // renders nonsense, so the floor is applied at the source.
+    for (const level of levels) {
+      expect(level === Number.NEGATIVE_INFINITY || level > -100).toBe(true);
+    }
+  });
+
+  it('exposes the audio context state as the truth about whether it can sound', async () => {
+    let state = '';
+    await Tone.Offline(
+      () => {
+        state = new ToneRuntime().getContextState();
+      },
+      0.05,
+      1,
+      SR,
+    );
+
+    // The value matters less than it being readable at all: an `unlocked` boolean set
+    // when unlock() resolved was wrong twice over — resume() resolves whether or not
+    // the browser honoured it, and Android re-suspends on backgrounding.
+    expect(['suspended', 'running', 'closed']).toContain(state);
+  });
+});
+
 describe('ToneRuntime — v0.1.0 honesty', () => {
   it('records the transport calls it cannot service instead of pretending', async () => {
     let reported: readonly string[] = [];

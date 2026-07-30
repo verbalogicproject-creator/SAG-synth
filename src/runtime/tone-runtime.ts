@@ -58,6 +58,16 @@ const MIN_EVENT_GAP_SECONDS = 1e-4;
 /** Analyser window; only used by the debug readout, never by a gate. */
 const WAVEFORM_SIZE = 1024;
 
+/**
+ * Below this, treat the meter as silent.
+ *
+ * `Tone.Meter` smooths toward zero amplitude rather than snapping to it, and
+ * `20·log₁₀` of a denormal float is a huge negative number, not `-Infinity` — a real
+ * reading of **-2105.3 dBFS** was observed on device. Any caller checking
+ * `Number.isFinite` therefore passes it straight through and prints nonsense.
+ */
+const SILENCE_FLOOR_DB = -100;
+
 export class ToneRuntime implements Runtime {
   private readonly master: Tone.Volume;
   private readonly analyser: Tone.Analyser;
@@ -89,11 +99,60 @@ export class ToneRuntime implements Runtime {
 
   /**
    * Browsers refuse to start an AudioContext outside a user gesture, so this must be
-   * awaited from inside a real click handler. Idempotent: `Tone.start()` on an already
-   * running context resolves immediately.
+   * called from inside a handler for an event the browser counts as a user activation.
+   * Idempotent: `Tone.start()` on an already running context resolves immediately.
+   *
+   * IMPORTANT: this resolving does NOT mean audio is running. `Tone.start()` calls
+   * `AudioContext.resume()`, which resolves whether or not the browser honoured it —
+   * so a caller that sets an `unlocked` flag on resolution will believe it succeeded
+   * when it did not. Read `getContextState()` instead; that is the only truth.
    */
   async unlock(): Promise<void> {
     await Tone.start();
+  }
+
+  /**
+   * The live AudioContext state: 'suspended' | 'running' | 'closed'.
+   *
+   * The single source of truth for "can this thing make a sound right now". Android
+   * suspends the context whenever the tab is backgrounded, so this flips back to
+   * 'suspended' long after a successful unlock, with no event a caller can rely on.
+   */
+  getContextState(): string {
+    return Tone.getContext().state;
+  }
+
+  /**
+   * The audio clock, in seconds.
+   *
+   * Diagnostic. A context reporting `running` whose clock is NOT advancing is a
+   * different fault from one that is suspended, and the two are indistinguishable from
+   * `state` alone — which is exactly the ambiguity that made a silent synth hard to
+   * explain.
+   */
+  getContextTime(): number {
+    return Tone.getContext().currentTime;
+  }
+
+  getSampleRate(): number {
+    return Tone.getContext().sampleRate;
+  }
+
+  /**
+   * Play a beep that bypasses everything this class does — no voice pool, no patch, no
+   * master chain, straight to the destination.
+   *
+   * The one measurement that splits "this page cannot produce audio at all" from "our
+   * signal path is broken". Without it, a silent synth has a dozen candidate causes and
+   * no way to eliminate any of them.
+   */
+  selfTest(): void {
+    const osc = new Tone.Oscillator(440, 'sine').toDestination();
+    osc.volume.value = -12;
+    const now = Tone.now();
+    osc.start(now).stop(now + 0.3);
+    // Free the node once it has finished sounding; disposing at stop time would cut it.
+    setTimeout(() => osc.dispose(), 1000);
   }
 
   dispose(): void {
@@ -224,7 +283,10 @@ export class ToneRuntime implements Runtime {
 
   getLevel(): number {
     const value = this.meter.getValue();
-    return typeof value === 'number' ? value : Number.NEGATIVE_INFINITY;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < SILENCE_FLOOR_DB) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    return value;
   }
 
   /** The playhead lives in Tone.Transport, which v0.1.0 does not drive. */

@@ -50,9 +50,20 @@ interface Snapshot {
 
 export function DebugApp() {
   const { runtime, dispatcher, journal } = getEngine();
-  const [unlocked, setUnlocked] = useState(false);
+  /**
+   * The AudioContext's own state, polled — never a boolean we set ourselves.
+   *
+   * An earlier version tracked `unlocked` as React state set after `unlock()` resolved.
+   * That is wrong twice over: `AudioContext.resume()` resolves whether or not the
+   * browser honoured it, and Android re-suspends the context whenever the tab is
+   * backgrounded. Both leave the flag saying "unlocked" while the context is suspended
+   * — and since the flag hid the unlock button, there was then no way back.
+   */
+  const [contextState, setContextState] = useState('suspended');
+  const [contextTime, setContextTime] = useState(0);
   const [octave, setOctave] = useState(3);
   const [level, setLevel] = useState(Number.NEGATIVE_INFINITY);
+  const [peak, setPeak] = useState(Number.NEGATIVE_INFINITY);
   const [snapshot, setSnapshot] = useState<Snapshot>({
     revision: 0,
     voices: 0,
@@ -60,8 +71,6 @@ export function DebugApp() {
     journalLength: 0,
     lastEvent: '—',
   });
-
-  const unlockedRef = useRef(false);
 
   const refresh = useCallback(() => {
     const transient = dispatcher.getTransient();
@@ -80,19 +89,14 @@ export function DebugApp() {
 
   const unlock = useCallback(async () => {
     await dispatcher.unlock();
-    unlockedRef.current = true;
-    setUnlocked(true);
-  }, [dispatcher]);
+    setContextState(runtime.getContextState());
+  }, [dispatcher, runtime]);
 
   const noteOn = useCallback(
     (note: string) => {
-      // First touch doubles as the gesture unlock. Not awaited: the AudioContext must
-      // resume from inside the gesture handler, and awaiting here would push the
-      // dispatch into a later task where the browser no longer counts it as one.
-      if (!unlockedRef.current) void unlock();
       dispatcher.dispatch({ type: 'noteOn', note, velocity: 0.8 });
     },
-    [dispatcher, unlock],
+    [dispatcher],
   );
 
   const noteOff = useCallback(
@@ -102,17 +106,49 @@ export function DebugApp() {
     [dispatcher],
   );
 
-  // Level meter. Polled rather than pushed — it reads the live audio graph, which is not
-  // state and must never become state.
+  // Level meter, peak hold, and context state. Polled rather than pushed — all read the
+  // live audio graph, which is not state and must never become state. There is also no
+  // event for the context being suspended out from under us.
   useEffect(() => {
     let frame = 0;
     const tick = () => {
-      setLevel(runtime.getLevel());
+      const current = runtime.getLevel();
+      setLevel(current);
+      // Peak hold. A note's transient can easily fall between two animation frames, so
+      // an instantaneous reading can show −∞ for audio that genuinely played — which
+      // would send a diagnosis in exactly the wrong direction.
+      setPeak((held) => (current > held ? current : held));
+      setContextState(runtime.getContextState());
+      setContextTime(runtime.getContextTime());
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [runtime]);
+
+  /**
+   * Resume the context on any qualifying gesture, for as long as it is not running.
+   *
+   * `pointerdown` is deliberately NOT used. Per the HTML activation spec a `pointerdown`
+   * only counts as a user activation when `pointerType` is "mouse" — on touch it is
+   * `pointerup` that qualifies. That is the entire bug this replaces: tapping a piano
+   * key called `Tone.start()` from `pointerdown`, the browser declined to resume, and
+   * `resume()` resolved anyway, so the app believed it was unlocked and hid the button.
+   */
+  useEffect(() => {
+    function resume(): void {
+      if (runtime.getContextState() === 'running') return;
+      void unlock();
+    }
+    window.addEventListener('pointerup', resume);
+    window.addEventListener('click', resume);
+    window.addEventListener('touchend', resume);
+    return () => {
+      window.removeEventListener('pointerup', resume);
+      window.removeEventListener('click', resume);
+      window.removeEventListener('touchend', resume);
+    };
+  }, [runtime, unlock]);
 
   // Secondary input: a physical keyboard, if one is ever attached.
   const heldKeys = useRef(new Map<string, string>());
@@ -177,9 +213,12 @@ export function DebugApp() {
         journal. Disposable by design.
       </p>
 
-      {!unlocked && (
+      {/* Driven by the context's own state, so it comes BACK if Android re-suspends
+          after backgrounding. Hiding this on a flag we set ourselves is what made the
+          synth unrecoverably silent. */}
+      {contextState !== 'running' && (
         <button type="button" onClick={() => void unlock()} style={styles.unlock}>
-          ▶ Tap to enable audio
+          ▶ Tap to enable audio — context is {contextState}
         </button>
       )}
 
@@ -216,6 +255,10 @@ export function DebugApp() {
       <section style={styles.panel}>
         <h2 style={styles.h2}>Engine</h2>
         <dl style={styles.grid}>
+          <dt style={styles.dt}>audio context</dt>
+          <dd style={{ ...styles.dd, color: contextState === 'running' ? '#6ad48a' : '#e0a030' }}>
+            {contextState}
+          </dd>
           <dt style={styles.dt}>revision</dt>
           <dd style={styles.dd}>{snapshot.revision}</dd>
           <dt style={styles.dt}>sounding voices</dt>
@@ -228,10 +271,47 @@ export function DebugApp() {
           <dd style={styles.dd}>
             {Number.isFinite(level) ? `${level.toFixed(1)} dBFS` : '−∞'}
           </dd>
+          <dt style={styles.dt}>peak held</dt>
+          <dd style={{ ...styles.dd, color: Number.isFinite(peak) ? '#6ad48a' : undefined }}>
+            {Number.isFinite(peak) ? `${peak.toFixed(1)} dBFS` : '−∞ (no signal yet)'}
+          </dd>
         </dl>
         <p style={styles.dim}>
           revision stays at 0 while playing: notes are performance gestures, not document
           edits.
+        </p>
+      </section>
+
+      {/* Diagnostics. Temporary — here to explain a silent synth, not to stay. */}
+      <section style={{ ...styles.panel, borderColor: '#5a7fbf' }}>
+        <h2 style={styles.h2}>Audio path diagnostics</h2>
+        <dl style={styles.grid}>
+          <dt style={styles.dt}>context clock</dt>
+          <dd style={styles.dd}>{contextTime.toFixed(2)}s</dd>
+          <dt style={styles.dt}>sample rate</dt>
+          <dd style={styles.dd}>{runtime.getSampleRate()} Hz</dd>
+        </dl>
+        <p style={styles.dim}>
+          The clock must be <strong>counting up</strong>. A context that says “running”
+          with a frozen clock is a different fault from a suspended one.
+        </p>
+        <div style={styles.diagRow}>
+          <button type="button" style={styles.diagButton} onClick={() => runtime.selfTest()}>
+            ♪ Test tone (bypasses engine)
+          </button>
+          <button
+            type="button"
+            style={styles.diagButton}
+            onClick={() => setPeak(Number.NEGATIVE_INFINITY)}
+          >
+            Reset peak
+          </button>
+        </div>
+        <p style={styles.dim}>
+          The test tone skips the voice pool, the patch and the master chain entirely — a
+          plain 440Hz oscillator straight to the output. If you hear it but not the keys,
+          the fault is in our signal path. If you hear neither, it is the page or the
+          device.
         </p>
       </section>
 
@@ -302,6 +382,15 @@ const styles = {
     fontFamily: 'inherit',
   },
   octaveLabel: { fontSize: '1rem', fontWeight: 700 },
+  diagRow: { display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' },
+  diagButton: {
+    fontSize: '0.9rem',
+    padding: '0.7rem 1rem',
+    cursor: 'pointer',
+    touchAction: 'manipulation',
+    fontFamily: 'inherit',
+    flex: '1 1 auto',
+  },
   grid: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 1rem', margin: 0 },
   dt: { opacity: 0.6, fontSize: '0.8rem' },
   dd: { margin: 0, fontSize: '0.8rem' },
