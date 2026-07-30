@@ -31,6 +31,22 @@ describe('every command has a schema', () => {
       savePreset: { type: 'savePreset', name: 'My Patch' },
       deletePreset: { type: 'deletePreset', presetId: 'p1' },
       setParam: setParam('voice.filterEnvelope.baseFrequency', 800),
+      addOscillator: {
+        type: 'addOscillator',
+        config: {
+          id: 'osc-1',
+          enabled: true,
+          type: 'square',
+          octave: -1,
+          detune: 7,
+          count: 1,
+          spread: 20,
+          width: 0,
+          level: 0.8,
+          pan: -0.3,
+        },
+      },
+      removeOscillator: { type: 'removeOscillator', oscillatorId: 'osc-1' },
       addLfo: {
         type: 'addLfo',
         config: {
@@ -186,7 +202,7 @@ describe('validateCommand rejects', () => {
 describe('decision D5 — custom wave shapes are refused with a reason', () => {
   it('names wavetable support rather than saying "invalid enum"', () => {
     const preset = defaultPreset();
-    preset.voice.oscillator.type = 'custom' as never;
+    preset.voice.oscillators[0]!.type = 'custom' as never;
     const result = PresetSchema.safeParse(preset);
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -197,7 +213,7 @@ describe('decision D5 — custom wave shapes are refused with a reason', () => {
   it('still accepts the seven shapes that do work', () => {
     for (const shape of ['sine', 'triangle', 'sawtooth', 'square', 'pulse', 'pwm', 'noise']) {
       const preset = defaultPreset();
-      preset.voice.oscillator.type = shape as never;
+      preset.voice.oscillators[0]!.type = shape as never;
       expect(PresetSchema.safeParse(preset).success, shape).toBe(true);
     }
   });

@@ -123,9 +123,28 @@ export const FACTORY_EPOCH_MS = 1767225600000;
 
 export function defaultVoiceConfig(): VoiceConfig {
   return {
+    // ONE slot, not three. The cap is what a patch may hold, not what it must: a
+    // single-oscillator factory patch costs exactly what it did before the bump, and a
+    // second slot is something a player adds when they want it.
+    //
     // width 0 is a square wave in Tone's convention — the neutral value. It was 0.5,
     // which reads neutral and is a 75% duty cycle.
-    oscillator: { type: 'sawtooth', detune: 0, count: 1, spread: 20, width: 0 },
+    oscillators: [
+      {
+        id: 'osc-0',
+        enabled: true,
+        type: 'sawtooth',
+        octave: 0,
+        detune: 0,
+        count: 1,
+        spread: 20,
+        width: 0,
+        // Unity and centred, for the same reason `amplitude` is: these are base values a
+        // route swings around, so a non-neutral default would quietly bias every patch.
+        level: 1,
+        pan: 0,
+      },
+    ],
     envelope: { attack: 0.01, decay: 0.2, sustain: 0.4, release: 0.8 },
     filter: { type: 'lowpass', Q: 1, rolloff: -24 },
     filterEnvelope: {

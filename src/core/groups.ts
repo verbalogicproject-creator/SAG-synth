@@ -29,7 +29,7 @@
  */
 
 import { PARAM_PATHS } from './schemas';
-import { MAX_LFOS, MAX_ROUTES, type ParamPath } from './types';
+import { MAX_LFOS, MAX_OSCILLATORS, MAX_ROUTES, type ParamPath } from './types';
 
 export type SectionId =
   | 'oscillator'
@@ -72,14 +72,13 @@ export const SIGNAL_CHAIN: readonly Section[] = [
   {
     id: 'oscillator',
     label: 'OSC',
-    summary: 'The raw waveform, before anything shapes it.',
-    paths: [
-      'voice.oscillator.type',
-      'voice.oscillator.detune',
-      'voice.oscillator.count',
-      'voice.oscillator.spread',
-      'voice.oscillator.width',
-    ],
+    summary: 'The raw waveforms, summed, before anything shapes them.',
+    // A slot family since schema_version 3, the same shape as LFO and ROUTING below.
+    // Before that it was five fixed paths, and the surface drew exactly one oscillator
+    // because that was all there was to draw.
+    paths: [],
+    slotPrefix: 'voice.oscillators',
+    slotCount: MAX_OSCILLATORS,
   },
   {
     id: 'filter',

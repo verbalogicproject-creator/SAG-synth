@@ -40,6 +40,7 @@ import {
 import {
   EFFECT_CHAIN_ORDER,
   MAX_LFOS,
+  MAX_OSCILLATORS,
   MAX_ROUTES,
   MODULATION_DESTINATIONS,
 } from '../core/types';
@@ -47,9 +48,10 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * The command surface, verbatim from the frozen contract. 36 verbs.
+ * The command surface, verbatim from the frozen contract. 38 verbs.
  *
- * Went 34 -> 36 at schema_version 2 with `addRoute` / `removeRoute`. There is
+ * Went 34 -> 36 at schema_version 2 with `addRoute` / `removeRoute`, and 36 -> 38 at 3
+ * with `addOscillator` / `removeOscillator`. There is
  * deliberately no `setRouteParam`: editing a live route goes through
  * `setParam('voice.modRoutes.<i>.<key>', ...)`, exactly as editing an LFO does. A third
  * verb would have been a second way to do one thing, and every verb here is also a wire
@@ -61,6 +63,8 @@ const FROZEN_COMMAND_TYPES = [
   'savePreset',
   'deletePreset',
   'setParam',
+  'addOscillator',
+  'removeOscillator',
   'addLfo',
   'removeLfo',
   'addRoute',
@@ -101,7 +105,7 @@ const FROZEN_COMMAND_TYPES = [
 ];
 
 describe('command surface is frozen', () => {
-  it('declares exactly the 36 verbs in the contract, in order', () => {
+  it('declares exactly the 38 verbs in the contract, in order', () => {
     expect([...SYNTH_COMMAND_TYPES]).toEqual(FROZEN_COMMAND_TYPES);
   });
 
@@ -175,11 +179,6 @@ describe('command surface is frozen', () => {
 
 /** Open question Q2: setParam.path is a finite union, never an arbitrary string. */
 const FROZEN_FIXED_PARAM_PATHS = [
-  'voice.oscillator.type',
-  'voice.oscillator.detune',
-  'voice.oscillator.count',
-  'voice.oscillator.spread',
-  'voice.oscillator.width',
   'voice.envelope.attack',
   'voice.envelope.decay',
   'voice.envelope.sustain',
@@ -226,13 +225,33 @@ const FROZEN_FIXED_PARAM_PATHS = [
   'master.limiterThreshold',
 ];
 
+/**
+ * The nine per-slot oscillator keys. They were five FIXED paths under `voice.oscillator.*`
+ * until schema_version 3 turned one oscillator into a list of up to three, which is the
+ * single largest movement this list has recorded: five addresses out, twenty-seven in.
+ */
+const FROZEN_OSC_PARAM_KEYS = [
+  'enabled',
+  'type',
+  'octave',
+  'detune',
+  'count',
+  'spread',
+  'width',
+  'level',
+  'pan',
+];
+
 /** Was eight. `target`, `min` and `max` were replaced by routes at schema_version 2. */
 const FROZEN_LFO_PARAM_KEYS = ['enabled', 'type', 'frequency', 'sync', 'retrigger'];
 
 const FROZEN_ROUTE_PARAM_KEYS = ['enabled', 'source', 'destination', 'depth'];
 
 describe('parameter surface is frozen (open question Q2)', () => {
-  it('declares exactly the fixed paths plus the LFO and route slot paths', () => {
+  it('declares exactly the fixed paths plus the oscillator, LFO and route slot paths', () => {
+    const expectedOscPaths = Array.from({ length: MAX_OSCILLATORS }, (_unused, i) => i).flatMap(
+      (i) => FROZEN_OSC_PARAM_KEYS.map((key) => `voice.oscillators.${i}.${key}`),
+    );
     const expectedLfoPaths = Array.from({ length: MAX_LFOS }, (_unused, i) => i).flatMap((i) =>
       FROZEN_LFO_PARAM_KEYS.map((key) => `voice.lfos.${i}.${key}`),
     );
@@ -240,15 +259,22 @@ describe('parameter surface is frozen (open question Q2)', () => {
       FROZEN_ROUTE_PARAM_KEYS.map((key) => `voice.modRoutes.${i}.${key}`),
     );
     expect([...PARAM_PATHS].sort()).toEqual(
-      [...FROZEN_FIXED_PARAM_PATHS, ...expectedLfoPaths, ...expectedRoutePaths].sort(),
+      [
+        ...FROZEN_FIXED_PARAM_PATHS,
+        ...expectedOscPaths,
+        ...expectedLfoPaths,
+        ...expectedRoutePaths,
+      ].sort(),
     );
   });
 
-  it('caps LFOs at 4 and routes at 8, which is what keeps the path union finite', () => {
+  it('caps oscillators at 3, LFOs at 4 and routes at 8 — what keeps the union finite', () => {
+    expect(MAX_OSCILLATORS).toBe(3);
     expect(MAX_LFOS).toBe(4);
     expect(MAX_ROUTES).toBe(8);
     expect(PARAM_PATHS).toHaveLength(
       FROZEN_FIXED_PARAM_PATHS.length +
+        MAX_OSCILLATORS * FROZEN_OSC_PARAM_KEYS.length +
         MAX_LFOS * FROZEN_LFO_PARAM_KEYS.length +
         MAX_ROUTES * FROZEN_ROUTE_PARAM_KEYS.length,
     );

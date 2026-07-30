@@ -13,6 +13,7 @@
  */
 
 import type {
+  OscillatorConfig,
   Beats,
   Decibels,
   EffectId,
@@ -63,6 +64,21 @@ export interface SetParamCommand {
   type: 'setParam';
   path: ParamPath;
   value: ParamValue;
+}
+
+/**
+ * Slot management mirrors `addLfo` / `removeLfo` exactly, down to the id-carrying config.
+ * The caller supplies the id rather than the reducer generating one, because core must
+ * stay deterministic: a reducer that called `crypto.randomUUID()` could not replay.
+ */
+export interface AddOscillatorCommand {
+  type: 'addOscillator';
+  config: OscillatorConfig;
+}
+
+export interface RemoveOscillatorCommand {
+  type: 'removeOscillator';
+  oscillatorId: string;
 }
 
 export interface AddLfoCommand {
@@ -303,6 +319,8 @@ export type SynthCommand =
   | SavePresetCommand
   | DeletePresetCommand
   | SetParamCommand
+  | AddOscillatorCommand
+  | RemoveOscillatorCommand
   | AddLfoCommand
   | RemoveLfoCommand
   | AddRouteCommand
@@ -356,6 +374,8 @@ export const SYNTH_COMMAND_TYPES = [
   'savePreset',
   'deletePreset',
   'setParam',
+  'addOscillator',
+  'removeOscillator',
   'addLfo',
   'removeLfo',
   'addRoute',

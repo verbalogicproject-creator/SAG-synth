@@ -16,7 +16,7 @@ import {
   type SectionId,
 } from '../core/groups';
 import { PARAM_PATHS, PARAM_SPECS } from '../core/schemas';
-import { MAX_LFOS, MAX_ROUTES } from '../core/types';
+import { MAX_LFOS, MAX_OSCILLATORS, MAX_ROUTES } from '../core/types';
 
 describe('the signal chain covers the parameter surface', () => {
   it('places every declared address exactly once', () => {
@@ -40,9 +40,11 @@ describe('the signal chain covers the parameter surface', () => {
   });
 
   it('accounts for the slot families by prefix rather than by listing them', () => {
-    // 4 LFOs x 5 keys + 8 routes x 4 keys. Listing 52 slot addresses longhand would rot
-    // the moment MAX_LFOS or MAX_ROUTES moved.
-    expect(slotCoveredPaths()).toHaveLength(MAX_LFOS * 5 + MAX_ROUTES * 4);
+    // 3 oscillators x 9 keys + 4 LFOs x 5 keys + 8 routes x 4 keys. Listing 79 slot
+    // addresses longhand would rot the moment one of the caps moved — and the oscillator
+    // family only became a slot family at schema_version 3, which is exactly the kind of
+    // move that would have rotted it.
+    expect(slotCoveredPaths()).toHaveLength(MAX_OSCILLATORS * 9 + MAX_LFOS * 5 + MAX_ROUTES * 4);
   });
 
   it('gives every section a unique id and a non-empty label', () => {

@@ -15,6 +15,7 @@
 
 import {
   MAX_LFOS,
+  MAX_OSCILLATORS,
   MAX_ROUTES,
   SONG_SCHEMA_VERSION,
   STEPS_PER_BEAT,
@@ -164,6 +165,14 @@ export function reduce(
       if (root === 'effects') {
         return applied(withPatch(state, deepSet(state.patch, segments, command.value) as SynthPreset));
       }
+      // Oscillator slots have the same hazard as LFOs below: the path union is fixed at
+      // MAX_OSCILLATORS while the array holds however many the patch added.
+      if (segments[1] === 'oscillators') {
+        const index = Number(segments[2]);
+        if (state.patch.voice.oscillators[index] === undefined) {
+          return rejected(`no oscillator at index ${index}; add one with addOscillator first`);
+        }
+      }
       // 'voice.lfos.<i>.<key>' addresses a slot that may not be filled — the path union
       // is fixed at MAX_LFOS but the array is not.
       if (segments[1] === 'lfos') {
@@ -180,6 +189,48 @@ export function reduce(
         }
       }
       return applied(withPatch(state, deepSet(state.patch, segments, command.value) as SynthPreset));
+    }
+
+    case 'addOscillator': {
+      const slots = state.patch.voice.oscillators;
+      if (slots.length >= MAX_OSCILLATORS) {
+        return rejected(`at most ${MAX_OSCILLATORS} oscillator slots per patch`);
+      }
+      if (slots.some((slot) => slot.id === command.config.id)) {
+        return rejected(`an oscillator with id "${command.config.id}" already exists`);
+      }
+      return applied(
+        withPatch(state, {
+          ...state.patch,
+          voice: {
+            ...state.patch.voice,
+            oscillators: [...slots, structuredClone(command.config)],
+          },
+        }),
+      );
+    }
+
+    case 'removeOscillator': {
+      const slots = state.patch.voice.oscillators;
+      if (!slots.some((slot) => slot.id === command.oscillatorId)) {
+        return rejected(`no oscillator with id "${command.oscillatorId}"`);
+      }
+      // The floor that `VoiceConfigSchema.min(1)` states as a document invariant, enforced
+      // here as a command one. A voice with no slots is well-formed and permanently
+      // silent, and silence that validates is the failure this project keeps paying for.
+      // Muting is what `enabled` is for and stays available.
+      if (slots.length === 1) {
+        return rejected('a voice needs at least one oscillator slot; disable it instead');
+      }
+      return applied(
+        withPatch(state, {
+          ...state.patch,
+          voice: {
+            ...state.patch.voice,
+            oscillators: slots.filter((slot) => slot.id !== command.oscillatorId),
+          },
+        }),
+      );
     }
 
     case 'addLfo': {

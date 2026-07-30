@@ -51,9 +51,8 @@ import {
 import type {
   Beats,
   EffectsConfig,
-  FilterRolloff,
-  FilterType,
   ModDestination,
+  OscillatorIndex,
   OscillatorConfig,
   Song,
   SynthPreset,
@@ -194,6 +193,39 @@ function distortionCurve(amount: Unit): { curve: Float32Array; makeup: number } 
  * 0.1 ms is below the threshold of hearing for onset timing and far below one sample at
  * 44.1 kHz being audible as a shift, so nudging is inaudible.
  */
+/**
+ * Makeup for one equal-power panner sitting at centre: `1 / cos(pi/4)`.
+ *
+ * A `StereoPannerNode` is equal-POWER, so a mono signal through it at pan 0 comes out at
+ * 0.707 per channel — 3 dB down. That is correct panning and wrong as a side effect:
+ * adding a per-slot panner at schema_version 3 made every existing patch quieter than the
+ * version that shipped, which surfaced as an onset gate reading 0.0081 against a 0.01
+ * floor and as the distortion knob moving the level 2.4 dB — its makeup is calibrated
+ * against the level a voice actually reaches, so a quieter voice re-broke it.
+ *
+ * A separate node rather than folded into `level`, deliberately.
+ * `voice.oscillators.N.level` is a modulation destination and a route's swing is
+ * `depth x declared range`; a level gain carrying a hidden 1.41 factor would make a
+ * depth-1 route travel the wrong distance at that one destination and nowhere else.
+ */
+/**
+ * The filter envelope's curve exponent, and it is not ours to choose freely.
+ *
+ * `FrequencyEnvelope` computes `baseFrequency * 2^(octaves * value^exponent)`. Its OWN
+ * default is 1; `MonoSynth.getDefaults()` overrides it to 2, and every patch this project
+ * has ever stored was voiced through that override. Rebuilding the voice by hand
+ * inherited the 1 — which sounds like a detail and is not: on the factory patch it moved
+ * the settled cutoff from 1.7 kHz to 2.8 kHz and multiplied the energy above 9 kHz by
+ * roughly forty. Two distortion gates caught it; no human ear was consulted.
+ *
+ * Pinned rather than exposed, because F65 at schema_version 3 requires a v2 patch and its
+ * migrated form to SOUND the same. Making it a parameter would be a new tone control, and
+ * a new tone control whose default silently rewrites every saved patch is not a feature.
+ */
+const FILTER_ENVELOPE_EXPONENT = 2;
+
+const CENTRE_PAN_COMPENSATION = Math.SQRT2;
+
 const MIN_EVENT_GAP_SECONDS = 1e-4;
 
 /** Analyser window; only used by the debug readout, never by a gate. */
@@ -222,15 +254,41 @@ const SILENCE_FLOOR_DB = -100;
 const PER_VOICE_DESTINATIONS = [
   'voice.filterEnvelope.baseFrequency',
   'voice.filter.Q',
-  'voice.oscillator.detune',
   'voice.amplitude',
   'voice.pan',
 ] as const satisfies readonly ModDestination[];
 
-type WirableDestination = (typeof PER_VOICE_DESTINATIONS)[number];
+/**
+ * The per-slot destinations that resolve to a real audio-rate parameter.
+ *
+ * `width` and `spread` are declared and deliberately absent. `spread` is a plain number
+ * on `FatOscillator` — changing it rebuilds the internal oscillators, so there is no
+ * param to connect to at all. `width` is a `Signal`, but only when the slot's type is
+ * `pulse`; a destination that resolves on some patches and not others would be worse
+ * than one that honestly reports itself unimplemented on all of them.
+ */
+const PER_SLOT_DESTINATION_KEYS = ['detune', 'level', 'pan'] as const;
+
+type SlotDestinationKey = (typeof PER_SLOT_DESTINATION_KEYS)[number];
+
+type WirableDestination =
+  | (typeof PER_VOICE_DESTINATIONS)[number]
+  | `voice.oscillators.${OscillatorIndex}.${SlotDestinationKey}`;
+
+/** `voice.oscillators.<i>.<key>` split into its parts, or null if it is not one. */
+function slotAddress(destination: string): { index: number; key: SlotDestinationKey } | null {
+  const match = /^voice\.oscillators\.(\d+)\.(\w+)$/.exec(destination);
+  if (match === null) return null;
+  const key = match[2] as SlotDestinationKey;
+  if (!(PER_SLOT_DESTINATION_KEYS as readonly string[]).includes(key)) return null;
+  return { index: Number(match[1]), key };
+}
 
 function isWirable(destination: ModDestination): destination is WirableDestination {
-  return (PER_VOICE_DESTINATIONS as readonly string[]).includes(destination);
+  return (
+    (PER_VOICE_DESTINATIONS as readonly string[]).includes(destination) ||
+    slotAddress(destination) !== null
+  );
 }
 
 /**
@@ -296,8 +354,51 @@ function routeSwing(destination: ModDestination, depth: Unit, base: number): Rou
  * destination needs an audio-rate parameter to point at. MonoSynth exposes neither — its
  * `volume` is in dB, which is the wrong curve for tremolo, and it has no panning at all.
  */
+/**
+ * One oscillator slot inside one voice.
+ *
+ * `level` before `panner` so a slot's contribution is scaled before it is placed —
+ * panning a silent slot is free, and the routing destinations `…N.level` and `…N.pan`
+ * then point at two independent nodes rather than fighting over one gain.
+ */
+interface SlotNodes {
+  osc: Tone.OmniOscillator<Tone.Oscillator>;
+  level: Tone.Gain;
+  panner: Tone.Panner;
+  /** Undoes the panner's centre attenuation. See `CENTRE_PAN_COMPENSATION`. */
+  compensate: Tone.Gain;
+}
+
+/**
+ * The voice, hand-built, since schema_version 3.
+ *
+ * It was a `Tone.MonoSynth` and could not stay one: MonoSynth is *one* oscillator by
+ * construction, so a second slot had nowhere to go. What replaced it is not a different
+ * design — it is MonoSynth's own topology with the oscillator stage widened, read out of
+ * `Tone/instrument/MonoSynth.ts` rather than guessed at:
+ *
+ *   slots(osc -> level -> pan) -> filter -> ampEnvelope -> gain -> panner -> fxInput
+ *   filterEnvelope ------------------------> filter.frequency
+ *
+ * The parts are all Tone's — `OmniOscillator`, `Filter`, `AmplitudeEnvelope`,
+ * `FrequencyEnvelope` — assembled here instead of inside a class that assumed one source.
+ */
 interface VoiceNodes {
-  synth: Tone.MonoSynth;
+  /** As many as the patch declares, never more. A one-slot patch costs one oscillator. */
+  slots: SlotNodes[];
+  filter: Tone.Filter;
+  filterEnvelope: Tone.FrequencyEnvelope;
+  amp: Tone.AmplitudeEnvelope;
+  /**
+   * The note's pitch, fanned out to every slot.
+   *
+   * One signal rather than one write per oscillator, because portamento is a ramp on a
+   * single value: three slots ramping independently could drift apart mid-glide, and
+   * `Signal.connect` overrides the target's own value, so the slots follow rather than sum.
+   */
+  frequency: Tone.Signal<'frequency'>;
+  /** Glide time, held per voice because `setNote` needs it and it is patch-level. */
+  portamento: number;
   gain: Tone.Gain;
   panner: Tone.Panner;
   /**
@@ -510,7 +611,16 @@ export class ToneRuntime implements Runtime {
     for (const lfo of this.lfos.values()) lfo.dispose();
     this.lfos.clear();
     for (const nodes of this.voices.values()) {
-      nodes.synth.dispose();
+      for (const slot of nodes.slots) {
+        slot.osc.dispose();
+        slot.level.dispose();
+        slot.panner.dispose();
+        slot.compensate.dispose();
+      }
+      nodes.filter.dispose();
+      nodes.filterEnvelope.dispose();
+      nodes.amp.dispose();
+      nodes.frequency.dispose();
       nodes.gain.dispose();
       nodes.panner.dispose();
       nodes.velocity.dispose();
@@ -533,13 +643,18 @@ export class ToneRuntime implements Runtime {
    * half the pool on the old sound and half on the new.
    */
   applyPatch(patch: SynthPreset): void {
-    const options = monoSynthOptions(patch);
-    for (const gap of unsupportedOscillatorFeatures(patch.voice.oscillator)) {
-      this.notImplemented(gap);
+    for (const [index, slot] of patch.voice.oscillators.entries()) {
+      for (const gap of unsupportedOscillatorFeatures(slot, index)) this.notImplemented(gap);
     }
     this.patch = patch;
     for (const nodes of this.voices.values()) {
-      nodes.synth.set(options);
+      this.syncSlots(nodes, patch);
+      nodes.filter.type = patch.voice.filter.type;
+      nodes.filter.Q.value = patch.voice.filter.Q;
+      nodes.filter.rolloff = patch.voice.filter.rolloff;
+      nodes.filterEnvelope.set(frequencyEnvelopeOptions(patch));
+      nodes.amp.set({ ...patch.voice.envelope });
+      nodes.portamento = patch.voice.portamento;
       nodes.gain.gain.value = patch.voice.amplitude;
       nodes.panner.pan.value = patch.voice.pan;
     }
@@ -676,10 +791,12 @@ export class ToneRuntime implements Runtime {
           if (swing.baseOverride !== undefined) nodes.gain.gain.value = swing.baseOverride;
           // Unipolar: velocity runs 0..1 and only ever adds, so the scaler carries the
           // full swing rather than half of it the way a bipolar LFO does.
+          const target = this.destinationParam(nodes, route.destination);
+          if (target === null) continue;
           const scaler = new Tone.Gain(swing.scale * 2);
           this.scalers.push(scaler);
           nodes.velocity.connect(scaler);
-          scaler.connect(this.destinationParam(nodes, route.destination));
+          scaler.connect(target);
         }
         continue;
       }
@@ -700,7 +817,8 @@ export class ToneRuntime implements Runtime {
 
       for (const nodes of this.voices.values()) {
         if (swing.baseOverride !== undefined) nodes.gain.gain.value = swing.baseOverride;
-        scaler.connect(this.destinationParam(nodes, route.destination));
+        const target = this.destinationParam(nodes, route.destination);
+        if (target !== null) scaler.connect(target);
       }
     }
   }
@@ -720,18 +838,38 @@ export class ToneRuntime implements Runtime {
    * `filter.detune` fans out to every biquad stage inside the filter, so the rolloff
    * setting does not change the depth.
    */
-  private destinationParam(nodes: VoiceNodes, destination: WirableDestination): Tone.InputNode {
+  private destinationParam(
+    nodes: VoiceNodes,
+    destination: WirableDestination,
+  ): Tone.InputNode | null {
+    const slot = slotAddress(destination);
+    if (slot !== null) {
+      // A route can point at a slot the patch has not added — the address space is fixed
+      // at MAX_OSCILLATORS while the list is not. `null` rather than a throw: the caller
+      // reports it and carries on, exactly as it does for an unwired destination.
+      const nodesForSlot = nodes.slots[slot.index];
+      if (nodesForSlot === undefined) return null;
+      switch (slot.key) {
+        case 'detune':
+          return nodesForSlot.osc.detune;
+        case 'level':
+          return nodesForSlot.level.gain;
+        case 'pan':
+          return nodesForSlot.panner.pan;
+      }
+    }
+
     switch (destination) {
       case 'voice.filterEnvelope.baseFrequency':
-        return nodes.synth.filter.detune;
+        return nodes.filter.detune;
       case 'voice.filter.Q':
-        return nodes.synth.filter.Q;
-      case 'voice.oscillator.detune':
-        return nodes.synth.detune;
+        return nodes.filter.Q;
       case 'voice.amplitude':
         return nodes.gain.gain;
       case 'voice.pan':
         return nodes.panner.pan;
+      default:
+        return null;
     }
   }
 
@@ -739,17 +877,80 @@ export class ToneRuntime implements Runtime {
   // Voices
   // -------------------------------------------------------------------------
 
+  /**
+   * Build one slot's nodes and wire them into an existing voice.
+   *
+   * Started stopped. A slot added while a note is held joins from the NEXT note-on rather
+   * than appearing mid-note — starting it here would sound a bare oscillator with no
+   * envelope behind it, which is worse than a beat of silence.
+   */
+  private buildSlot(nodes: VoiceNodes, config: OscillatorConfig | undefined): SlotNodes {
+    const osc = new Tone.OmniOscillator(
+      config === undefined ? {} : oscillatorOptions(config),
+    ) as Tone.OmniOscillator<Tone.Oscillator>;
+    const level = new Tone.Gain(config === undefined ? 1 : slotGain(config));
+    const panner = new Tone.Panner(config?.pan ?? 0);
+    const compensate = new Tone.Gain(CENTRE_PAN_COMPENSATION);
+
+    nodes.frequency.connect(osc.frequency);
+    osc.chain(level, panner, compensate, nodes.filter);
+    if (config !== undefined) osc.detune.value = slotDetune(config);
+
+    return { osc, level, panner, compensate };
+  }
+
+  /**
+   * Make a voice's slot nodes match the patch's slot count, building and disposing as
+   * needed. Called on every `applyPatch`, so `addOscillator` reaches a live voice.
+   */
+  private syncSlots(nodes: VoiceNodes, patch: SynthPreset): void {
+    const wanted = patch.voice.oscillators;
+    while (nodes.slots.length > wanted.length) {
+      const slot = nodes.slots.pop();
+      slot?.osc.dispose();
+      slot?.level.dispose();
+      slot?.panner.dispose();
+      slot?.compensate.dispose();
+    }
+    while (nodes.slots.length < wanted.length) {
+      nodes.slots.push(this.buildSlot(nodes, wanted[nodes.slots.length]));
+    }
+    for (const [index, config] of wanted.entries()) {
+      const slot = nodes.slots[index];
+      if (slot === undefined) continue;
+      slot.osc.set(oscillatorOptions(config));
+      slot.osc.detune.value = slotDetune(config);
+      slot.level.gain.value = slotGain(config);
+      slot.panner.pan.value = config.pan;
+    }
+  }
+
   private voiceFor(voiceId: VoiceId): VoiceNodes {
     const existing = this.voices.get(voiceId);
     if (existing !== undefined) return existing;
 
-    const synth = new Tone.MonoSynth(
-      this.patch === null ? undefined : monoSynthOptions(this.patch),
+    const patch = this.patch;
+    const filter = new Tone.Filter(
+      patch === null
+        ? undefined
+        : { type: patch.voice.filter.type, Q: patch.voice.filter.Q, rolloff: patch.voice.filter.rolloff },
     );
-    const gain = new Tone.Gain(this.patch === null ? 1 : this.patch.voice.amplitude);
-    const panner = new Tone.Panner(this.patch === null ? 0 : this.patch.voice.pan);
-    synth.connect(gain);
+    const filterEnvelope = new Tone.FrequencyEnvelope(
+      patch === null ? undefined : frequencyEnvelopeOptions(patch),
+    );
+    const amp = new Tone.AmplitudeEnvelope(
+      patch === null ? undefined : { ...patch.voice.envelope },
+    );
+    const frequency = new Tone.Signal({ units: 'frequency', value: 440 });
+    const gain = new Tone.Gain(patch === null ? 1 : patch.voice.amplitude);
+    const panner = new Tone.Panner(patch === null ? 0 : patch.voice.pan);
+
+    filter.chain(amp, gain);
     gain.connect(panner);
+    // Exactly MonoSynth's wiring, and the reason the `octaves` cutoff curve still works:
+    // the envelope drives `filter.frequency` while a route drives `filter.detune`, so the
+    // sweep and the modulation compose multiplicatively instead of fighting over one param.
+    filterEnvelope.connect(filter.frequency);
     // Into the head of the effects chain, NOT into master. Connecting to master here
     // routes every voice past distortion, chorus, delay, reverb and the EQ, and the
     // symptom is not silence — it is a chain whose every parameter reads correctly and
@@ -761,7 +962,18 @@ export class ToneRuntime implements Runtime {
     // twice, so recreating this per note-on would fail on the second note of the session.
     const velocity = new Tone.Signal(0);
 
-    const nodes: VoiceNodes = { synth, gain, panner, velocity };
+    const nodes: VoiceNodes = {
+      slots: [],
+      filter,
+      filterEnvelope,
+      amp,
+      frequency,
+      portamento: patch?.voice.portamento ?? 0,
+      gain,
+      panner,
+      velocity,
+    };
+    if (patch !== null) this.syncSlots(nodes, patch);
     this.voices.set(voiceId, nodes);
 
     // Voices are built lazily, so a voice created AFTER the routes were wired would
@@ -793,7 +1005,7 @@ export class ToneRuntime implements Runtime {
     const nodes = this.voiceFor(request.voiceId);
     const time = this.nextEventTime(request.voiceId);
     const velocityConfig = this.patch?.voice.velocity;
-    nodes.synth.portamento = request.portamento;
+    nodes.portamento = request.portamento;
 
     // Defensive, and honestly so: no probe could make this cancel matter.
     //
@@ -823,21 +1035,64 @@ export class ToneRuntime implements Runtime {
       if (this.patch !== null) {
         const base = this.patch.voice.filterEnvelope.baseFrequency;
         const octaves = request.velocity * velocityConfig.toFilterOctaves;
-        nodes.synth.filterEnvelope.baseFrequency = base * Math.pow(2, octaves);
+        nodes.filterEnvelope.baseFrequency = base * Math.pow(2, octaves);
       }
 
-      nodes.synth.triggerAttack(request.note, time, scaled);
+      this.attack(nodes, request.note, time, scaled);
       return;
     }
 
-    nodes.synth.triggerAttack(request.note, time, request.velocity);
+    this.attack(nodes, request.note, time, request.velocity);
+  }
+
+  /**
+   * The attack, assembled from `MonoSynth._triggerEnvelopeAttack` with one change: every
+   * slot starts, not one.
+   *
+   * The zero-sustain stop is Tone's and is kept for the same reason it exists there — a
+   * percussive patch whose oscillators kept running after the envelope closed would burn
+   * a voice's worth of CPU producing nothing.
+   */
+  private attack(nodes: VoiceNodes, note: string, time: number, velocity: number): void {
+    this.setNote(nodes, note, time);
+    nodes.amp.triggerAttack(time, velocity);
+    nodes.filterEnvelope.triggerAttack(time);
+    for (const slot of nodes.slots) slot.osc.start(time);
+    if (nodes.amp.sustain === 0) {
+      const silent = time + nodes.amp.toSeconds(nodes.amp.attack) + nodes.amp.toSeconds(nodes.amp.decay);
+      for (const slot of nodes.slots) slot.osc.stop(silent);
+    }
+  }
+
+  /** `MonoSynth._triggerEnvelopeRelease`, widened the same way. */
+  private release(nodes: VoiceNodes, time: number): void {
+    nodes.amp.triggerRelease(time);
+    nodes.filterEnvelope.triggerRelease(time);
+    const stopAt = time + nodes.amp.toSeconds(nodes.amp.release);
+    for (const slot of nodes.slots) slot.osc.stop(stopAt);
+  }
+
+  /**
+   * Set the note, gliding if the patch asks for it and a note is already sounding.
+   *
+   * `Monophonic.setNote`, verbatim in behaviour including the 0.05 level threshold: a
+   * glide only makes sense from a note you can still hear, and ramping from a released
+   * voice would bend a silence into the new note's attack.
+   */
+  private setNote(nodes: VoiceNodes, note: string, time: number): void {
+    const target = Tone.Frequency(note).toFrequency();
+    if (nodes.portamento > 0 && nodes.amp.getValueAtTime(time) > 0.05) {
+      nodes.frequency.exponentialRampTo(target, nodes.portamento, time);
+    } else {
+      nodes.frequency.setValueAtTime(target, time);
+    }
   }
 
   noteOff(request: RuntimeNoteOff): void {
     // A note-off for a voice that was never built is a no-op, not an error: core's
     // allocator may have stolen and reassigned the slot already.
     const nodes = this.voices.get(request.voiceId);
-    if (nodes !== undefined) nodes.synth.triggerRelease(this.nextEventTime(request.voiceId));
+    if (nodes !== undefined) this.release(nodes, this.nextEventTime(request.voiceId));
   }
 
   /**
@@ -848,7 +1103,7 @@ export class ToneRuntime implements Runtime {
    */
   steal(voiceId: VoiceId): void {
     const nodes = this.voices.get(voiceId);
-    if (nodes !== undefined) nodes.synth.triggerRelease(this.nextEventTime(voiceId));
+    if (nodes !== undefined) this.release(nodes, this.nextEventTime(voiceId));
   }
 
   // -------------------------------------------------------------------------
@@ -1087,70 +1342,67 @@ type OscillatorOptions =
   | { type: 'pulse'; width: number }
   | { type: 'pwm' };
 
-interface MonoSynthOptions {
-  /**
-   * Top level, NOT nested under `oscillator`, and the distinction is not cosmetic.
-   * `MonoSynth`'s constructor does
-   * `Object.assign(options.oscillator, { detune: options.detune })`, so a detune passed
-   * inside the oscillator options is silently overwritten by the top-level default of 0.
-   * Nesting it looked right, typechecked, and left the pitch exactly where it started.
-   */
-  detune: number;
-  oscillator: OscillatorOptions;
-  envelope: { attack: number; decay: number; sustain: number; release: number };
-  filter: { type: FilterType; Q: number; rolloff: FilterRolloff };
-  filterEnvelope: {
-    attack: number;
-    decay: number;
-    sustain: number;
-    release: number;
-    baseFrequency: number;
-    octaves: number;
+/**
+ * `MonoSynthOptions` used to live here, and the lesson it carried is worth keeping now
+ * that the type is gone: MonoSynth's constructor did
+ * `Object.assign(options.oscillator, { detune: options.detune })`, so a detune passed
+ * inside the oscillator options was silently overwritten by the top-level default of 0.
+ * Nesting it looked right, typechecked, and left the pitch exactly where it started.
+ *
+ * The hand-built voice has no such trap because it writes `osc.detune.value` directly —
+ * but the general shape of that bug is why this file's header says to read Tone's source
+ * rather than infer its behaviour from its types.
+ */
+
+/**
+ * The filter envelope's options, which is the only part of the voice whose translation is
+ * not a straight field copy: `baseFrequency` is the cutoff and `octaves` is how far above
+ * it the envelope sweeps. See UNMAPPED_PARAMS above for why this and not filter.frequency.
+ */
+export function frequencyEnvelopeOptions(patch: SynthPreset): {
+  attack: number;
+  decay: number;
+  sustain: number;
+  release: number;
+  baseFrequency: number;
+  octaves: number;
+  exponent: number;
+} {
+  const { filterEnvelope } = patch.voice;
+  return {
+    attack: filterEnvelope.attack,
+    decay: filterEnvelope.decay,
+    sustain: filterEnvelope.sustain,
+    release: filterEnvelope.release,
+    baseFrequency: filterEnvelope.baseFrequency,
+    octaves: filterEnvelope.octaves,
+    exponent: FILTER_ENVELOPE_EXPONENT,
   };
 }
 
 /**
- * Translate a patch into `Tone.MonoSynth` options.
+ * A slot's total pitch offset in cents: its own detune plus its octave switch.
  *
- * Exported so an audio gate can assert the mapping without constructing a whole
- * runtime, and so each stage has one obvious place to widen.
- *
- * MonoSynth is oscillator + amp envelope + filter + filter envelope, which is close to
- * a 1:1 fit for our `VoiceConfig` — that near-isomorphism is why the Phase-1 harness
- * could already drive it with our parameter names. `FilterType` and `FilterRolloff` are
- * exact matches for Tone's `BiquadFilterType` and rolloff union, so both pass straight
- * through.
- *
- * Still not read (later stages, each with its own gate): `velocity.*` and the effects
- * chain. `lfos` are handled separately, by `syncLfos`, because they are generators rather
- * than voice options.
+ * Both land on one `detune` param because that is the only audio-rate pitch input an
+ * oscillator has, and cents is the natural unit for both — an octave IS 1200 cents. Doing
+ * it here rather than at two nodes also means a `…N.detune` route sums on top of the
+ * octave rather than replacing it.
  */
-export function monoSynthOptions(patch: SynthPreset): MonoSynthOptions {
-  const { oscillator, envelope, filter, filterEnvelope } = patch.voice;
-  return {
-    detune: oscillator.detune,
-    oscillator: oscillatorOptions(oscillator),
-    envelope: {
-      attack: envelope.attack,
-      decay: envelope.decay,
-      sustain: envelope.sustain,
-      release: envelope.release,
-    },
-    filter: {
-      type: filter.type,
-      Q: filter.Q,
-      rolloff: filter.rolloff,
-    },
-    filterEnvelope: {
-      attack: filterEnvelope.attack,
-      decay: filterEnvelope.decay,
-      sustain: filterEnvelope.sustain,
-      release: filterEnvelope.release,
-      // The cutoff. See UNMAPPED_PARAMS above for why this one and not filter.frequency.
-      baseFrequency: filterEnvelope.baseFrequency,
-      octaves: filterEnvelope.octaves,
-    },
-  };
+export function slotDetune(slot: OscillatorConfig): number {
+  return slot.detune + slot.octave * CENTS_PER_OCTAVE;
+}
+
+/**
+ * A slot's gain, with `enabled` folded in.
+ *
+ * Disabled is level 0 rather than a disconnection, exactly as a bypassed effect is wet 0:
+ * the slot keeps its stored level, muting is instant, and re-enabling restores the value
+ * without the UI having to remember it. The oscillator keeps running — existence is the
+ * cost, `enabled` is only the mute — which is why a one-slot patch builds one oscillator
+ * per voice and a three-slot patch builds three whether or not two are muted.
+ */
+export function slotGain(slot: OscillatorConfig): number {
+  return slot.enabled ? slot.level : 0;
 }
 
 function basicShape(shape: string): BasicShape {
@@ -1179,7 +1431,7 @@ function basicShape(shape: string): BasicShape {
  * rather than dropped, which is the difference between a gap and the silent
  * fall-back-to-sawtooth this replaces.
  */
-function oscillatorOptions(oscillator: OscillatorConfig): OscillatorOptions {
+export function oscillatorOptions(oscillator: OscillatorConfig): OscillatorOptions {
   const { type, count, spread, width } = oscillator;
 
   if (type === 'pulse') return { type: 'pulse', width };
@@ -1199,20 +1451,23 @@ function oscillatorOptions(oscillator: OscillatorConfig): OscillatorOptions {
  * names them. Replay is unaffected either way: the patch is stored verbatim and the
  * mapping is deterministic, so what gets ignored is ignored identically every time.
  */
-export function unsupportedOscillatorFeatures(oscillator: OscillatorConfig): string[] {
+export function unsupportedOscillatorFeatures(
+  oscillator: OscillatorConfig,
+  slot: number,
+): string[] {
   const { type, count, width } = oscillator;
   const gaps: string[] = [];
 
   if (type === 'noise') {
-    // Sounds as a sawtooth. Honouring it needs a voice built around Tone.Noise instead of
-    // MonoSynth, which is a different voice shape rather than another case here.
-    gaps.push('oscillator.noise');
+    // Sounds as a sawtooth. Honouring it needs a slot built around Tone.Noise, which is a
+    // different source shape rather than another case in `oscillatorOptions`.
+    gaps.push(`oscillator.${slot}.noise`);
   }
   if (count > 1 && (type === 'pulse' || type === 'pwm')) {
-    gaps.push(`oscillator.unison.${type}`);
+    gaps.push(`oscillator.${slot}.unison.${type}`);
   }
   if (width !== 0 && type !== 'pulse') {
-    gaps.push(`oscillator.width.${type}`);
+    gaps.push(`oscillator.${slot}.width.${type}`);
   }
   return gaps;
 }

@@ -456,9 +456,12 @@ export function DebugApp() {
         <OscillatorPanel
           state={dispatcher.getState()}
           onChange={setParamValue}
-          unsupported={unsupportedOscillatorFeatures(
-            dispatcher.getState().patch.voice.oscillator,
-          )}
+          onCommand={(command) => dispatcher.dispatch(command)}
+          unsupported={dispatcher
+            .getState()
+            .patch.voice.oscillators.flatMap((slot, index) =>
+              unsupportedOscillatorFeatures(slot, index),
+            )}
         />
       </section>
 

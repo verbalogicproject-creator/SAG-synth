@@ -1,6 +1,6 @@
 {
   "id": "song-demo",
-  "name": "Demo — Two Bar Bass",
+  "name": "Demo \u2014 Two Bar Bass",
   "schemaVersion": 1,
   "bpm": 110,
   "timeSignature": 4,
@@ -14,15 +14,22 @@
       "presetSnapshot": {
         "id": "factory-bass",
         "name": "Rubber Bass",
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "voice": {
-          "oscillator": {
-            "type": "sawtooth",
-            "detune": -7,
-            "count": 2,
-            "spread": 12,
-            "width": 0
-          },
+          "oscillators": [
+            {
+              "id": "osc-0",
+              "enabled": true,
+              "type": "sawtooth",
+              "octave": 0,
+              "detune": -7,
+              "count": 2,
+              "spread": 12,
+              "width": 0,
+              "level": 1,
+              "pan": 0
+            }
+          ],
           "envelope": {
             "attack": 0.005,
             "decay": 0.18,

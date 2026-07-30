@@ -12,6 +12,7 @@ import { z } from 'zod';
 import {
   LIMITS,
   MAX_LFOS,
+  MAX_OSCILLATORS,
   MAX_ROUTES,
   MODULATION_DESTINATIONS,
   NOTE_NAME_RE,
@@ -23,6 +24,8 @@ import {
   type ModCurve,
   type ModDestination,
   type ModRoute,
+  type OscParamKey,
+  type OscParamPath,
   type ParamPath,
   type ParamValue,
   type RouteParamKey,
@@ -157,13 +160,19 @@ export const LfoFrequencySchema = z.union([
 // Voice / effects documents
 // ---------------------------------------------------------------------------
 
+/** One oscillator slot. KIND-synth_patch §1.1. */
 export const OscillatorConfigSchema = z.object({
+  id: IdSchema,
+  enabled: z.boolean(),
   type: SupportedWaveShapeSchema,
+  octave: z.number().int().min(-2).max(2),
   detune: finite().min(-1200).max(1200),
   count: z.number().int().min(1).max(8),
   spread: finite().min(0).max(200),
   // Not unit(): Tone's pulse width runs -1..1 with 0 as square. See OscillatorConfig.
   width: finite().min(-1).max(1),
+  level: unit(),
+  pan: z.number().min(-1).max(1),
 });
 
 export const EnvelopeConfigSchema = z.object({
@@ -208,7 +217,11 @@ export const VelocityConfigSchema = z.object({
 });
 
 export const VoiceConfigSchema = z.object({
-  oscillator: OscillatorConfigSchema,
+  // At least one, at most MAX_OSCILLATORS. The floor is deliberate: a voice with no
+  // oscillator slot is a well-formed document that can never make a sound, and silence
+  // that validates is the failure mode this project keeps paying for. Muting is what
+  // `enabled: false` is for, and that stays legal.
+  oscillators: z.array(OscillatorConfigSchema).min(1).max(MAX_OSCILLATORS),
   envelope: EnvelopeConfigSchema,
   filter: FilterConfigSchema,
   filterEnvelope: FilterEnvelopeConfigSchema,
@@ -434,6 +447,36 @@ const modNum = (
   modulation: { perVoice, curve },
 });
 
+/**
+ * Spec for each of the nine per-slot oscillator parameters, reused across every slot.
+ *
+ * Five carry a `modulation` block and four do not, and each exclusion has a reason F72
+ * will hold us to: `enabled` and `type` are boolean and enum, which structurally cannot
+ * carry one; `octave` is discrete and marked with `choices`, so a slider cannot generate
+ * a value between two octaves and a route cannot point at it; `count` is an integer voice
+ * count, where modulation would mean spawning and killing oscillators at audio rate.
+ */
+const OSC_PARAM_SPECS = {
+  enabled: { kind: 'boolean' },
+  type: { kind: 'enum', values: SUPPORTED_WAVE_SHAPES },
+  octave: { kind: 'number', min: -2, max: 2, unit: 'oct', integer: true, choices: [-2, -1, 0, 1, 2] },
+  detune: modNum(-1200, 1200, 'cents', true, 'linear'),
+  count: num(1, 8, 'voices', true),
+  spread: modNum(0, 200, 'cents', true, 'linear'),
+  // -1..1 with 0 meaning square, matching Tone's PulseOscillator. See OscillatorConfig.
+  width: modNum(-1, 1, undefined, true, 'linear'),
+  level: modNum(0, 1, undefined, true, 'linear'),
+  pan: modNum(-1, 1, undefined, true, 'linear'),
+} as const satisfies Record<OscParamKey, ParamSpec>;
+
+export const OSC_PARAM_KEYS = Object.keys(OSC_PARAM_SPECS) as OscParamKey[];
+
+const oscParamSpecs = Object.fromEntries(
+  Array.from({ length: MAX_OSCILLATORS }, (_unused, i) => i).flatMap((i) =>
+    OSC_PARAM_KEYS.map((key) => [`voice.oscillators.${i}.${key}`, OSC_PARAM_SPECS[key]] as const),
+  ),
+) as Record<OscParamPath, ParamSpec>;
+
 /** Spec for each of the five per-LFO parameters, reused across all MAX_LFOS slots. */
 const LFO_PARAM_SPECS = {
   enabled: { kind: 'boolean' },
@@ -481,13 +524,6 @@ const routeParamSpecs = Object.fromEntries(
  * type union and the runtime table cannot drift apart.
  */
 export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
-  'voice.oscillator.type': { kind: 'enum', values: SUPPORTED_WAVE_SHAPES },
-  'voice.oscillator.detune': modNum(-1200, 1200, 'cents', true, 'linear'),
-  'voice.oscillator.count': num(1, 8, 'voices', true),
-  'voice.oscillator.spread': modNum(0, 200, 'cents', true, 'linear'),
-  // -1..1 with 0 meaning square, matching Tone's PulseOscillator. See OscillatorConfig.
-  'voice.oscillator.width': modNum(-1, 1, undefined, true, 'linear'),
-
   'voice.envelope.attack': num(0, 20, 's'),
   'voice.envelope.decay': num(0, 20, 's'),
   'voice.envelope.sustain': num(0, 1),
@@ -549,6 +585,7 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'master.volume': num(LIMITS.masterVolume.min, LIMITS.masterVolume.max, 'dB'),
   'master.limiterThreshold': num(-40, 0, 'dB'),
 
+  ...oscParamSpecs,
   ...lfoParamSpecs,
   ...routeParamSpecs,
 };
@@ -658,6 +695,16 @@ export const SetParamPayloadSchema = z
       ctx.addIssue({ code: 'custom', message: result.error, path: ['value'] });
     }
   });
+
+export const AddOscillatorPayloadSchema = z.object({
+  type: z.literal('addOscillator'),
+  config: OscillatorConfigSchema,
+});
+
+export const RemoveOscillatorPayloadSchema = z.object({
+  type: z.literal('removeOscillator'),
+  oscillatorId: IdSchema,
+});
 
 export const AddLfoPayloadSchema = z.object({
   type: z.literal('addLfo'),
@@ -882,6 +929,8 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   savePreset: SavePresetPayloadSchema,
   deletePreset: DeletePresetPayloadSchema,
   setParam: SetParamPayloadSchema,
+  addOscillator: AddOscillatorPayloadSchema,
+  removeOscillator: RemoveOscillatorPayloadSchema,
   addLfo: AddLfoPayloadSchema,
   removeLfo: RemoveLfoPayloadSchema,
   addRoute: AddRoutePayloadSchema,
@@ -958,7 +1007,7 @@ export type MigrationResult<T> = { ok: true; value: T } | { ok: false; error: st
  */
 const V1_LFO_TARGET_TO_DESTINATION: Record<string, ModDestination> = {
   filterFrequency: 'voice.filterEnvelope.baseFrequency',
-  pitch: 'voice.oscillator.detune',
+  pitch: 'voice.oscillators.0.detune',
   amplitude: 'voice.amplitude',
   pan: 'voice.pan',
 };
@@ -1033,6 +1082,50 @@ function migratePresetV1ToV2(doc: Record<string, unknown>): void {
 }
 
 /**
+ * v2 -> v3: the single `oscillator` dict becomes a one-entry `oscillators` list.
+ *
+ * The three fields the slot gained are written at the values that make them inaudible —
+ * `level: 1`, `pan: 0`, `octave: 0` — because F65 at version 3 asks for more than slot
+ * preservation: a v2 patch and its migrated form must SOUND the same. Anything else here
+ * would be a tone decision applied to somebody's saved patch without asking.
+ *
+ * Routes move too. A stored route addressed at `voice.oscillator.detune` names an address
+ * that no longer exists, and F71 refuses undeclared destinations at the boundary — so a
+ * migration that left them alone would produce a document that validates as a patch and
+ * fails as a command payload, which is the worst of both.
+ */
+function migratePresetV2ToV3(doc: Record<string, unknown>): void {
+  const voice = doc.voice as Record<string, unknown> | undefined;
+  if (voice === undefined || voice === null) return;
+
+  const legacy = voice.oscillator as Record<string, unknown> | undefined;
+  if (legacy !== undefined && voice.oscillators === undefined) {
+    voice.oscillators = [
+      {
+        id: 'osc-0',
+        enabled: true,
+        octave: 0,
+        level: 1,
+        pan: 0,
+        ...legacy,
+      },
+    ];
+  }
+  delete voice.oscillator;
+
+  const routes = voice.modRoutes;
+  if (Array.isArray(routes)) {
+    for (const route of routes) {
+      const entry = route as Record<string, unknown>;
+      if (typeof entry.destination !== 'string') continue;
+      if (entry.destination.startsWith('voice.oscillator.')) {
+        entry.destination = entry.destination.replace('voice.oscillator.', 'voice.oscillators.0.');
+      }
+    }
+  }
+}
+
+/**
  * F65 — a legacy patch migrates forward losslessly; an unknown FUTURE version is refused
  * explicitly rather than silently coerced.
  *
@@ -1055,9 +1148,16 @@ export function migratePreset(raw: unknown): MigrationResult<unknown> {
     };
   }
 
+  // Steps run in order and each is unconditional once entered, so a v1 document walks
+  // 1 -> 2 -> 3 rather than jumping. A migration that skipped an intermediate step would
+  // have to know every earlier shape, which is how migration chains rot.
   if (doc.schemaVersion === 1) {
     migratePresetV1ToV2(doc);
     doc.schemaVersion = 2;
+  }
+  if (doc.schemaVersion === 2) {
+    migratePresetV2ToV3(doc);
+    doc.schemaVersion = 3;
   }
   return { ok: true, value: doc };
 }

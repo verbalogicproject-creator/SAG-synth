@@ -1,6 +1,9 @@
 export {
   ToneRuntime,
-  monoSynthOptions,
+  frequencyEnvelopeOptions,
+  oscillatorOptions,
+  slotDetune,
+  slotGain,
   unsupportedOscillatorFeatures,
   UNMAPPED_PARAMS,
   SHARED_LFO_PHASE_DEPARTURE,

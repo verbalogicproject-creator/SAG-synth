@@ -62,8 +62,31 @@ export type SupportedWaveShape = Exclude<WaveShape, 'custom'>;
 /** Tone.LFO only accepts the four basic periodic shapes. */
 export type LfoShape = Extract<WaveShape, 'sine' | 'triangle' | 'sawtooth' | 'square'>;
 
+/**
+ * One oscillator slot. KIND-synth_patch §1.1.
+ *
+ * A slot, not "the oscillator" — `voice.oscillators` has been a list capped at
+ * `MAX_OSCILLATORS` since schema_version 3. One oscillator is a thin sound and the
+ * detuned pair is the oldest trick in subtractive synthesis; the single-dict shape could
+ * not express it because there was nothing to detune against.
+ *
+ * `id` and `enabled` mirror `LFOConfig` exactly, and for the same reasons: a stable
+ * identity `removeOscillator` can target and replay can reproduce, and a mute that keeps
+ * the settings so a slot can be A/B'd without losing them.
+ */
 export interface OscillatorConfig {
+  id: string;
+  enabled: boolean;
   type: SupportedWaveShape;
+  /**
+   * Whole-octave transpose, -2..2.
+   *
+   * Discrete, so deliberately NOT a modulation destination — F71 refuses those, because
+   * modulating a value with five legal positions has no continuous meaning. It is
+   * separate from `detune` rather than folded into a wider cents range because a player
+   * reaches for "one octave down" and "a few cents sharp" as different gestures.
+   */
+  octave: number;
   /** Cents. */
   detune: number;
   /** Unison voice count (fat* oscillators). 1 = no unison. */
@@ -84,6 +107,17 @@ export interface OscillatorConfig {
    * rate at which width is swept.
    */
   width: number;
+  /**
+   * This slot's contribution to the sum, 0..1.
+   *
+   * Levels SUM and nothing normalises them: three slots at 1.0 are three times the
+   * signal, and the output stage's limiter and hard clip are what keep that in range.
+   * Dividing by the number of enabled slots would make each slot's loudness depend on
+   * whether a sibling exists — the same refusal as F81, and the one hardware makes.
+   */
+  level: Unit;
+  /** This slot's stereo placement, -1..1, before the per-voice pan. */
+  pan: number;
 }
 
 export interface EnvelopeConfig {
@@ -139,6 +173,37 @@ export interface LFOConfig {
   /** Restart the LFO phase on every note-on instead of running free. */
   retrigger: boolean;
 }
+
+/**
+ * Hard cap on oscillator slots, mirroring MAX_LFOS and MAX_ROUTES so the parameter
+ * address space stays a finite compile-time union. KIND-synth_patch §1.1.
+ *
+ * Three is the design's A/B/C. A patch pays for the slots it fills, not for the cap —
+ * `oscillators` is a list and the factory patch holds one.
+ *
+ * Declared HERE, above the modulation vocabulary, because the destination table below
+ * expands over the slots at module-initialisation time. Sitting with `MAX_LFOS` further
+ * down would read tidier and throw on load: a `const` used before its declaration is a
+ * temporal-dead-zone error, not a hoisted one.
+ */
+export const MAX_OSCILLATORS = 3;
+export type OscillatorIndex = 0 | 1 | 2;
+
+/**
+ * The slot indices as a literal tuple, which `Array.from({ length: MAX_OSCILLATORS })`
+ * cannot be: that yields `number`, and a destination path built from it widens to
+ * `` `voice.oscillators.${number}.detune` `` — a template type that accepts index 47 and
+ * makes `Record<ParamPath, ParamSpec>` unindexable. The union has to stay finite for the
+ * same reason the caps exist at all.
+ */
+export const OSCILLATOR_SLOTS = [0, 1, 2] as const satisfies readonly OscillatorIndex[];
+
+/** Tripwire: the tuple above and the cap are two statements of one number. */
+type _SlotsMatchCap = typeof OSCILLATOR_SLOTS['length'] extends typeof MAX_OSCILLATORS
+  ? true
+  : ['OSCILLATOR_SLOTS length disagrees with MAX_OSCILLATORS'];
+const _slotsMatchCap: _SlotsMatchCap = true;
+void _slotsMatchCap;
 
 // ---------------------------------------------------------------------------
 // Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.8)
@@ -230,14 +295,31 @@ export const CENTS_PER_OCTAVE = 1200;
  * instruction, so F71 refuses it at the boundary rather than letting the runtime invent
  * a rounding rule for a discrete value.
  */
+const OSCILLATOR_DESTINATION_KEYS = ['detune', 'width', 'spread', 'level', 'pan'] as const;
+
+/**
+ * The five per-slot destinations, expanded over every slot index.
+ *
+ * Written as a family rather than transcribed fifteen times, which is what the KIND does
+ * too — §3.2 declares `voice.oscillators.N.*` once and says `N` expands over
+ * `MAX_OSCILLATORS`. Transcribing the expansion by hand would be fifteen chances to
+ * mistype an index for no gain: the F72 contract test compares this table against
+ * `PARAM_SPECS`, and both sides being generated does not weaken it, because `PARAM_SPECS`
+ * generates from its OWN key list. Getting the two lists out of step is still possible,
+ * which is what the gate is for.
+ */
+const OSCILLATOR_DESTINATIONS = OSCILLATOR_SLOTS.flatMap((slot) =>
+  OSCILLATOR_DESTINATION_KEYS.map(
+    (key) => ({ path: `voice.oscillators.${slot}.${key}`, perVoice: true, curve: 'linear' }) as const,
+  ),
+);
+
 export const MODULATION_DESTINATIONS = [
   { path: 'voice.filterEnvelope.baseFrequency', perVoice: true, curve: 'octaves' },
   { path: 'voice.filter.Q', perVoice: true, curve: 'linear' },
-  { path: 'voice.oscillator.detune', perVoice: true, curve: 'linear' },
-  { path: 'voice.oscillator.width', perVoice: true, curve: 'linear' },
-  { path: 'voice.oscillator.spread', perVoice: true, curve: 'linear' },
   { path: 'voice.amplitude', perVoice: true, curve: 'duckDb' },
   { path: 'voice.pan', perVoice: true, curve: 'linear' },
+  ...OSCILLATOR_DESTINATIONS,
   { path: 'effects.distortion.amount', perVoice: false, curve: 'linear' },
   { path: 'effects.distortion.wet', perVoice: false, curve: 'linear' },
   { path: 'effects.chorus.depth', perVoice: false, curve: 'linear' },
@@ -251,6 +333,7 @@ export const MODULATION_DESTINATIONS = [
   { path: 'effects.eq.band3.gain', perVoice: false, curve: 'linear' },
   { path: 'effects.eq.band4.gain', perVoice: false, curve: 'linear' },
 ] as const satisfies readonly { path: string; perVoice: boolean; curve: ModCurve }[];
+
 
 /**
  * Derived from the table, never written twice. The table's `satisfies` clause types
@@ -292,7 +375,8 @@ export interface VelocityConfig {
 }
 
 export interface VoiceConfig {
-  oscillator: OscillatorConfig;
+  /** One to MAX_OSCILLATORS slots, summed. KIND-synth_patch §1.1. */
+  oscillators: OscillatorConfig[];
   envelope: EnvelopeConfig;
   filter: FilterConfig;
   filterEnvelope: FilterEnvelopeConfig;
@@ -322,6 +406,7 @@ export interface VoiceConfig {
 /** Hard cap on LFOs per patch — bounds `ParamPath` to a finite union. */
 export const MAX_LFOS = 4;
 export type LfoIndex = 0 | 1 | 2 | 3;
+
 
 // ---------------------------------------------------------------------------
 // Effects chain
@@ -438,11 +523,17 @@ export interface MasterConfig {
 export type PresetCategory = 'Bass' | 'Lead' | 'Pad' | 'Keys' | 'Drum' | 'FX';
 
 /**
- * 2 — the modulation-routing bump. Version 1 patches carry `voice.filter.frequency`,
- * per-LFO `target`/`min`/`max`, and no `modRoutes` / `eq` / `voice.pan` / `voice.amplitude`.
- * `migratePreset` reconstructs all of it; see F65 in KIND-synth_patch.
+ * 3 — the oscillator-slot bump. `voice.oscillator` became `voice.oscillators`, a list
+ * capped at `MAX_OSCILLATORS`, and every route addressed at `voice.oscillator.*` moves to
+ * `voice.oscillators.0.*`.
+ *
+ * Version 2 patches carry the single `oscillator` dict. Version 1 patches carry that plus
+ * `voice.filter.frequency`, per-LFO `target`/`min`/`max`, and no `modRoutes` / `eq` /
+ * `voice.pan` / `voice.amplitude`. `migratePreset` walks every step in order and F65
+ * requires more than slot preservation at 3: a v2 patch and its migrated form must SOUND
+ * the same, because the arity changed underneath a voice that still renders one buffer.
  */
-export const PRESET_SCHEMA_VERSION = 2;
+export const PRESET_SCHEMA_VERSION = 3;
 
 export interface SynthPreset {
   /** KIND slot `patch_id`. */
@@ -591,6 +682,40 @@ type LfoParamValueMap = {
     : never;
 };
 
+/**
+ * Every addressable field of one oscillator slot, in the KIND's §1.1 order.
+ *
+ * Nine keys, of which five carry a `modulation` block. `enabled` and `type` cannot — they
+ * are boolean and enum, and the spec shape makes modulating them unrepresentable rather
+ * than merely refused. `octave` could structurally, since it is a number, and does not:
+ * `choices` marks it discrete and it is absent from `MODULATION_DESTINATIONS`, which the
+ * F72 gate checks in both directions.
+ */
+export type OscParamKey =
+  | 'enabled'
+  | 'type'
+  | 'octave'
+  | 'detune'
+  | 'count'
+  | 'spread'
+  | 'width'
+  | 'level'
+  | 'pan';
+
+export type OscParamPath = `voice.oscillators.${OscillatorIndex}.${OscParamKey}`;
+
+type OscParamValue<K extends OscParamKey> = K extends 'type'
+  ? SupportedWaveShape
+  : K extends 'enabled'
+    ? boolean
+    : number;
+
+type OscParamValueMap = {
+  [P in OscParamPath]: P extends `voice.oscillators.${OscillatorIndex}.${infer K extends OscParamKey}`
+    ? OscParamValue<K>
+    : never;
+};
+
 export type RouteParamKey = 'enabled' | 'source' | 'destination' | 'depth';
 
 export type RouteParamPath = `voice.modRoutes.${RouteIndex}.${RouteParamKey}`;
@@ -610,11 +735,6 @@ type RouteParamValueMap = {
 };
 
 interface FixedParamValueMap {
-  'voice.oscillator.type': SupportedWaveShape;
-  'voice.oscillator.detune': number;
-  'voice.oscillator.count': number;
-  'voice.oscillator.spread': number;
-  'voice.oscillator.width': Unit;
 
   'voice.envelope.attack': Seconds;
   'voice.envelope.decay': Seconds;
@@ -664,7 +784,10 @@ interface FixedParamValueMap {
   'master.limiterThreshold': Decibels;
 }
 
-export type ParamValueMap = FixedParamValueMap & LfoParamValueMap & RouteParamValueMap;
+export type ParamValueMap = FixedParamValueMap &
+  OscParamValueMap &
+  LfoParamValueMap &
+  RouteParamValueMap;
 
 export type ParamPath = keyof ParamValueMap & string;
 

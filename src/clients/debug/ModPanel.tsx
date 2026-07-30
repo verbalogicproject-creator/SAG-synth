@@ -47,7 +47,9 @@ const SOURCES: readonly { value: 'lfo.0' | 'lfo.1' | 'lfo.2' | 'lfo.3' | 'veloci
 const WIRED_DESTINATIONS: readonly { path: ModDestination; label: string }[] = [
   { path: 'voice.filterEnvelope.baseFrequency', label: 'cutoff — filter sweep' },
   { path: 'voice.filter.Q', label: 'resonance' },
-  { path: 'voice.oscillator.detune', label: 'pitch — vibrato' },
+  { path: 'voice.oscillators.0.detune', label: 'slot 0 pitch — vibrato' },
+  { path: 'voice.oscillators.0.level', label: 'slot 0 level' },
+  { path: 'voice.oscillators.0.pan', label: 'slot 0 pan' },
   { path: 'voice.amplitude', label: 'level — tremolo' },
   { path: 'voice.pan', label: 'pan — autopan' },
 ];

@@ -26,6 +26,7 @@ import { initialEngineState, type EngineState } from '../core/state';
 import { setParam } from '../core/commands';
 import {
   MAX_LFOS,
+  MAX_OSCILLATORS,
   MAX_ROUTES,
   type LFOConfig,
   type ModRoute,
@@ -79,8 +80,30 @@ function routeConfig(index: number): ModRoute {
  * LFO and route paths address slots that may be empty; fill them so every path is
  * reachable. Order matters — `addRoute` rejects a source naming an empty LFO slot.
  */
+function oscConfig(index: number) {
+  return {
+    id: `osc-${index}`,
+    enabled: true,
+    type: 'sawtooth' as const,
+    octave: 0,
+    detune: 0,
+    count: 1,
+    spread: 20,
+    width: 0,
+    level: 1,
+    pan: 0,
+  };
+}
+
 function stateWithSlotsFilled(): EngineState {
   let state = initialEngineState();
+  // The factory patch ships with slot 0 filled, so only the remainder are added — unlike
+  // LFOs and routes, which ship empty. A voice must always have at least one slot.
+  for (let i = state.patch.voice.oscillators.length; i < MAX_OSCILLATORS; i += 1) {
+    const result = reduce(state, { type: 'addOscillator', config: oscConfig(i) }, meta);
+    if (result.status !== 'applied') throw new Error(`addOscillator ${i}: ${result.error}`);
+    state = result.state;
+  }
   for (let i = 0; i < MAX_LFOS; i += 1) {
     const result = reduce(state, { type: 'addLfo', config: lfoConfig(i) }, meta);
     if (result.status !== 'applied') throw new Error(`addLfo ${i}: ${result.error}`);
@@ -97,7 +120,7 @@ function stateWithSlotsFilled(): EngineState {
 describe('getParam agrees with setParam', () => {
   it('covers every declared path — no path is silently unreachable', () => {
     // Guards the loop below against shrinking to nothing if PARAM_PATHS is restructured.
-    expect(PARAM_PATHS.length).toBe(97);
+    expect(PARAM_PATHS.length).toBe(119);
   });
 
   it('reads back exactly what was written, for every declared path', () => {
@@ -209,7 +232,7 @@ describe('describeDepth — what a normalised depth means where it points', () =
   });
 
   it('reads a linear depth in the destination unit, halved for a bipolar source', () => {
-    expect(describeDepth('voice.oscillator.detune', 0.5)).toBe('±600 cents');
+    expect(describeDepth('voice.oscillators.0.detune', 0.5)).toBe('±600 cents');
     expect(describeDepth('voice.pan', 0.5)).toBe('±0.50');
   });
 
