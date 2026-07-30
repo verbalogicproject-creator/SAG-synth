@@ -1,1 +1,1 @@
-export { ToneRuntime, monoSynthOptions } from './tone-runtime';
+export { ToneRuntime, monoSynthOptions, UNMAPPED_PARAMS } from './tone-runtime';

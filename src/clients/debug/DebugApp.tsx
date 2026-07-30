@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ToneRuntime } from '../../runtime';
+import { ToneRuntime, UNMAPPED_PARAMS } from '../../runtime';
 import { createEngine } from '../../app/create-engine';
 import { MemorySagJournal } from '../../core/sag/events';
 import type { Dispatcher } from '../../app/dispatcher';
@@ -325,12 +325,20 @@ export function DebugApp() {
         </dl>
       </section>
 
-      {unimplemented.length > 0 && (
-        <section style={{ ...styles.panel, borderColor: '#b58900' }}>
-          <h2 style={styles.h2}>Not implemented in v0.1.0</h2>
-          <p style={styles.dim}>{unimplemented.join(', ')}</p>
-        </section>
-      )}
+      <section style={{ ...styles.panel, borderColor: '#b58900' }}>
+        <h2 style={styles.h2}>Known gaps</h2>
+        <dl style={styles.grid}>
+          <dt style={styles.dt}>unmapped params</dt>
+          <dd style={styles.dd}>{UNMAPPED_PARAMS.join(', ') || 'none'}</dd>
+          <dt style={styles.dt}>calls not serviced</dt>
+          <dd style={styles.dd}>{unimplemented.join(', ') || 'none'}</dd>
+        </dl>
+        <p style={styles.dim}>
+          voice.filter.frequency collides with voice.filterEnvelope.baseFrequency — in a
+          MonoSynth the envelope owns the cutoff, so only one can be it. baseFrequency
+          wins; see UNMAPPED_PARAMS in tone-runtime.ts.
+        </p>
+      </section>
     </main>
   );
 }

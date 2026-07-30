@@ -13,14 +13,18 @@
  * play and during journal replay. This class is told which voice sounds and which dies;
  * it never chooses.
  *
- * STAGE 1 SCOPE. `applyPatch` reads only `oscillator.type` and `envelope`. Filter,
- * filter envelope, LFOs, unison, velocity mapping and the effects chain arrive in
- * Stages 2-3. Unimplemented adapter methods are recorded and warned about rather than
- * throwing — see `notImplemented` below.
+ * SCOPE. `applyPatch` currently reads `oscillator.type`, `envelope`, `filter` and
+ * `filterEnvelope`. Still to come, each with its own audio gate: oscillator unison
+ * (`count`/`spread`/`width`), `velocity.*`, `lfos`, and the effects chain.
+ *
+ * Two kinds of honesty about what is missing, deliberately kept separate: adapter
+ * methods this version cannot service are recorded at call time by `notImplemented`,
+ * while contract parameters it does not read are listed statically in `UNMAPPED_PARAMS`.
+ * The debug surface shows both, so nothing that does nothing looks like it works.
  */
 
 import * as Tone from 'tone';
-import type { Beats, Song, SynthPreset } from '../core/types';
+import type { Beats, FilterRolloff, FilterType, Song, SynthPreset } from '../core/types';
 import type { VoiceId } from '../core/state';
 import type {
   Runtime,
@@ -307,22 +311,55 @@ export class ToneRuntime implements Runtime {
 }
 
 /**
+ * Contract parameters this runtime deliberately does not read, and why.
+ *
+ * `voice.filter.frequency` collides with `voice.filterEnvelope.baseFrequency`. In
+ * `Tone.MonoSynth` the filter's cutoff is driven ENTIRELY by the filter envelope — it
+ * sweeps `baseFrequency` up to `baseFrequency × 2^octaves` — and the filter's own
+ * `frequency` option is overwritten. Only one of our two parameters can be the cutoff.
+ *
+ * The shipped defaults settle which: `baseFrequency: 300, octaves: 3` is a designed
+ * sweep to 2400 Hz. Treating `filter.frequency: 2000` as the base instead would sweep
+ * to 16 kHz and make the factory patch a different, far brighter instrument. So
+ * `filterEnvelope.baseFrequency` is authoritative — which is also the 1:1 name match
+ * to Tone, and therefore the least surprising mapping.
+ *
+ * Listed here rather than silently skipped: the debug surface displays it, so a
+ * parameter that does nothing says so instead of looking broken.
+ */
+export const UNMAPPED_PARAMS: readonly string[] = ['voice.filter.frequency'];
+
+interface MonoSynthOptions {
+  oscillator: { type: 'sine' | 'triangle' | 'sawtooth' | 'square' };
+  envelope: { attack: number; decay: number; sustain: number; release: number };
+  filter: { type: FilterType; Q: number; rolloff: FilterRolloff };
+  filterEnvelope: {
+    attack: number;
+    decay: number;
+    sustain: number;
+    release: number;
+    baseFrequency: number;
+    octaves: number;
+  };
+}
+
+/**
  * Translate a patch into `Tone.MonoSynth` options.
  *
  * Exported so an audio gate can assert the mapping without constructing a whole
- * runtime, and so Stage 2 has one obvious place to widen.
+ * runtime, and so each stage has one obvious place to widen.
  *
  * MonoSynth is oscillator + amp envelope + filter + filter envelope, which is close to
  * a 1:1 fit for our `VoiceConfig` — that near-isomorphism is why the Phase-1 harness
- * could already drive it with our parameter names. Stage 1 deliberately reads only the
- * first two; the rest is Stage 2, and reading a field here before its gate exists would
- * make the runtime look more finished than it is.
+ * could already drive it with our parameter names. `FilterType` and `FilterRolloff` are
+ * exact matches for Tone's `BiquadFilterType` and rolloff union, so both pass straight
+ * through.
+ *
+ * Still not read (later stages, each with its own gate): oscillator `count` / `spread` /
+ * `width`, `velocity.*`, and `lfos`.
  */
-export function monoSynthOptions(patch: SynthPreset): {
-  oscillator: { type: 'sine' | 'triangle' | 'sawtooth' | 'square' };
-  envelope: { attack: number; decay: number; sustain: number; release: number };
-} {
-  const { oscillator, envelope } = patch.voice;
+export function monoSynthOptions(patch: SynthPreset): MonoSynthOptions {
+  const { oscillator, envelope, filter, filterEnvelope } = patch.voice;
   return {
     oscillator: { type: basicWaveShape(oscillator.type) },
     envelope: {
@@ -330,6 +367,20 @@ export function monoSynthOptions(patch: SynthPreset): {
       decay: envelope.decay,
       sustain: envelope.sustain,
       release: envelope.release,
+    },
+    filter: {
+      type: filter.type,
+      Q: filter.Q,
+      rolloff: filter.rolloff,
+    },
+    filterEnvelope: {
+      attack: filterEnvelope.attack,
+      decay: filterEnvelope.decay,
+      sustain: filterEnvelope.sustain,
+      release: filterEnvelope.release,
+      // The cutoff. See UNMAPPED_PARAMS above for why this one and not filter.frequency.
+      baseFrequency: filterEnvelope.baseFrequency,
+      octaves: filterEnvelope.octaves,
     },
   };
 }

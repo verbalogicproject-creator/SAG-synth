@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Tone from 'tone';
 import { ToneRuntime } from '../runtime';
-import { rms, peak, estimatePitch } from '../test-harness/audio-assertions';
+import { rms, peak, estimatePitch, hfEnergyRatio } from '../test-harness/audio-assertions';
 import { defaultPreset, defaultSong } from '../core/state';
 import type { SynthPreset } from '../core/types';
 
@@ -178,6 +178,137 @@ describe('ToneRuntime — the pool stays lazy', () => {
     // Polyphony is bounded at 32; building all of them up front would be wasteful, and
     // retriggering the same id must not build a second one.
     expect(counts).toEqual([0, 1, 1, 2]);
+  });
+});
+
+describe('ToneRuntime — the filter', () => {
+  /**
+   * High-frequency energy at a moment in SECONDS.
+   *
+   * `hfEnergyRatio` takes a sample index for its `atSample` argument while
+   * `estimatePitch` takes seconds — an inconsistency in the harness API that has now
+   * caused a wrong-units bug in both directions. Passing seconds reads sample 0 every
+   * time, so every window compares the same audio and the test passes vacuously.
+   * Converting in exactly one place is the fix.
+   */
+  function hfAt(data: Float32Array, seconds: number, aboveHz = 5000): number {
+    return hfEnergyRatio(data, SR, aboveHz, Math.floor(seconds * SR));
+  }
+
+  /** Render one held note through a patch whose filter section is set by `mutate`. */
+  function renderFiltered(mutate: (patch: SynthPreset) => void): Promise<Float32Array> {
+    return render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          // A fast, flat amp envelope so what the window measures is the FILTER, not
+          // the amp contour decaying underneath it.
+          patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+          mutate(patch);
+        }),
+      );
+      runtime.noteOn({ voiceId: 0, note: 'C2', velocity: 0.9, portamento: 0 });
+    }, 0.6);
+  }
+
+  /** A static cutoff: no envelope sweep, so the filter sits exactly where it is put. */
+  function staticCutoff(patch: SynthPreset, hz: number): void {
+    patch.voice.filterEnvelope = {
+      attack: 0.001,
+      decay: 0.001,
+      sustain: 1,
+      release: 0.001,
+      baseFrequency: hz,
+      octaves: 0,
+    };
+  }
+
+  it('lowering the cutoff measurably removes high-frequency energy', async () => {
+    const [dark, bright] = await Promise.all([
+      renderFiltered((patch) => staticCutoff(patch, 300)),
+      renderFiltered((patch) => staticCutoff(patch, 16000)),
+    ]);
+
+    // The load-bearing assertion of the whole stage: the filter is actually in the
+    // signal path and reads the patch, rather than the options being accepted and
+    // dropped. A sawtooth at C2 is rich enough above 5kHz for this to be decisive.
+    const darkHf = hfAt(dark, 0.3);
+    const brightHf = hfAt(bright, 0.3);
+    expect(darkHf).toBeLessThan(brightHf);
+  });
+
+  it('a steeper rolloff removes more than a shallow one at the same cutoff', async () => {
+    const [shallow, steep] = await Promise.all([
+      renderFiltered((patch) => {
+        staticCutoff(patch, 500);
+        patch.voice.filter.rolloff = -12;
+      }),
+      renderFiltered((patch) => {
+        staticCutoff(patch, 500);
+        patch.voice.filter.rolloff = -96;
+      }),
+    ]);
+
+    // Proves `rolloff` is read. It is a distinct Tone option from `type`, and passing
+    // one without the other would still produce a filtered-sounding result.
+    expect(hfAt(steep, 0.3)).toBeLessThan(hfAt(shallow, 0.3));
+  });
+
+  it('highpass and lowpass at the same cutoff are opposites', async () => {
+    const [low, high] = await Promise.all([
+      renderFiltered((patch) => {
+        staticCutoff(patch, 800);
+        patch.voice.filter.type = 'lowpass';
+      }),
+      renderFiltered((patch) => {
+        staticCutoff(patch, 800);
+        patch.voice.filter.type = 'highpass';
+      }),
+    ]);
+
+    // Proves `type` is read rather than defaulted to lowpass.
+    expect(hfAt(low, 0.3)).toBeLessThan(hfAt(high, 0.3));
+  });
+
+  it('the filter envelope sweeps: the attack is darker than the sustain', async () => {
+    const data = await renderFiltered((patch) => {
+      patch.voice.filterEnvelope = {
+        attack: 0.35,
+        decay: 0.01,
+        sustain: 1,
+        release: 0.1,
+        baseFrequency: 200,
+        octaves: 5,
+      };
+    });
+
+    // With a 0.35s filter attack sweeping five octaves up from 200Hz, the opening must
+    // be measurably duller than the top of the sweep. This is the parameter that makes
+    // a synth sound like a synth, and nothing else in the suite covers it.
+    const early = hfAt(data, 0.02);
+    const late = hfAt(data, 0.4);
+    expect(early).toBeLessThan(late);
+  });
+
+  it('octaves controls how far the sweep travels', async () => {
+    // Differential, and deliberately so. An earlier version rendered ONLY the
+    // `octaves: 0` case and asserted early ≈ late against a fixed threshold. That
+    // passes whenever the sweep happens to be short — including when `octaves` is
+    // ignored entirely and a fast envelope is substituted, which a negative probe
+    // proved. Holding the attack fixed and varying only `octaves` cannot pass vacuously:
+    // the wide sweep MUST move more than the pinned one.
+    const envelope = { attack: 0.3, decay: 0.01, sustain: 1, release: 0.1 };
+
+    const [pinned, wide] = await Promise.all([
+      renderFiltered((patch) => {
+        patch.voice.filterEnvelope = { ...envelope, baseFrequency: 400, octaves: 0 };
+      }),
+      renderFiltered((patch) => {
+        patch.voice.filterEnvelope = { ...envelope, baseFrequency: 400, octaves: 5 };
+      }),
+    ]);
+
+    const travel = (data: Float32Array) => Math.abs(hfAt(data, 0.4) - hfAt(data, 0.05));
+    expect(travel(pinned)).toBeLessThan(travel(wide));
   });
 });
 
