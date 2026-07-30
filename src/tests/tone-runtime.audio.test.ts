@@ -25,6 +25,8 @@ import {
 import { rms, peak, estimatePitch, hfEnergyRatio } from '../test-harness/audio-assertions';
 import { defaultPreset, defaultSong } from '../core/state';
 import { PARAM_PATHS } from '../core/schemas';
+import { createEngine } from '../app/create-engine';
+import type { SynthCommand } from '../core/commands';
 import type { SynthPreset } from '../core/types';
 
 const SR = 44100;
@@ -356,6 +358,223 @@ describe('ToneRuntime — readouts', () => {
     // when unlock() resolved was wrong twice over — resume() resolves whether or not
     // the browser honoured it, and Android re-suspends on backgrounding.
     expect(['suspended', 'running', 'closed']).toContain(state);
+  });
+});
+
+describe('polyphony and stealing, end to end (Stage 2e)', () => {
+  /**
+   * Everything else in this file drives the runtime directly. These drive the
+   * DISPATCHER, which is the point: the allocator is a pure function proven in core, and
+   * what has never been gated is the whole path — dispatch decides, the runtime executes,
+   * and the result reaches a buffer. A pure function returning the right verdict and a
+   * pool actually sounding the right number of notes are different claims.
+   */
+  function renderPlayed(
+    play: (dispatch: (command: SynthCommand) => void) => void,
+    patchMutate?: (patch: SynthPreset) => void,
+    seconds = 1.2,
+  ): Promise<Float32Array> {
+    return Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        // Deterministic id and clock: this runs inside an offline render where Date.now()
+        // is meaningless, and the dispatcher requires both to be injected anyway.
+        let n = 0;
+        const dispatcher = createEngine({
+          runtime,
+          overrides: { newId: () => `cmd-${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+        });
+        dispatcher.dispatch({
+          type: 'loadPreset',
+          preset: patchWith((patch) => {
+            // A short, percussive note so separate onsets stay separable, and no release
+            // tail smearing one note's decay across the next one's attack.
+            patch.voice.envelope = { attack: 0.002, decay: 0.06, sustain: 0, release: 0.02 };
+            patch.voice.filterEnvelope = {
+              attack: 0.002,
+              decay: 0.06,
+              sustain: 0,
+              release: 0.02,
+              baseFrequency: 2000,
+              octaves: 0,
+            };
+            patchMutate?.(patch);
+          }),
+        });
+        play((command) => dispatcher.dispatch(command));
+      },
+      seconds,
+      1,
+      SR,
+    ).then((buffer) => buffer.getChannelData(0));
+  }
+
+  const NOTES = ['C3', 'E3', 'G3', 'B3', 'D4', 'F4', 'A4', 'C5'];
+
+  it('sounds every note when the pool has room', async () => {
+    const data = await renderPlayed(
+      (dispatch) => {
+        NOTES.slice(0, 4).forEach((note) => {
+          dispatch({ type: 'noteOn', note, velocity: 0.9 });
+        });
+      },
+      (patch) => {
+        patch.voice.polyphony = 8;
+      },
+    );
+    expect(rms(data)).toBeGreaterThan(0.01);
+  });
+
+  it('holds the cap under overload rather than sounding every note', async () => {
+    // Eight notes into a two-voice pool. If stealing did not reach the runtime, all eight
+    // MonoSynths would be sounding and the result would be far louder.
+    const [capped, roomy] = await Promise.all([
+      renderPlayed(
+        (dispatch) => {
+          NOTES.forEach((note) => dispatch({ type: 'noteOn', note, velocity: 0.9 }));
+        },
+        (patch) => {
+          patch.voice.polyphony = 2;
+        },
+      ),
+      renderPlayed(
+        (dispatch) => {
+          NOTES.forEach((note) => dispatch({ type: 'noteOn', note, velocity: 0.9 }));
+        },
+        (patch) => {
+          patch.voice.polyphony = 8;
+        },
+      ),
+    ]);
+
+    expect(peak(capped)).toBeLessThan(peak(roomy));
+    // ...and it must still make a sound. A steal that killed everything would also pass
+    // the comparison above.
+    expect(rms(capped)).toBeGreaterThan(0.005);
+  });
+
+  it('builds only as many Tone voices as the cap allows', async () => {
+    let voiceCount = 0;
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        let n = 0;
+        const dispatcher = createEngine({
+          runtime,
+          overrides: { newId: () => `cmd-${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+        });
+        dispatcher.dispatch({
+          type: 'loadPreset',
+          preset: patchWith((patch) => {
+            patch.voice.polyphony = 3;
+          }),
+        });
+        NOTES.forEach((note) => dispatcher.dispatch({ type: 'noteOn', note, velocity: 0.8 }));
+        voiceCount = runtime.voiceCount;
+      },
+      0.3,
+      1,
+      SR,
+    );
+
+    // Eight notes, three voices. The runtime builds lazily and core never nominates a
+    // voiceId at or above the cap, so no fourth MonoSynth should exist.
+    expect(voiceCount).toBe(3);
+  });
+
+  it('retriggers the voice already holding a note instead of burning a second slot', async () => {
+    let voiceCount = 0;
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        let n = 0;
+        const dispatcher = createEngine({
+          runtime,
+          overrides: { newId: () => `cmd-${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+        });
+        dispatcher.dispatch({ type: 'loadPreset', preset: defaultPreset() });
+        for (let i = 0; i < 5; i += 1) {
+          dispatcher.dispatch({ type: 'noteOn', note: 'C4', velocity: 0.8 });
+        }
+        voiceCount = runtime.voiceCount;
+      },
+      0.3,
+      1,
+      SR,
+    );
+
+    // Holding C4 and pressing it again is one voice on real hardware. Five presses of the
+    // same key must not consume five slots.
+    expect(voiceCount).toBe(1);
+  });
+
+  it('sounds a stolen slot as the new note, not the old one', async () => {
+    // A one-voice pool played twice. If the steal did not reach the runtime, the first
+    // note's oscillator would still be running at its own pitch.
+    const data = await renderPlayed(
+      (dispatch) => {
+        dispatch({ type: 'noteOn', note: 'C3', velocity: 0.9 });
+        dispatch({ type: 'noteOn', note: 'C5', velocity: 0.9 });
+      },
+      (patch) => {
+        patch.voice.polyphony = 1;
+        // Sustained, so there is something to measure the pitch of.
+        patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+        patch.voice.filterEnvelope = {
+          attack: 0.005,
+          decay: 0.01,
+          sustain: 1,
+          release: 0.1,
+          baseFrequency: 8000,
+          octaves: 0,
+        };
+      },
+    );
+
+    // C5 is 523 Hz; C3 is 131 Hz. The surviving voice must be the second note.
+    const pitch = estimatePitch(data, SR, 0.4);
+    expect(pitch).toBeGreaterThan(450);
+    expect(pitch).toBeLessThan(600);
+  });
+
+  it('lowering polyphony mid-performance reclaims an over-cap voice, not a legitimate one', async () => {
+    let voiceCount = 0;
+    let notes: string[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        let n = 0;
+        const dispatcher = createEngine({
+          runtime,
+          overrides: { newId: () => `cmd-${(n += 1)}`, now: () => 1_700_000_000_000 + n },
+        });
+        dispatcher.dispatch({ type: 'loadPreset', preset: defaultPreset() });
+        NOTES.slice(0, 6).forEach((note) =>
+          dispatcher.dispatch({ type: 'noteOn', note, velocity: 0.8 }),
+        );
+        dispatcher.dispatch({ type: 'setParam', path: 'voice.polyphony', value: 2 });
+        dispatcher.dispatch({ type: 'noteOn', note: 'G5', velocity: 0.8 });
+        voiceCount = runtime.voiceCount;
+        notes = dispatcher.getTransient().voices.map((voice) => voice.note);
+      },
+      0.3,
+      1,
+      SR,
+    );
+
+    // Six voices existed before the cap dropped, and the pool does not shrink
+    // retroactively. What must not happen is a SEVENTH.
+    expect(voiceCount).toBe(6);
+
+    // WHICH voice was reclaimed is the whole claim, and counting cannot express it: a
+    // globally-oldest steal reuses an existing slot too, so the totals look identical
+    // either way. C3 is the oldest note but sits in slot 0, now within the cap; the new
+    // note must take an over-budget slot instead, so C3 survives and G3 — the oldest slot
+    // at or above the cap — does not.
+    expect(notes).toContain('C3');
+    expect(notes).toContain('E3');
+    expect(notes).not.toContain('G3');
+    expect(notes).toContain('G5');
   });
 });
 
