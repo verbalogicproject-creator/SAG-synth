@@ -13,6 +13,7 @@ import {
   applyToHistory,
   canRedo,
   canUndo,
+  emittedRevision,
   initialHistory,
   replay,
   type HistoryState,
@@ -41,6 +42,7 @@ function runSession(commands: SynthCommand[]): {
     const id = `c${index}`;
     const ts = 1_700_000_000_000 + index;
     const envelope = createEnvelope(command, 'ui', id, ts);
+    const before = history;
     const result = applyToHistory(history, command, meta(id, ts));
     if (result.status === 'applied') history = result.history;
     journal.push(
@@ -49,7 +51,9 @@ function runSession(commands: SynthCommand[]): {
         result.status === 'applied'
           ? { status: 'applied' }
           : { status: 'rejected', error: result.error },
-        { seq: index, revision: history.present.revision },
+        // The same helper the dispatcher will use, so these journals are shaped by the
+        // real rule rather than by a copy of it that could drift away from it.
+        { seq: index, revision: emittedRevision(before, result) },
       ),
     );
   });
@@ -153,6 +157,66 @@ describe('the reducer refuses history commands outright', () => {
       const result = reduce(initialEngineState(), { type }, meta('c'));
       expect(result.status).toBe('rejected');
       if (result.status === 'rejected') expect(result.error).toContain('history driver');
+    }
+  });
+});
+
+describe('emittedRevision — the revision slot of KIND-synth_command_applied', () => {
+  function revisionOf(history: HistoryState, command: SynthCommand): number {
+    return emittedRevision(history, applyToHistory(history, command, meta('c')));
+  }
+
+  it('advances for a document edit', () => {
+    const start = initialHistory();
+    expect(start.present.revision).toBe(0);
+    expect(revisionOf(start, { type: 'setTempo', bpm: 96 })).toBe(1);
+  });
+
+  it('holds flat for a transient command, which changes nothing in EngineState', () => {
+    const history = apply(initialHistory(), { type: 'setTempo', bpm: 96 });
+    expect(history.present.revision).toBe(1);
+    expect(revisionOf(history, { type: 'seek', position: 4 })).toBe(1);
+  });
+
+  it('F61: holds flat for a rejected command, which consumes a seq but not a revision', () => {
+    const history = apply(initialHistory(), { type: 'setTempo', bpm: 96 });
+    const result = applyToHistory(history, { type: 'removeTrack', trackId: 'ghost' }, meta('c'));
+    expect(result.status).toBe('rejected');
+    expect(emittedRevision(history, result)).toBe(1);
+  });
+
+  it('RESTORES rather than advances on undo, then again on redo', () => {
+    // The case the deleted `revisionAfter` could never have got right: read off the
+    // pre-state, undo reports the revision it is leaving, not the one it returns to.
+    let history = apply(initialHistory(), { type: 'setTempo', bpm: 96 });
+    history = apply(history, { type: 'setTempo', bpm: 140 }, 'c2');
+    expect(history.present.revision).toBe(2);
+
+    const undone = applyToHistory(history, { type: 'undo' }, meta('c3'));
+    expect(emittedRevision(history, undone)).toBe(1);
+    if (undone.status !== 'applied') throw new Error('undo should have applied');
+
+    const redone = applyToHistory(undone.history, { type: 'redo' }, meta('c4'));
+    expect(emittedRevision(undone.history, redone)).toBe(2);
+  });
+
+  it('never reports a revision the state does not actually carry', () => {
+    // Whatever it returns must be observable in a real state — otherwise the journal
+    // records a version of the document that never existed.
+    let history = initialHistory();
+    const seen = new Set<number>([history.present.revision]);
+    for (const command of [
+      { type: 'setTempo', bpm: 96 },
+      setParam('voice.filter.frequency', 850),
+      { type: 'undo' },
+      { type: 'redo' },
+      { type: 'seek', position: 2 },
+    ] as SynthCommand[]) {
+      const result = applyToHistory(history, command, meta('c'));
+      const revision = emittedRevision(history, result);
+      if (result.status === 'applied') history = result.history;
+      seen.add(history.present.revision);
+      expect(seen.has(revision), `revision ${revision} was never a real state`).toBe(true);
     }
   });
 });

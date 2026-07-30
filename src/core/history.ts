@@ -17,7 +17,7 @@
  * function the replay must go through.
  */
 
-import { advancesRevision, isHistoryCommand, type SynthCommand } from './commands';
+import { advancesRevision, type SynthCommand } from './commands';
 import { initialEngineState, type EngineState } from './state';
 import { reduce, type ReduceMeta, type ReduceResult } from './reduce';
 import type { SynthCommandAppliedEvent } from './sag/events';
@@ -145,11 +145,20 @@ export function replay(
 }
 
 /**
- * The revision an emitted event should carry for this command. Undo and redo report the
- * revision they RESTORED rather than one past it, which is why they cannot go through
- * `advancesRevision` alone.
+ * The revision an emitted event must carry, per KIND-synth_command_applied slot
+ * `revision` and F61. This is a function of the state BEFORE and the RESULT, never of
+ * the command alone: a revision-advancing command's new revision does not exist until
+ * the reducer has run, and undo/redo restore a revision recorded in a past state rather
+ * than computing one.
+ *
+ * An earlier signature took `(history, command)` and tried to answer from the pre-state.
+ * It could not: every branch could only return the pre-command revision, which is right
+ * for a rejection and wrong for everything else. Reading it off the post-state makes
+ * undo and redo fall out for free — `past` holds whole `EngineState`s, each carrying the
+ * revision it had when it was current.
  */
-export function revisionAfter(history: HistoryState, command: SynthCommand): number {
-  if (isHistoryCommand(command)) return history.present.revision;
-  return history.present.revision;
+export function emittedRevision(before: HistoryState, result: HistoryResult): number {
+  // F61: a rejected command consumes a seq but not a revision.
+  if (result.status === 'rejected') return before.present.revision;
+  return result.history.present.revision;
 }

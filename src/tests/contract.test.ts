@@ -384,4 +384,66 @@ describe('layer rule D2', () => {
       .map(([file]) => file);
     expect(offenders).toEqual([]);
   });
+
+  // -------------------------------------------------------------------------
+  // The app layer. Core's gate says "zod only"; app's is looser but not absent —
+  // an ungated layer is where the rule quietly stops being true.
+  // -------------------------------------------------------------------------
+
+  const appSources = import.meta.glob('../app/**/*.ts', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>;
+
+  /**
+   * app is the adapter layer, so it may reach the packages core cannot: `idb` for
+   * storage, `@tonejs/midi` for parsing. `tone` is deliberately absent — audio belongs
+   * to src/runtime/, and app composing runtime is what keeps the runtime swappable for
+   * NullRuntime. Adding an entry here should be a decision, not a reflex.
+   */
+  const APP_ALLOWED_PACKAGES = new Set(['zod', 'idb', '@tonejs/midi']);
+
+  it('finds the app files it is meant to be policing', () => {
+    expect(Object.keys(appSources).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('app imports only its declared adapter packages', () => {
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(appSources)) {
+      for (const specifier of specifiersIn(source)) {
+        if (!specifier.startsWith('.') && !APP_ALLOWED_PACKAGES.has(specifier)) {
+          offenders.push(`${file} imports "${specifier}"`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('app never imports the UI', () => {
+    // This is the gate that protects v0.2. The SAG-SDK drives the dispatcher with no
+    // React mounted at all; the moment app reaches into src/clients/ — or pulls in
+    // react directly — the engine stops being headless and the SDK needs a browser.
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(appSources)) {
+      for (const specifier of specifiersIn(source)) {
+        if (/(^|\/)clients(\/|$)/.test(specifier) || /^react(-dom)?(\/|$)/.test(specifier)) {
+          offenders.push(`${file} imports "${specifier}"`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('detects a UI import if one appeared', () => {
+    // Test-of-the-test: the two matchers above are the whole gate, so prove they fire
+    // on the exact specifiers they exist to catch rather than trusting them to.
+    const uiLike = (s: string) => /(^|\/)clients(\/|$)/.test(s) || /^react(-dom)?(\/|$)/.test(s);
+    expect(uiLike('../clients/ui/store')).toBe(true);
+    expect(uiLike('react')).toBe(true);
+    expect(uiLike('react-dom/client')).toBe(true);
+    // ...and stay quiet on things that merely look similar.
+    expect(uiLike('../core/ports')).toBe(false);
+    expect(uiLike('react-is-not-a-real-dep')).toBe(false);
+  });
 });

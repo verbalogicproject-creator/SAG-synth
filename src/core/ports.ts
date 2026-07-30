@@ -21,6 +21,30 @@ import type { SynthCommandAppliedEvent } from './sag/events';
 // Persistence
 // ---------------------------------------------------------------------------
 
+export interface PersistenceWarning {
+  code: 'unreadable-preset' | 'unreadable-song';
+  /** The store key of the row that was dropped, so the user can be told which one. */
+  key: string;
+  message: string;
+}
+
+/**
+ * A listing plus whatever it could not read.
+ *
+ * `loadPreset` answers "this one document, or nothing" and `null` says everything. A
+ * listing cannot: dropping a corrupt row and returning the rest is the only sane
+ * behaviour — one bad document must not hide the library — but returning a bare array
+ * makes that drop invisible, so a preset silently disappears and the user is left
+ * guessing. Naming the losses in the return type means a caller has to look at them to
+ * get at the items, which is the whole point.
+ *
+ * Same `{ payload, warnings }` shape as `MidiImportResult` below; one convention.
+ */
+export interface ListResult<T> {
+  items: T[];
+  warnings: PersistenceWarning[];
+}
+
 /**
  * The storage seam. Every method is async because IndexedDB is; the in-memory
  * implementation below resolves immediately so pure tests never need a browser.
@@ -31,12 +55,12 @@ import type { SynthCommandAppliedEvent } from './sag/events';
 export interface PersistencePort {
   savePreset(preset: SynthPreset): Promise<void>;
   loadPreset(id: string): Promise<SynthPreset | null>;
-  listPresets(): Promise<PresetSummary[]>;
+  listPresets(): Promise<ListResult<PresetSummary>>;
   deletePreset(id: string): Promise<void>;
 
   saveSong(song: Song): Promise<void>;
   loadSong(id: string): Promise<Song | null>;
-  listSongs(): Promise<SongSummary[]>;
+  listSongs(): Promise<ListResult<SongSummary>>;
   deleteSong(id: string): Promise<void>;
 
   /**
@@ -74,16 +98,20 @@ export class MemoryPersistence implements PersistencePort {
     return Promise.resolve(found ? structuredClone(found) : null);
   }
 
-  listPresets(): Promise<PresetSummary[]> {
-    return Promise.resolve(
-      [...this.presets.values()].map((preset) => ({
+  listPresets(): Promise<ListResult<PresetSummary>> {
+    // Always empty warnings: this map holds objects that were handed to it already
+    // typed, so unlike a decoded IndexedDB row there is nothing here that can fail to
+    // parse. The slot exists so callers write one code path against both implementations.
+    return Promise.resolve({
+      items: [...this.presets.values()].map((preset) => ({
         id: preset.id,
         name: preset.name,
         ...(preset.category === undefined ? {} : { category: preset.category }),
         factory: preset.factory ?? false,
         createdAt: preset.createdAt,
       })),
-    );
+      warnings: [],
+    });
   }
 
   deletePreset(id: string): Promise<void> {
@@ -101,16 +129,17 @@ export class MemoryPersistence implements PersistencePort {
     return Promise.resolve(found ? structuredClone(found) : null);
   }
 
-  listSongs(): Promise<SongSummary[]> {
-    return Promise.resolve(
-      [...this.songs.values()].map((song) => ({
+  listSongs(): Promise<ListResult<SongSummary>> {
+    return Promise.resolve({
+      items: [...this.songs.values()].map((song) => ({
         id: song.id,
         name: song.name,
         bpm: song.bpm,
         trackCount: song.tracks.length,
         updatedAt: song.updatedAt,
       })),
-    );
+      warnings: [],
+    });
   }
 
   deleteSong(id: string): Promise<void> {

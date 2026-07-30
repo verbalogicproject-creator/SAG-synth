@@ -69,8 +69,8 @@ describe('IdbPersistence — presets', () => {
     const preset = defaultPreset();
     await persistence.savePreset(preset);
 
-    const summaries = await persistence.listPresets();
-    expect(summaries).toEqual([
+    const { items, warnings } = await persistence.listPresets();
+    expect(items).toEqual([
       {
         id: preset.id,
         name: preset.name,
@@ -79,6 +79,27 @@ describe('IdbPersistence — presets', () => {
         createdAt: preset.createdAt,
       },
     ]);
+    expect(warnings).toEqual([]);
+    persistence.dispose();
+  });
+
+  it('reports an unreadable row instead of silently omitting it', async () => {
+    const dbName = uniqueDbName();
+    const persistence = new IdbPersistence(dbName);
+    const good = defaultPreset();
+    await persistence.savePreset(good);
+
+    const raw = await openDB(dbName, 1);
+    await raw.put('presets', { id: 'corrupt-1', name: 'broken', voice: {}, effects: {} });
+    raw.close();
+
+    const { items, warnings } = await persistence.listPresets();
+    // The good preset still lists — one bad row must not hide the library...
+    expect(items.map((summary) => summary.id)).toEqual([good.id]);
+    // ...but the drop is named, so a caller can tell the user which one went missing.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.code).toBe('unreadable-preset');
+    expect(warnings[0]?.key).toBe('corrupt-1');
     persistence.dispose();
   });
 
@@ -144,8 +165,8 @@ describe('IdbPersistence — songs', () => {
     const song = defaultSong();
     await persistence.saveSong(song);
 
-    const summaries = await persistence.listSongs();
-    expect(summaries).toEqual([
+    const { items, warnings } = await persistence.listSongs();
+    expect(items).toEqual([
       {
         id: song.id,
         name: song.name,
@@ -154,6 +175,25 @@ describe('IdbPersistence — songs', () => {
         updatedAt: song.updatedAt,
       },
     ]);
+    expect(warnings).toEqual([]);
+    persistence.dispose();
+  });
+
+  it('reports an unreadable song row rather than dropping it silently', async () => {
+    const dbName = uniqueDbName();
+    const persistence = new IdbPersistence(dbName);
+    const good = defaultSong();
+    await persistence.saveSong(good);
+
+    const raw = await openDB(dbName, 1);
+    await raw.put('songs', { id: 'corrupt-song', name: 'broken' });
+    raw.close();
+
+    const { items, warnings } = await persistence.listSongs();
+    expect(items.map((summary) => summary.id)).toEqual([good.id]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.code).toBe('unreadable-song');
+    expect(warnings[0]?.key).toBe('corrupt-song');
     persistence.dispose();
   });
 

@@ -10,7 +10,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { PresetSummary, SongSummary } from '../../core/commands';
-import type { PersistencePort } from '../../core/ports';
+import type { ListResult, PersistencePort, PersistenceWarning } from '../../core/ports';
 import type { Song, SynthPreset } from '../../core/types';
 import type { SynthCommandAppliedEvent } from '../../core/sag/events';
 import { PresetSchema, SongSchema, migratePreset, migrateSong } from '../../core/schemas';
@@ -58,6 +58,16 @@ function parseSong(raw: unknown): Song | null {
   return parsed.success ? (parsed.data as Song) : null;
 }
 
+/**
+ * Identify a row that failed to parse. `idb`'s generics say this is a `SynthPreset` or
+ * a `Song`, but the row is whatever some past build actually wrote, so `id` cannot be
+ * assumed to exist or to be a string — that is precisely why this row is being reported.
+ */
+function rowKey(raw: unknown): string {
+  const id = (raw as { id?: unknown } | null)?.id;
+  return typeof id === 'string' ? id : '<unknown id>';
+}
+
 export class IdbPersistence implements PersistencePort {
   private readonly dbPromise: Promise<IDBPDatabase<SynthDbSchema>>;
 
@@ -80,21 +90,35 @@ export class IdbPersistence implements PersistencePort {
     return found === undefined ? null : parsePreset(structuredClone(found));
   }
 
-  async listPresets(): Promise<PresetSummary[]> {
+  async listPresets(): Promise<ListResult<PresetSummary>> {
     const db = await this.db();
     const all = await db.getAll('presets');
-    // A row that fails validation is dropped from the list rather than surfaced —
-    // same falsifiability stance as loadPreset: never partially apply a corrupt entry.
-    return all
-      .map((raw) => parsePreset(structuredClone(raw)))
-      .filter((preset): preset is SynthPreset => preset !== null)
-      .map((preset) => ({
+    const items: PresetSummary[] = [];
+    const warnings: PersistenceWarning[] = [];
+
+    for (const raw of all) {
+      const preset = parsePreset(structuredClone(raw));
+      // A row that fails validation is still dropped rather than half-applied — same
+      // stance as loadPreset — but it is now reported. A preset that vanishes from the
+      // library with no explanation looks like data loss, because it is.
+      if (preset === null) {
+        warnings.push({
+          code: 'unreadable-preset',
+          key: rowKey(raw),
+          message: `preset "${rowKey(raw)}" failed migration or validation and was omitted`,
+        });
+        continue;
+      }
+      items.push({
         id: preset.id,
         name: preset.name,
         ...(preset.category === undefined ? {} : { category: preset.category }),
         factory: preset.factory ?? false,
         createdAt: preset.createdAt,
-      }));
+      });
+    }
+
+    return { items, warnings };
   }
 
   async deletePreset(id: string): Promise<void> {
@@ -113,19 +137,32 @@ export class IdbPersistence implements PersistencePort {
     return found === undefined ? null : parseSong(structuredClone(found));
   }
 
-  async listSongs(): Promise<SongSummary[]> {
+  async listSongs(): Promise<ListResult<SongSummary>> {
     const db = await this.db();
     const all = await db.getAll('songs');
-    return all
-      .map((raw) => parseSong(structuredClone(raw)))
-      .filter((song): song is Song => song !== null)
-      .map((song) => ({
+    const items: SongSummary[] = [];
+    const warnings: PersistenceWarning[] = [];
+
+    for (const raw of all) {
+      const song = parseSong(structuredClone(raw));
+      if (song === null) {
+        warnings.push({
+          code: 'unreadable-song',
+          key: rowKey(raw),
+          message: `song "${rowKey(raw)}" failed migration or validation and was omitted`,
+        });
+        continue;
+      }
+      items.push({
         id: song.id,
         name: song.name,
         bpm: song.bpm,
         trackCount: song.tracks.length,
         updatedAt: song.updatedAt,
-      }));
+      });
+    }
+
+    return { items, warnings };
   }
 
   async deleteSong(id: string): Promise<void> {
