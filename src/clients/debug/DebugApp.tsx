@@ -104,6 +104,8 @@ interface Snapshot {
   held: string[];
   journalLength: number;
   lastEvent: string;
+  /** Most recent refused command, kept until another one replaces it. */
+  lastRejection: string;
 }
 
 export function DebugApp() {
@@ -129,18 +131,30 @@ export function DebugApp() {
     held: [],
     journalLength: 0,
     lastEvent: '—',
+    lastRejection: '',
   });
 
   const refresh = useCallback(() => {
     const transient = dispatcher.getTransient();
     const events = journal.read();
     const last = events.at(-1);
+    // A REJECTED command is the quietest failure this engine has: validation refuses it,
+    // the journal records it, and the control that sent it simply does not move. The EQ
+    // toggle did exactly that for two stages — 'eq' was missing from the validator's
+    // effect-id enum, so every click was refused and nothing said so. Rejections are rare
+    // and always mean something, so the most recent one STICKS rather than scrolling past
+    // in the last-event row.
+    const rejected = [...events].reverse().find((event) => event.status === 'rejected');
     setSnapshot({
       revision: dispatcher.getState().revision,
       voices: transient.voices.length,
       held: [...transient.heldNotes.keys()],
       journalLength: events.length,
       lastEvent: last === undefined ? '—' : `#${last.seq} ${last.command_type} → ${last.status}`,
+      lastRejection:
+        rejected === undefined
+          ? ''
+          : `#${rejected.seq} ${rejected.command_type} — ${rejected.error ?? 'no reason given'}`,
     });
   }, [dispatcher, journal]);
 
@@ -542,7 +556,19 @@ export function DebugApp() {
           <dd style={styles.dd}>{snapshot.journalLength}</dd>
           <dt style={styles.dt}>last</dt>
           <dd style={styles.dd}>{snapshot.lastEvent}</dd>
+          <dt style={{ ...styles.dt, color: snapshot.lastRejection === '' ? undefined : '#d33682' }}>
+            last refused
+          </dt>
+          <dd style={{ ...styles.dd, color: snapshot.lastRejection === '' ? undefined : '#d33682' }}>
+            {snapshot.lastRejection === '' ? 'none' : snapshot.lastRejection}
+          </dd>
         </dl>
+        <p style={styles.dim}>
+          A refused command is the quietest failure here — validation rejects it, the
+          journal records it, and the control that sent it just does not move. The EQ
+          toggle did exactly that for two stages. This row sticks so a rejection cannot
+          scroll past unseen.
+        </p>
       </section>
 
       <section style={{ ...styles.panel, borderColor: '#b58900' }}>

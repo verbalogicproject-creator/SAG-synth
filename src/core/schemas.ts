@@ -17,6 +17,7 @@ import {
   NOTE_NAME_RE,
   PRESET_SCHEMA_VERSION,
   SONG_SCHEMA_VERSION,
+  type EffectId,
   type LfoParamKey,
   type LfoParamPath,
   type ModDestination,
@@ -118,8 +119,26 @@ export const FilterRolloffSchema = z.union([
 export const STEAL_POLICIES = ['oldest'] as const;
 export const StealPolicySchema = z.enum(STEAL_POLICIES);
 
-export const EFFECT_IDS = ['distortion', 'chorus', 'delay', 'reverb'] as const;
+export const EFFECT_IDS = ['distortion', 'chorus', 'delay', 'reverb', 'eq'] as const;
 export const EffectIdSchema = z.enum(EFFECT_IDS);
+
+/**
+ * Compile-time completeness, in both directions.
+ *
+ * `'eq'` was added to the `EffectId` TYPE at schema_version 2 and not to this runtime
+ * enum, so `setEffectEnabled` with `effectId: 'eq'` failed validation and was refused —
+ * the EQ toggle in the UI did nothing at all, for two stages, while every other effect's
+ * worked. Nothing caught it: the type had five members, the validator four, and no
+ * assertion compared them.
+ *
+ * `satisfies` alone would only catch an EXTRA entry here. The `Exclude` below is what
+ * catches a MISSING one, which is the direction that actually bit.
+ */
+type _EffectIdsAreExhaustive = Exclude<EffectId, (typeof EFFECT_IDS)[number]> extends never
+  ? true
+  : ['MISSING FROM EFFECT_IDS', Exclude<EffectId, (typeof EFFECT_IDS)[number]>];
+const _effectIdsAreExhaustive: _EffectIdsAreExhaustive = true;
+void _effectIdsAreExhaustive;
 
 export const PRESET_CATEGORIES = ['Bass', 'Lead', 'Pad', 'Keys', 'Drum', 'FX'] as const;
 export const PresetCategorySchema = z.enum(PRESET_CATEGORIES);

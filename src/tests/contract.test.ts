@@ -37,7 +37,12 @@ import {
   buildCommandAppliedEvent,
   hasRequiredSlots,
 } from '../core/sag/events';
-import { MAX_LFOS, MAX_ROUTES, MODULATION_DESTINATIONS } from '../core/types';
+import {
+  EFFECT_CHAIN_ORDER,
+  MAX_LFOS,
+  MAX_ROUTES,
+  MODULATION_DESTINATIONS,
+} from '../core/types';
 
 // ---------------------------------------------------------------------------
 
@@ -260,6 +265,32 @@ describe('parameter surface is frozen (open question Q2)', () => {
         expect(spec.values.length, `${path} enum is empty`).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('the effect id list is one list, not two', () => {
+  // `'eq'` reached the EffectId TYPE at schema_version 2 and never reached the zod enum,
+  // so setEffectEnabled({effectId:'eq'}) was REFUSED at validation and the EQ toggle did
+  // nothing for two stages while all four other toggles worked. A compile-time guard now
+  // catches it, and this catches the runtime half.
+  it('validates setEffectEnabled for every effect in the chain', () => {
+    for (const effectId of EFFECT_CHAIN_ORDER) {
+      const result = validateCommand({ type: 'setEffectEnabled', effectId, enabled: true });
+      expect(result.ok, `"${effectId}" is in the chain but its command is refused`).toBe(true);
+    }
+  });
+
+  it('refuses an effect id that is not in the chain', () => {
+    // The negative probe. Without it the check above would pass against a validator that
+    // accepted any string at all.
+    const result = validateCommand({ type: 'setEffectEnabled', effectId: 'flanger', enabled: true });
+    expect(result.ok).toBe(false);
+  });
+
+  it('declares the chain order the runtime builds, eq last', () => {
+    expect([...EFFECT_CHAIN_ORDER]).toEqual(['distortion', 'chorus', 'delay', 'reverb', 'eq']);
   });
 });
 
