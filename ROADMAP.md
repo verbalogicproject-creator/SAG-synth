@@ -1,50 +1,61 @@
-# SAG-synth roadmap — 0.1.1 → 0.2.0
+# SAG-synth roadmap — 0.1.9 → 0.2.0
 
-Written 2026-07-30 against commit `9b01551`. Every number here was read from the repo, not
-recalled; where something is unverified it says so.
+Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
+from the repo, not recalled; where something is unverified it says so.
 
 ---
 
 ## Where we actually are
 
-**Version 0.1.1.** 264 tests across three projects — 212 core (node), 30 audio (chromium),
-19 dom (chromium + IndexedDB). Build clean. Contract at preset schema version 2, framework
-KINDs at tag `v0.0.3`.
+**Version 0.1.9 — the engine is complete.** 308 tests across three projects. Build clean.
+Preset schema version 2, framework KINDs at tag `v0.0.6`.
 
-**Playable today**: live keys with multi-touch, a full filter section with its envelope,
-four LFO slots, and modulation routing to five destinations. Undo, redo, and journal replay
-across all of it.
+**All 97 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
+and three tests keep it honest. The signal path:
 
-### The version number is ahead of the stage plan, and that needs settling
+```
+voice(MonoSynth -> Gain -> Panner) -> fxInput
+  -> distortion -> chorus -> delay -> reverb -> eq x5
+  -> master -> limiter -> safety clip -> destination
+```
 
-The original plan said "ship v0.1.0 after Stage 4". We are at 0.1.1 because two working
-increments got bumped along the way. Rather than pretend otherwise:
+**Playable today**: multi-touch keys with velocity, the full oscillator (unison, pulse
+width, detune), both envelopes, the filter, four LFOs routing to five destinations,
+velocity as a routing source, polyphony with stealing, the effects chain, the five-band EQ,
+and a master stage that cannot exceed full scale. Undo, redo and journal replay across all
+of it, plus live audio telemetry from the device.
 
-- **0.1.x** — the throwaway debug surface over a growing engine. Where we are.
-- **0.1.9** — feature-complete engine, still on the debug surface. The last 0.1.
-- **0.2.0** — the designed instrument. Not a version bump for its own sake: it is the
-  release where the surface a player touches was designed rather than accreted.
+**What is left is not engine work.** Song playback — tracks, tempo, the step grid — needs
+`Tone.Transport`, which is v0.3.0. That is what `applySong.transport` reports.
 
-Sequencer, transport and the agent SDK were originally also filed under 0.2.0. They are
-now **0.3.0** — see the reasoning at the end.
+### What the versions mean
 
-### What is declared but does not sound
+The original plan said "ship v0.1.0 after Stage 4", and increments got bumped along the way
+until the number and the plan disagreed. Settled as:
 
-**26 of 97 parameter addresses are unread by the audio graph.** They validate, journal and
-replay correctly and change nothing you can hear. `UNMAPPED_PARAMS` lists all of them and
-the debug surface displays it.
+- **0.1.x** — the throwaway debug surface over a growing engine.
+- **0.1.9** — feature-complete engine, still on the debug surface. **Here.** The last 0.1.
+- **0.2.0** — the designed instrument. Not a bump for its own sake: the release where the
+  surface a player touches was designed rather than accreted.
 
-That list read `none` for one commit. Emptying it after schema 2 deleted its single entry
-looked like completion; the other two dozen had been recorded in a prose comment the UI
-cannot show. Three tests now make both failure directions cost something.
+Sequencer, transport and the agent SDK were originally also 0.2.0. They are now **0.3.0** —
+reasoning at the end.
 
-The sharpest case, and the one that shapes Stage 2c: **`voice.oscillator.detune` is a wired
-modulation destination whose base value never reaches the graph.** A route to it moves the
-pitch. Setting it does nothing. That is worse than either being plainly broken.
+### Stages 2c–3, completed
+
+| Stage | What it closed | Cost |
+|---|---|---|
+| **2c** oscillator | unison, pulse width, base detune; the `width` range corrected to Tone's −1..1 | found `detune` nested where MonoSynth overwrites it — it typechecked and left the pitch unmoved |
+| **2d** velocity | `toAmplitude`, `toFilterOctaves`, velocity as a routing source | found the touch keyboard sending a hardcoded 0.8, making the whole section unhearable on-device |
+| **2e** polyphony | stealing end to end, driven through the dispatcher | found two of my own gates weaker than their comments |
+| **2f** telemetry | live audio observation from the device | its first run found the synth working and itself broken three ways |
+| **3** effects | the chain, the EQ, the master stage, Q1 closed | found voices connected past the entire chain, and `'eq'` missing from the validator's enum |
+
+Every one of those was found by a gate or by an ear check, not by reading the code.
 
 ---
 
-## Stage 2c — oscillator mapping · *next*
+## Stage 2c — oscillator mapping · *done*
 
 Closes the largest unmapped group and carries two contract corrections that are free now
 and expensive later.
@@ -73,7 +84,7 @@ model, which is what the sawtooth fallback has been hiding:
 harmonic series; a route to `voice.oscillator.width` on a non-pulse voice is reported
 through `getUnimplemented()` rather than swallowed. Negative probe on each.
 
-## Stage 2d — velocity response
+## Stage 2d — velocity response · *done*
 
 Velocity already sounds — it is passed to `triggerAttack` and MonoSynth scales the amp
 envelope. What is unread is the patch's control over *how much*.
@@ -94,7 +105,7 @@ Two details that would otherwise cost a debugging round:
 **Gates**: `rms` scales with velocity and stops scaling at `toAmplitude: 0`; brightness
 scales with `toFilterOctaves`; a stolen voice sounds the new note's velocity, not the old.
 
-## Stage 2e — polyphony and stealing, end to end
+## Stage 2e — polyphony and stealing, end to end · *done*
 
 The allocator is pure, tested and green in core. What is untested is the whole path under
 overload: dispatch → allocate → steal → runtime, sounding.
@@ -102,7 +113,7 @@ overload: dispatch → allocate → steal → runtime, sounding.
 **Gate**: onset count matches expected voices when more notes arrive than `polyphony`
 allows, and the stolen voice is the one core nominated.
 
-## Stage 3 — effects chain, EQ, and the master stage
+## Stage 3 — effects chain, EQ, and the master stage · *done*
 
 The largest unmapped group: 20 addresses, none of which touch the graph today.
 
@@ -145,7 +156,7 @@ since the research inferred it without running a byte-diff.
 
 **Stage 3 green is the design stage's trigger.**
 
-## Stage 3.5 — the modulation curve bump
+## Stage 3.5 — the modulation curve bump · *next*
 
 Small, and it should land before the designed UI draws a depth control.
 
@@ -169,7 +180,7 @@ effect depend on whether a sibling is enabled, fighting determinism rather than 
 The gap is visibility. Compute the summed depth in destination units at authoring time and
 flag it; the signal chain does not change.
 
-## Stage 4 — the design stage
+## Stage 4 — the design stage · *triggered, Stage 3 is green*
 
 Prep is done: `arch/contract.ngf.md` and `arch/clients.ngf.md` declare the risk areas and
 the safe-edit zone, and the four reference images are in `design/references/` with the brief
