@@ -1,4 +1,4 @@
-# SAG-synth roadmap — 0.1.10 → 0.2.0
+# SAG-synth roadmap — 0.1.11 → 0.2.0
 
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
@@ -7,8 +7,8 @@ from the repo, not recalled; where something is unverified it says so.
 
 ## Where we actually are
 
-**Version 0.1.10 — the engine is complete.** 310 tests across three projects. Build clean.
-Preset schema version 2, framework KINDs at tag `v0.0.6`.
+**Version 0.1.11 — the engine is complete.** 319 tests across three projects. Build clean.
+Preset schema version 2, framework KINDs at tag `v0.0.7`.
 
 **All 97 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
 and three tests keep it honest. The signal path:
@@ -34,7 +34,7 @@ The original plan said "ship v0.1.0 after Stage 4", and increments got bumped al
 until the number and the plan disagreed. Settled as:
 
 - **0.1.x** — the throwaway debug surface over a growing engine.
-- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.10.**
+- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.11.**
 
   0.1.9 was labelled "the last 0.1" when it shipped. That was a prediction and it did not
   hold: three separate EQ reports followed, each a genuinely different cause — a command
@@ -163,29 +163,42 @@ since the research inferred it without running a byte-diff.
 
 **Stage 3 green is the design stage's trigger.**
 
-## Stage 3.5 — the modulation curve bump · *next*
-
-Small, and it should land before the designed UI draws a depth control.
+## Stage 3.5 — the modulation curve bump · *curves done, overflow indicator open*
 
 "One depth semantic across every destination" was the wrong target. No studied system tries
 for it: 50% of a linear Hz range and 50% of a linear dB range are not the same amount of
 modulation to a listener. VST3, Surge and Vital normalise the *interface* and let each
 parameter declare its own *curve*.
 
-- Add `curve` to each destination in `KIND-synth_mod_route` §3.2 and mirror it in
-  `PARAM_SPECS.modulation`. The existing two-sided F72 check covers it for free.
-- `db-unipolar-down` for amplitude — already implemented ad hoc, now permanent and the
-  reference example.
-- `exponential` for cutoff, so depth means **octaves**. Today it is linear in Hz and clamps
-  at the bottom on deep routes.
-- `linear` for cents and pan. `detune` needs nothing: it is already a log-frequency unit,
-  which is exactly why pitch modulation felt right when cutoff and amplitude did not.
+**Done at 0.1.11**, framework tag `v0.0.7`:
 
-Also here: a **route-overflow indicator**. Web Audio sums connections into an `AudioParam`
-and clamps silently, which is correct and standard — auto-normalising would make one route's
-effect depend on whether a sibling is enabled, fighting determinism rather than serving it.
-The gap is visibility. Compute the summed depth in destination units at authoring time and
-flag it; the signal chain does not change.
+- `curve` is declared per destination in `KIND-synth_mod_route` §3.2, with the vocabulary
+  and both full-scale constants fixed in a new §3.3 — a curve without its full-scale value
+  is not a specification. Mirrored in `PARAM_SPECS.modulation`; the two-sided F72 check now
+  compares curves as well as membership.
+- `octaves` for cutoff, so depth means **octaves**. It was linear in Hz: at depth 0.5 that
+  is ±4995 Hz, which from a 800 Hz base clamps at the floor and gates instead of sweeping.
+  Realised on `filter.detune` rather than `filter.frequency`, so the exponent is the audio
+  node's own `frequency × 2^(detune/1200)` and the swing stays relative to wherever the
+  cutoff sits — including mid-envelope.
+- `duckDb` for amplitude — implemented ad hoc since Stage 2f, and a departure from F73 as
+  it was then written. Declaring the curve is what makes it a specification.
+- `linear` for everything else, including `detune`: cents is already a log-frequency unit,
+  which is exactly why pitch modulation felt right when cutoff and amplitude did not.
+- **F80** is new — the check that the curve does work, with the linear mapping as its
+  required negative probe. Measured 65.9 dB of level collapse under `linear` against a 15 dB
+  gate. Needed a new harness measure, `spectralEdgeOctaves`, because a spectral centroid
+  moves only 0.45 octaves on a two-octave sweep of a sawtooth.
+- `describeDepth()` in core turns `(destination, depth)` into `±2.00 oct` / `−30 dB` /
+  `±600 cents`. The designed surface reads it instead of carrying a `switch` over curve
+  names, which `arch/clients.ngf.md` forbids.
+
+**Still open here:** a **route-overflow indicator**. Web Audio sums connections into an
+`AudioParam` and clamps silently, which is correct and standard — auto-normalising would
+make one route's effect depend on whether a sibling is enabled, fighting determinism rather
+than serving it. The gap is visibility. Compute the summed depth in destination units at
+authoring time and flag it; the signal chain does not change. Not a blocker for the design
+cycle, but it is a thing the designed surface would naturally want to show.
 
 ## Stage 4 — the design stage · *triggered, Stage 3 is green*
 

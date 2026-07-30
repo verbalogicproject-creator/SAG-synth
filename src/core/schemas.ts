@@ -20,6 +20,7 @@ import {
   type EffectId,
   type LfoParamKey,
   type LfoParamPath,
+  type ModCurve,
   type ModDestination,
   type ModRoute,
   type ParamPath,
@@ -390,9 +391,10 @@ export type ParamSpec =
        */
       choices?: readonly number[];
       /**
-       * Presence declares this address a legal modulation destination; `perVoice` says
+       * Presence declares this address a legal modulation destination. `perVoice` says
        * whether the runtime builds one modulator per sounding voice or one on the shared
-       * chain. Both are transcribed from KIND-synth_mod_route §3.2.
+       * chain; `curve` says how a normalised depth becomes travel here. All three are
+       * transcribed from KIND-synth_mod_route §3.2.
        *
        * It hangs off the number variant on purpose. An enum or boolean spec cannot carry
        * it, so the type system already refuses to route an LFO at `voice.filter.type` or
@@ -404,7 +406,7 @@ export type ParamSpec =
        * contract test has something real to catch. Deriving them would make the gate
        * vacuous.
        */
-      modulation?: { perVoice: boolean };
+      modulation?: { perVoice: boolean; curve: ModCurve };
     }
   | { kind: 'boolean' }
   | { kind: 'enum'; values: readonly string[] }
@@ -423,12 +425,13 @@ const modNum = (
   max: number,
   unit: string | undefined,
   perVoice: boolean,
+  curve: ModCurve,
 ): ParamSpec => ({
   kind: 'number',
   min,
   max,
   ...(unit === undefined ? {} : { unit }),
-  modulation: { perVoice },
+  modulation: { perVoice, curve },
 });
 
 /** Spec for each of the five per-LFO parameters, reused across all MAX_LFOS slots. */
@@ -479,11 +482,11 @@ const routeParamSpecs = Object.fromEntries(
  */
 export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.oscillator.type': { kind: 'enum', values: SUPPORTED_WAVE_SHAPES },
-  'voice.oscillator.detune': modNum(-1200, 1200, 'cents', true),
+  'voice.oscillator.detune': modNum(-1200, 1200, 'cents', true, 'linear'),
   'voice.oscillator.count': num(1, 8, 'voices', true),
-  'voice.oscillator.spread': modNum(0, 200, 'cents', true),
+  'voice.oscillator.spread': modNum(0, 200, 'cents', true, 'linear'),
   // -1..1 with 0 meaning square, matching Tone's PulseOscillator. See OscillatorConfig.
-  'voice.oscillator.width': modNum(-1, 1, undefined, true),
+  'voice.oscillator.width': modNum(-1, 1, undefined, true, 'linear'),
 
   'voice.envelope.attack': num(0, 20, 's'),
   'voice.envelope.decay': num(0, 20, 's'),
@@ -491,7 +494,7 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.envelope.release': num(0, 20, 's'),
 
   'voice.filter.type': { kind: 'enum', values: FILTER_TYPES },
-  'voice.filter.Q': modNum(0, 30, undefined, true),
+  'voice.filter.Q': modNum(0, 30, undefined, true, 'linear'),
   // Four legal slopes, not a range. FILTER_ROLLOFFS already existed; the spec simply
   // was not using it, so `setParam('voice.filter.rolloff', -50)` validated cleanly.
   'voice.filter.rolloff': {
@@ -509,7 +512,7 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.filterEnvelope.release': num(0, 20, 's'),
   // The live cutoff. `voice.filter.frequency` used to sit beside this and do nothing —
   // in a MonoSynth the filter envelope owns the cutoff. Removed at schema_version 2.
-  'voice.filterEnvelope.baseFrequency': modNum(20, 20000, 'Hz', true),
+  'voice.filterEnvelope.baseFrequency': modNum(20, 20000, 'Hz', true, 'octaves'),
   'voice.filterEnvelope.octaves': num(-8, 8, 'oct'),
 
   'voice.polyphony': num(LIMITS.polyphony.min, LIMITS.polyphony.max, 'voices', true),
@@ -517,31 +520,31 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.stealPolicy': { kind: 'enum', values: STEAL_POLICIES },
   'voice.velocity.toAmplitude': num(0, 1),
   'voice.velocity.toFilterOctaves': num(0, 8, 'oct'),
-  'voice.amplitude': modNum(0, 1, undefined, true),
-  'voice.pan': modNum(-1, 1, undefined, true),
+  'voice.amplitude': modNum(0, 1, undefined, true, 'duckDb'),
+  'voice.pan': modNum(-1, 1, undefined, true, 'linear'),
 
-  'effects.distortion.amount': modNum(0, 1, undefined, false),
-  'effects.distortion.wet': modNum(0, 1, undefined, false),
+  'effects.distortion.amount': modNum(0, 1, undefined, false, 'linear'),
+  'effects.distortion.wet': modNum(0, 1, undefined, false, 'linear'),
   'effects.chorus.frequency': num(0, 20, 'Hz'),
   'effects.chorus.delayTime': num(0, 20, 'ms'),
-  'effects.chorus.depth': modNum(0, 1, undefined, false),
-  'effects.chorus.wet': modNum(0, 1, undefined, false),
+  'effects.chorus.depth': modNum(0, 1, undefined, false, 'linear'),
+  'effects.chorus.wet': modNum(0, 1, undefined, false, 'linear'),
   'effects.delay.delayTime': num(0, 2, 's'),
-  'effects.delay.feedback': modNum(0, 0.95, undefined, false),
-  'effects.delay.wet': modNum(0, 1, undefined, false),
+  'effects.delay.feedback': modNum(0, 0.95, undefined, false, 'linear'),
+  'effects.delay.wet': modNum(0, 1, undefined, false, 'linear'),
   'effects.reverb.roomSize': num(0, 1),
   'effects.reverb.dampening': num(20, 20000, 'Hz'),
-  'effects.reverb.wet': modNum(0, 1, undefined, false),
+  'effects.reverb.wet': modNum(0, 1, undefined, false, 'linear'),
 
   // Five-band graphic EQ. The band CENTRES are fixed (EQ_BAND_FREQUENCIES) and are not
   // parameters — only the gains move, which is what makes it graphic rather than
   // parametric.
   'effects.eq.enabled': { kind: 'boolean' },
-  'effects.eq.band0.gain': modNum(-18, 18, 'dB', false),
-  'effects.eq.band1.gain': modNum(-18, 18, 'dB', false),
-  'effects.eq.band2.gain': modNum(-18, 18, 'dB', false),
-  'effects.eq.band3.gain': modNum(-18, 18, 'dB', false),
-  'effects.eq.band4.gain': modNum(-18, 18, 'dB', false),
+  'effects.eq.band0.gain': modNum(-18, 18, 'dB', false, 'linear'),
+  'effects.eq.band1.gain': modNum(-18, 18, 'dB', false, 'linear'),
+  'effects.eq.band2.gain': modNum(-18, 18, 'dB', false, 'linear'),
+  'effects.eq.band3.gain': modNum(-18, 18, 'dB', false, 'linear'),
+  'effects.eq.band4.gain': modNum(-18, 18, 'dB', false, 'linear'),
 
   'master.volume': num(LIMITS.masterVolume.min, LIMITS.masterVolume.max, 'dB'),
   'master.limiterThreshold': num(-40, 0, 'dB'),

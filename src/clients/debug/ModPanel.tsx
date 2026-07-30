@@ -18,7 +18,7 @@
 
 import { MODULATION_DESTINATIONS, type ModDestination, type ParamPath, type ParamValue } from '../../core/types';
 import { PARAM_SPECS } from '../../core/schemas';
-import { getParam } from '../../core/params';
+import { describeDepth, getParam } from '../../core/params';
 import type { EngineState } from '../../core/state';
 import type { SynthCommand } from '../../core/commands';
 import { ParamControl } from './ParamControl';
@@ -219,6 +219,15 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
               />
             );
           })}
+          {/*
+            What the depth above actually means, which the 0..1 slider cannot say. The
+            destination declares its curve, so the same 0.4 reads as an octave span here,
+            a duck in dB there. Derived, never a switch in this file — see describeDepth.
+          */}
+          <div style={row}>
+            <span style={dim}>at {route.destination}</span>
+            <strong>{describeDepth(route.destination, route.depth) ?? 'not modulatable'}</strong>
+          </div>
         </div>
       ))}
 

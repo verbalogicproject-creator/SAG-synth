@@ -137,6 +137,71 @@ export function hfEnergyRatio(
   return total > 0 ? high / total : 0;
 }
 
+/**
+ * The frequency below which `fraction` of the spectrum's energy lies, expressed in
+ * **octaves above 20 Hz**. How high the sound reaches, not how loud it is.
+ *
+ * Two choices here, both for the same reason — this exists to compare filter movement
+ * taken from different starting cutoffs, and F80 turns on that comparison being fair.
+ *
+ * **Octaves, not Hz.** In Hz the identical musical gesture measures four times larger two
+ * octaves up than two octaves down, so "did these two sweeps travel the same distance" is
+ * unanswerable. In octaves the same gesture measures the same from anywhere, which is
+ * exactly the claim `curve: octaves` makes.
+ *
+ * **An energy edge, not a centroid.** The obvious measure is the spectral centroid, and on
+ * this material it barely works: a sawtooth's harmonics fall as 1/n, so the fundamental
+ * carries most of the energy and holds the centre of mass nearly still. A two-octave cutoff
+ * sweep on a C3 saw moves the energy-weighted centroid 0.45 octaves — real, but small
+ * enough that a gate built on it would be measuring rounding.
+ *
+ * The default fraction is 0.99 for the same reason, and it was measured rather than picked.
+ * The same sweep moved the 90% edge 1.78 octaves from a 800 Hz base and 0.24 from a 3200 Hz
+ * one — not because the sweeps differ but because 90% of a C3 saw's energy sits below
+ * 800 Hz, so the measure saturates and stops seeing the filter at all. At 99% it reads
+ * 3.56 and 2.23. The edge tracks cutoff plus stopband decay rather than cutoff alone, which
+ * is fair for comparing two renders at the same rolloff and would not be across different
+ * ones.
+ *
+ * Bins below 20 Hz are excluded: no musical content, `log2` runs negative, and DC diverges.
+ */
+export function spectralEdgeOctaves(
+  data: Float32Array,
+  sampleRate: number,
+  atSample = 0,
+  fraction = 0.99,
+  fftSize = 4096,
+): number {
+  const n = 1 << Math.floor(Math.log2(fftSize));
+  if (atSample + n > data.length) atSample = Math.max(0, data.length - n);
+  const re = new Float32Array(n);
+  const im = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1))); // Hann
+    re[i] = (data[atSample + i] ?? 0) * w;
+  }
+  fftRadix2(re, im);
+
+  const binHz = sampleRate / n;
+  const firstBin = Math.max(1, Math.ceil(20 / binHz));
+  const mags: number[] = [];
+  let total = 0;
+  for (let k = firstBin; k < n / 2; k++) {
+    const mag = re[k] * re[k] + im[k] * im[k];
+    mags.push(mag);
+    total += mag;
+  }
+  if (total <= 0) return 0;
+
+  const target = total * fraction;
+  let running = 0;
+  for (let i = 0; i < mags.length; i++) {
+    running += mags[i] as number;
+    if (running >= target) return Math.log2(((firstBin + i) * binHz) / 20);
+  }
+  return Math.log2((((n / 2) - 1) * binHz) / 20);
+}
+
 /** Convenience: the same measure in decibels, for "drops >= 20 dB" style gates. */
 export function hfEnergyDb(
   data: Float32Array,

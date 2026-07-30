@@ -141,7 +141,7 @@ export interface LFOConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.3)
+// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.7)
 // ---------------------------------------------------------------------------
 //
 // An LFO used to carry its own destination in a four-value `LfoTarget` union. That
@@ -165,6 +165,52 @@ export interface LFOConfig {
 export type ModSource = `lfo.${LfoIndex}` | 'velocity';
 
 /**
+ * KIND-synth_mod_route §3.3, verbatim. How a normalised depth becomes real travel.
+ *
+ * The curve belongs to the DESTINATION, not to the route, because it is a property of
+ * what the parameter means rather than of the patch's taste — cutoff is exponential
+ * whoever is modulating it. A per-route curve stays out of scope (KIND §6).
+ *
+ * - `linear`   — `depth × (max − min) / 2` in the parameter's own unit, symmetric.
+ * - `octaves`  — a RATIO about the current value: `depth × FULL_DEPTH_OCTAVES`.
+ * - `duckDb`   — attenuation only; the base value is the ceiling, not the midpoint.
+ *
+ * `duckDb` is the KIND's `duck_db`, camel-cased the same way `per_voice` becomes
+ * `perVoice`. The two full-scale constants below are declared in the KIND rather than
+ * left to the implementation, because a curve without its full-scale value is not a
+ * specification — two runtimes could both claim `octaves` and disagree about what
+ * `depth: 0.5` sounds like. They live in core rather than at the runtime because the
+ * runtime is not their only reader: a control surface needs them to say what a depth
+ * MEANS before anything is rendered, which is the difference between a slider labelled
+ * "0.50" and one labelled "±2.0 oct".
+ */
+export type ModCurve = 'linear' | 'octaves' | 'duckDb';
+
+/**
+ * Travel at `depth: 1.0` on an `octaves` destination, in octaves either side of the base.
+ * KIND-synth_mod_route §3.3.
+ *
+ * Four covers the useful gesture from anywhere: a cutoff at 300 Hz sweeps 19 Hz–4.8 kHz,
+ * one at 3 kHz sweeps 188 Hz–48 kHz, and both are recognisably the same movement. Smaller
+ * makes full depth feel short of the range the parameter declares; larger spends most of
+ * its travel outside the audible band, where the clamp does the work instead.
+ */
+export const FULL_DEPTH_OCTAVES = 4;
+
+/**
+ * Duck at `depth: 1.0` on a `duckDb` destination, in dB below the base value. 60 dB is
+ * silence for any practical purpose. KIND-synth_mod_route §3.3.
+ *
+ * Loudness is perceived logarithmically, so a linear depth reads wrong on an amplitude
+ * destination: at depth 0.3 a linear swing of ±0.15 is about 2.4 dB peak-to-peak, which
+ * measures as modulation and sounds like nothing. Through dB instead, 0.1 is a gentle
+ * pulse, 0.3 a firm one, and 1.0 a gate.
+ */
+export const FULL_DEPTH_DUCK_DB = 60;
+
+export const CENTS_PER_OCTAVE = 1200;
+
+/**
  * KIND-synth_mod_route §3.2, verbatim and in the KIND's order.
  *
  * `perVoice` is not a hint. It decides whether the runtime builds one modulator per
@@ -173,38 +219,45 @@ export type ModSource = `lfo.${LfoIndex}` | 'velocity';
  * `PARAM_SPECS` — that is what lets one normalised `depth` mean the same thing across
  * Hz, cents, dB and unit values (F73).
  *
+ * `curve` is not a hint either: it is the difference between a cutoff route that sweeps
+ * and one that gates. Two assignments look inconsistent and are not — `detune` is
+ * `linear` while `baseFrequency` is `octaves`, because detune is declared in CENTS,
+ * which is already a logarithmic measure of frequency. The curve corrects the unit; it
+ * does not overrule it.
+ *
  * Structural parameters are absent on purpose. A route to `voice.filter.type` or
  * `voice.polyphony` would be a well-formed document describing an incoherent
  * instruction, so F71 refuses it at the boundary rather than letting the runtime invent
  * a rounding rule for a discrete value.
  */
 export const MODULATION_DESTINATIONS = [
-  { path: 'voice.filterEnvelope.baseFrequency', perVoice: true },
-  { path: 'voice.filter.Q', perVoice: true },
-  { path: 'voice.oscillator.detune', perVoice: true },
-  { path: 'voice.oscillator.width', perVoice: true },
-  { path: 'voice.oscillator.spread', perVoice: true },
-  { path: 'voice.amplitude', perVoice: true },
-  { path: 'voice.pan', perVoice: true },
-  { path: 'effects.distortion.amount', perVoice: false },
-  { path: 'effects.distortion.wet', perVoice: false },
-  { path: 'effects.chorus.depth', perVoice: false },
-  { path: 'effects.chorus.wet', perVoice: false },
-  { path: 'effects.delay.feedback', perVoice: false },
-  { path: 'effects.delay.wet', perVoice: false },
-  { path: 'effects.reverb.wet', perVoice: false },
-  { path: 'effects.eq.band0.gain', perVoice: false },
-  { path: 'effects.eq.band1.gain', perVoice: false },
-  { path: 'effects.eq.band2.gain', perVoice: false },
-  { path: 'effects.eq.band3.gain', perVoice: false },
-  { path: 'effects.eq.band4.gain', perVoice: false },
-] as const;
+  { path: 'voice.filterEnvelope.baseFrequency', perVoice: true, curve: 'octaves' },
+  { path: 'voice.filter.Q', perVoice: true, curve: 'linear' },
+  { path: 'voice.oscillator.detune', perVoice: true, curve: 'linear' },
+  { path: 'voice.oscillator.width', perVoice: true, curve: 'linear' },
+  { path: 'voice.oscillator.spread', perVoice: true, curve: 'linear' },
+  { path: 'voice.amplitude', perVoice: true, curve: 'duckDb' },
+  { path: 'voice.pan', perVoice: true, curve: 'linear' },
+  { path: 'effects.distortion.amount', perVoice: false, curve: 'linear' },
+  { path: 'effects.distortion.wet', perVoice: false, curve: 'linear' },
+  { path: 'effects.chorus.depth', perVoice: false, curve: 'linear' },
+  { path: 'effects.chorus.wet', perVoice: false, curve: 'linear' },
+  { path: 'effects.delay.feedback', perVoice: false, curve: 'linear' },
+  { path: 'effects.delay.wet', perVoice: false, curve: 'linear' },
+  { path: 'effects.reverb.wet', perVoice: false, curve: 'linear' },
+  { path: 'effects.eq.band0.gain', perVoice: false, curve: 'linear' },
+  { path: 'effects.eq.band1.gain', perVoice: false, curve: 'linear' },
+  { path: 'effects.eq.band2.gain', perVoice: false, curve: 'linear' },
+  { path: 'effects.eq.band3.gain', perVoice: false, curve: 'linear' },
+  { path: 'effects.eq.band4.gain', perVoice: false, curve: 'linear' },
+] as const satisfies readonly { path: string; perVoice: boolean; curve: ModCurve }[];
 
 /**
- * Derived from the table, never written twice. Deliberately NOT constrained with
- * `satisfies readonly { path: ParamPath }[]`: `ParamPath` is built from `ParamValueMap`,
- * which reaches back here for a route's `destination` value type, and that constraint
- * would close the loop into a circular type. The correspondence is proven at runtime
+ * Derived from the table, never written twice. The table's `satisfies` clause types
+ * `path` as `string` rather than `ParamPath`, and that is not laziness: `ParamPath` is
+ * built from `ParamValueMap`, which reaches back here for a route's `destination` value
+ * type, so constraining it would close the loop into a circular type. `curve` is
+ * genuinely constrained; only `path` is not. That correspondence is proven at runtime
  * instead, by the same contract test that carries F72 — which is also how the existing
  * `KIND_SYNTH_PATCH_SLOT_MAP` proves itself.
  */

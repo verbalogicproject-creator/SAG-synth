@@ -22,7 +22,13 @@ import {
   monoSynthOptions,
   unsupportedOscillatorFeatures,
 } from '../runtime';
-import { rms, peak, estimatePitch, hfEnergyRatio } from '../test-harness/audio-assertions';
+import {
+  rms,
+  peak,
+  estimatePitch,
+  hfEnergyRatio,
+  spectralEdgeOctaves,
+} from '../test-harness/audio-assertions';
 import { defaultPreset, defaultSong } from '../core/state';
 import { PARAM_PATHS } from '../core/schemas';
 import { SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS } from '../core/sag/events';
@@ -1527,6 +1533,7 @@ describe('ToneRuntime — modulation routing', () => {
     depth: number;
     rate?: number;
     seconds?: number;
+    baseFrequency?: number;
     mutate?: (patch: SynthPreset) => void;
   }): Promise<Float32Array> {
     return render(
@@ -1540,7 +1547,7 @@ describe('ToneRuntime — modulation routing', () => {
               decay: 0.01,
               sustain: 1,
               release: 0.1,
-              baseFrequency: 800,
+              baseFrequency: options.baseFrequency ?? 800,
               octaves: 0,
             };
             patch.voice.lfos = [
@@ -1689,6 +1696,72 @@ describe('ToneRuntime — modulation routing', () => {
     ]);
 
     expect(movement(deep, hfAt)).toBeGreaterThan(movement(shallow, hfAt));
+  });
+
+  /**
+   * One full LFO cycle at 1 Hz, sampled 21 times.
+   *
+   * The rate is slow on purpose. A spectral window is 4096 samples — 93 ms — so at the
+   * 8 Hz used elsewhere each measurement smears across most of a cycle and reads back the
+   * average rather than the extremes. At 1 Hz the window is a tenth of a cycle, which is
+   * what makes peak-to-trough travel a real measurement instead of a smoothed one.
+   */
+  const SWEEP_POINTS = Array.from({ length: 21 }, (_unused, i) => 0.3 + i * 0.05);
+
+  /** How far the top of the spectrum travels over that cycle, in octaves. */
+  function sweepTravel(data: Float32Array): number {
+    const points = SWEEP_POINTS.map((t) => spectralEdgeOctaves(data, SR, Math.floor(t * SR)));
+    return Math.max(...points) - Math.min(...points);
+  }
+
+  /** Loudest window against quietest over that cycle, in dB. A sweep is not a gate. */
+  function sweepDynamicRangeDb(data: Float32Array): number {
+    const points = SWEEP_POINTS.map((t) => rmsAt(data, t));
+    return 20 * Math.log10(Math.max(...points) / Math.max(Math.min(...points), 1e-9));
+  }
+
+  it('F80 — one cutoff route sweeps the same distance from two bases two octaves apart', async () => {
+    // The gate the `linear` mapping cannot pass, and the reason `curve: octaves` exists.
+    //
+    // Depth used to scale against the destination's declared range, so a cutoff route at
+    // depth 0.5 swung +/-4995 Hz whatever the cutoff was. From 800 Hz that is an excursion
+    // to -4195 Hz, which the audio graph clamps at its floor: the filter sits shut for a
+    // large part of every cycle and the route GATES instead of sweeping. From a high base
+    // the same route barely moves anything audible. One depth, two unrelated results.
+    //
+    // Both bases are chosen so the C3 fundamental at 131 Hz stays below the bottom of the
+    // sweep (200 Hz and 800 Hz), which is what makes a collapse in level attributable to
+    // the clamp rather than to the note simply being filtered out.
+    const sweep = {
+      enabled: true,
+      destination: 'voice.filterEnvelope.baseFrequency',
+      depth: 0.5,
+      rate: 1,
+      seconds: 1.6,
+    };
+    const [low, high] = await Promise.all([
+      renderRouted({ ...sweep, baseFrequency: 800 }),
+      renderRouted({ ...sweep, baseFrequency: 3200 }),
+    ]);
+
+    const [lowTravel, highTravel] = [sweepTravel(low), sweepTravel(high)];
+
+    // Each moves the spectrum properly — measured in octaves, so "properly" means the same
+    // thing at both ends rather than four times as much at the top.
+    expect(lowTravel).toBeGreaterThan(1.5);
+    expect(highTravel).toBeGreaterThan(1.5);
+
+    // And by comparable amounts. This is the invariance itself: same depth, same gesture,
+    // wherever the cutoff happens to sit.
+    expect(Math.min(lowTravel, highTravel) / Math.max(lowTravel, highTravel)).toBeGreaterThan(0.5);
+
+    // The half that fails loudest under the old mapping, and the negative probe that makes
+    // this gate worth having. Putting `curve: 'linear'` back on this destination and
+    // pointing the connection at `filter.frequency` again measured **65.9 dB** here against
+    // the 15 below — the clamped cutoff taking the level to silence for part of every
+    // cycle, exactly as the KIND's §3.3 says it does. An exponential sweep never can.
+    expect(sweepDynamicRangeDb(low)).toBeLessThan(15);
+    expect(sweepDynamicRangeDb(high)).toBeLessThan(15);
   });
 
   it('a faster LFO modulates more often than a slow one over the same window', async () => {

@@ -29,11 +29,25 @@
  * this version cannot service are recorded at call time by `notImplemented`, while
  * contract parameters it does not read are listed statically in `UNMAPPED_PARAMS` — now
  * empty. The debug surface shows both, so nothing that does nothing looks like it works.
+ *
+ * READ TONE'S SOURCE BEFORE ASSUMING ANYTHING ABOUT IT. `node_modules/tone/build/esm/**`
+ * ships the compiled sources, and the TypeScript ones clone from Tonejs/Tone.js at the
+ * pinned tag. This file has been wrong about Tone twice in ways that typechecked and made
+ * no sound: `detune` nested under `oscillator`, where `MonoSynth.js:35` overwrites it from
+ * a top-level default; and `filter.frequency` assumed to be the only cutoff input, when
+ * `Filter.js:117` connects `detune` to every biquad in the cascade and gives the
+ * exponential path this file's `octaves` curve now depends on. Both were minutes of
+ * reading and hours of guessing.
  */
 
 import * as Tone from 'tone';
 import { defaultMasterConfig } from '../core/state';
-import { EQ_BAND_FREQUENCIES } from '../core/types';
+import {
+  CENTS_PER_OCTAVE,
+  EQ_BAND_FREQUENCIES,
+  FULL_DEPTH_DUCK_DB,
+  FULL_DEPTH_OCTAVES,
+} from '../core/types';
 import type {
   Beats,
   EffectsConfig,
@@ -139,16 +153,6 @@ function isWirable(destination: ModDestination): destination is WirableDestinati
 }
 
 /**
- * Duck depth at `depth: 1.0`, in dB. 60 dB is silence for any practical purpose.
- *
- * Loudness is perceived logarithmically, so a linear depth reads wrong on an amplitude
- * destination: at depth 0.3 a linear swing of ±0.15 is about **2.4 dB peak-to-peak**,
- * which measures as modulation and sounds like nothing. Mapping depth through dB instead
- * gives 0.1 a gentle pulse, 0.3 a firm one, and 1.0 a gate.
- */
-const FULL_DEPTH_DUCK_DB = 60;
-
-/**
  * How a normalised depth becomes an actual swing at one destination.
  *
  * `scale` is what a unit LFO gets multiplied by. `baseOverride` re-centres the parameter's
@@ -160,32 +164,47 @@ interface RouteSwing {
 }
 
 /**
- * F73: depth is normalised, and the range it scales against comes from the destination's
- * own spec — the only reason one `depth: 0.5` can mean the same thing on a Hz destination
- * and a cents one. Halved because the LFO is bipolar (KIND §3.1), so peak-to-peak travel
- * is the full `depth × range`.
+ * F73: depth is normalised, and what it scales against comes from the destination's own
+ * declared curve (KIND §3.3) — the only reason one `depth: 0.5` can mean the same thing
+ * on a Hz destination and a cents one.
  *
- * `voice.amplitude` is the exception, and for two reasons that compound. Its declared
- * range is 0..1 and its base is **1.0** — the very top — so a symmetric swing spends half
- * its travel going louder than full, which a speaker at level cannot render. And gain is
- * perceived logarithmically, so the half that does duck is a couple of dB.
+ * The curve is READ here rather than decided here. It used to be decided here, by name:
+ * `voice.amplitude` was special-cased and everything else was linear, which meant the
+ * runtime held a musical judgement no other consumer could see. A UI drawing a depth
+ * control had no way to know whether to label it `±0.4`, `±2.0 oct` or `−18 dB`.
  *
- * So an amplitude route DUCKS: the peak stays at the patch's own level and the trough
- * falls `depth × 60` dB below it. That is also what a tremolo circuit does — it attenuates
- * rather than swinging about a midpoint. Re-centring the resting gain on the midpoint of
- * that span is what turns a bipolar generator into a one-directional duck without needing
- * an offset node in the graph.
+ * - `linear` — halved, because the LFO is bipolar (KIND §3.1), so peak-to-peak travel is
+ *   the full `depth × range`. A unipolar source doubles it back; see `rewireRoutes`.
+ *
+ * - `octaves` — a ratio, not an offset, so it carries no range at all. The scale is in
+ *   CENTS and the connection lands on a detune input, which is where the exponent lives:
+ *   the audio node computes `frequency × 2^(detune/1200)` for us, so the swing is
+ *   relative to wherever the cutoff sits *at that instant* — including while the filter
+ *   envelope is still moving it. Doing the same arithmetic here would need the base
+ *   value, and the base value is not a constant.
+ *
+ * - `duckDb` — asymmetric. `voice.amplitude` is declared 0..1 and its base is **1.0**,
+ *   the very top, so a symmetric swing spends half its travel above full scale, which no
+ *   output can render; and gain is perceived logarithmically, so the half that does duck
+ *   is a couple of dB. The peak therefore stays at the patch's own level and the trough
+ *   falls `depth × 60` dB below it, which is also what a tremolo circuit does.
+ *   Re-centring the resting gain on the midpoint of that span turns a bipolar generator
+ *   into a one-directional duck without needing an offset node in the graph.
  */
 function routeSwing(destination: ModDestination, depth: Unit, base: number): RouteSwing {
   const spec = PARAM_SPECS[destination];
-  if (spec.kind !== 'number') return { scale: 0 };
+  if (spec.kind !== 'number' || spec.modulation === undefined) return { scale: 0 };
 
-  if (destination === 'voice.amplitude') {
-    const trough = base * Math.pow(10, (-depth * FULL_DEPTH_DUCK_DB) / 20);
-    return { scale: (base - trough) / 2, baseOverride: (base + trough) / 2 };
+  switch (spec.modulation.curve) {
+    case 'duckDb': {
+      const trough = base * Math.pow(10, (-depth * FULL_DEPTH_DUCK_DB) / 20);
+      return { scale: (base - trough) / 2, baseOverride: (base + trough) / 2 };
+    }
+    case 'octaves':
+      return { scale: depth * FULL_DEPTH_OCTAVES * CENTS_PER_OCTAVE };
+    case 'linear':
+      return { scale: (depth * (spec.max - spec.min)) / 2 };
   }
-
-  return { scale: (depth * (spec.max - spec.min)) / 2 };
 }
 
 /**
@@ -573,15 +592,22 @@ export class ToneRuntime implements Runtime {
   /**
    * The audio-rate parameter a destination resolves to on one voice.
    *
-   * Note the cutoff: the address is `voice.filterEnvelope.baseFrequency` but the signal
-   * is `synth.filter.frequency`. In a MonoSynth the filter envelope drives that param, so
-   * connecting an LFO to it SUMS with the envelope's contribution rather than replacing
-   * it — the sweep and the wobble compose, which is what a filter LFO is supposed to do.
+   * Note the cutoff: the address is `voice.filterEnvelope.baseFrequency` and the signal is
+   * `synth.filter.detune`, not `.frequency`. That is the `octaves` curve being realised
+   * rather than a mismatch. A BiquadFilterNode computes its own cutoff as
+   * `frequency × 2^(detune/1200)`, so a swing delivered in cents is exponential by
+   * construction and stays exponential about whatever `frequency` currently holds —
+   * including while the filter envelope is still sweeping it. The wobble therefore rides
+   * the sweep multiplicatively instead of adding a fixed number of Hz to it, which is what
+   * a filter LFO is supposed to do and what modulating `.frequency` could not.
+   *
+   * `filter.detune` fans out to every biquad stage inside the filter, so the rolloff
+   * setting does not change the depth.
    */
   private destinationParam(nodes: VoiceNodes, destination: WirableDestination): Tone.InputNode {
     switch (destination) {
       case 'voice.filterEnvelope.baseFrequency':
-        return nodes.synth.filter.frequency;
+        return nodes.synth.filter.detune;
       case 'voice.filter.Q':
         return nodes.synth.filter.Q;
       case 'voice.oscillator.detune':

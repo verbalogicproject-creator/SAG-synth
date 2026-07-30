@@ -11,6 +11,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { describeDepth } from '../core/params';
+import { MODULATION_DESTINATIONS } from '../core/types';
 import {
   FILTER_ROLLOFFS,
   PARAM_PATHS,
@@ -173,5 +175,55 @@ describe('getParam agrees with setParam', () => {
     const before = structuredClone(state);
     for (const path of PARAM_PATHS) getParam(state, path as ParamPath);
     expect(state).toEqual(before);
+  });
+});
+
+/**
+ * `describeDepth` is what stands between the designed control surface and a `switch`
+ * over curve names living in a component. These gates are about the CONTRACT it offers
+ * that UI, not about the exact wording: it answers for every declared destination,
+ * refuses to answer for anything else, and the answer moves with the depth.
+ */
+describe('describeDepth — what a normalised depth means where it points', () => {
+  it('answers for every declared destination and for nothing else', () => {
+    for (const { path } of MODULATION_DESTINATIONS) {
+      expect(describeDepth(path, 0.5), `no depth label for "${path}"`).toBeDefined();
+    }
+    // The negative half. `voice.polyphony` is a real, well-formed parameter address that
+    // is deliberately not a destination — the same probe F71 uses at the validator.
+    expect(PARAM_PATHS).toContain('voice.polyphony');
+    expect(describeDepth('voice.polyphony', 0.5)).toBeUndefined();
+    expect(describeDepth('voice.filter.type', 0.5)).toBeUndefined();
+  });
+
+  it('reads a cutoff depth in octaves, because that is the declared curve', () => {
+    // The whole point of Stage 3.5 in one assertion: this used to be ±4995 Hz.
+    expect(describeDepth('voice.filterEnvelope.baseFrequency', 0.5)).toBe('±2.00 oct');
+    expect(describeDepth('voice.filterEnvelope.baseFrequency', 1)).toBe('±4.00 oct');
+  });
+
+  it('reads an amplitude depth as a one-directional duck, not a swing', () => {
+    // `−`, not `±`: the base value is the ceiling. A `±` here would describe a tremolo
+    // that gets louder than the patch, which is the mapping this curve replaced.
+    expect(describeDepth('voice.amplitude', 0.5)).toBe('−30 dB');
+  });
+
+  it('reads a linear depth in the destination unit, halved for a bipolar source', () => {
+    expect(describeDepth('voice.oscillator.detune', 0.5)).toBe('±600 cents');
+    expect(describeDepth('voice.pan', 0.5)).toBe('±0.50');
+  });
+
+  it('moves with the depth on every curve — a constant label would pass everything above', () => {
+    for (const { path } of MODULATION_DESTINATIONS) {
+      expect(describeDepth(path, 0.25), `"${path}" ignores its depth`).not.toBe(
+        describeDepth(path, 0.75),
+      );
+    }
+  });
+
+  it('says zero depth is zero travel, whatever the curve', () => {
+    for (const { path } of MODULATION_DESTINATIONS) {
+      expect(describeDepth(path, 0), `"${path}" claims travel at depth 0`).toMatch(/^[±−]0(\.0+)?( \S+)?$/);
+    }
   });
 });

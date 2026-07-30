@@ -12,7 +12,7 @@ edges:
   companion_cards:
     - arch/clients.ngf.md
     - arch/design-system.ngf.md   # written by the design planning cycle, does not exist yet
-  substrate: "sag-declarum-atlas-framework tag v0.0.3 — KIND-synth_patch, KIND-synth_song, KIND-synth_command_applied, KIND-synth_mod_route"
+  substrate: "sag-declarum-atlas-framework tag v0.0.7 — KIND-synth_patch, KIND-synth_song, KIND-synth_command_applied, KIND-synth_mod_route, KIND-synth_audio_observed"
 ---
 
 # §0. Why this card exists

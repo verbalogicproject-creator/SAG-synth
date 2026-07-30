@@ -3,6 +3,12 @@
   "/root/ngf-kernel/kinds/KIND-functional_journey.ngf.md",
   "/root/ngf-kernel/kinds/KIND-saga.ngf.md",
   "/root/ngf-kernel/kinds/KIND-state_serializer.ngf.md",
+  "/root/projects/sag-declarum-atlas-framework/VERSION",
+  "/root/projects/sag-declarum-atlas-framework/sag-declarum-atlas-schemas/KIND-nlke_locate_hit.ngf.md",
+  "/root/projects/sag-declarum-atlas-framework/sag-declarum-atlas-schemas/KIND-synth_command_applied.ngf.md",
+  "/root/projects/sag-declarum-atlas-framework/sag-declarum-atlas-schemas/KIND-synth_patch.ngf.md",
+  "/root/projects/sag-declarum-atlas-framework/sag-declarum-atlas-schemas/KIND-synth_song.ngf.md",
+  "/root/projects2/SAG-synth/.context-os/relay.ngf.md",
   "/root/projects2/SAG-synth/.gitignore",
   "/root/projects2/SAG-synth/index.html",
   "/root/projects2/SAG-synth/package.json",
@@ -30,6 +36,7 @@
   "/root/projects2/SAG-synth/vite.config.ts",
   "/root/projects2/SAG-synth/vitest.config.ts",
   "/tmp/claude-0/-root-projects2-SAG-synth/584b3943-470d-488d-85d0-73eeda1c2b85/scratchpad/alsa-null.conf",
+  "/tmp/claude-0/-root-projects2-SAG-synth/584b3943-470d-488d-85d0-73eeda1c2b85/scratchpad/relay-coldread-report.md",
   "/tmp/claude-0/-root-projects2-SAG-synth/584b3943-470d-488d-85d0-73eeda1c2b85/scratchpad/spike-a-native.mjs",
   "/tmp/claude-0/-root-projects2-SAG-synth/ad116bf6-5ec4-4beb-b47c-eb7205157b47/tasks/bcj4kv0ew.output"
 ]

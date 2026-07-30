@@ -302,6 +302,11 @@ describe('the effect id list is one list, not two', () => {
  * `MODULATION_DESTINATIONS` is transcribed from the KIND's §3.2; `PARAM_SPECS` carries a
  * `modulation` block on each destination, written out by hand. Neither is derived from
  * the other, precisely so that editing one alone is possible — and caught here.
+ *
+ * Both declared properties are compared, not just the membership: `perVoice` decides the
+ * modulator instance count and `curve` decides what a depth means. A destination quietly
+ * given a different curve in code is the same class of drift as one that appears in only
+ * one of the two lists.
  */
 describe('modulation destinations are declared, not assumed (F71 / F72)', () => {
   const modulatablePaths = PARAM_PATHS.filter((path) => {
@@ -340,9 +345,32 @@ describe('modulation destinations are declared, not assumed (F71 / F72)', () => 
     }
   });
 
+  it('agrees on curve for every destination — it decides what depth means there', () => {
+    for (const { path, curve } of MODULATION_DESTINATIONS) {
+      const spec = PARAM_SPECS[path];
+      if (spec.kind === 'number') {
+        expect(spec.modulation?.curve, `"${path}" curve disagrees with the KIND`).toBe(curve);
+      }
+    }
+  });
+
+  it('routes the only base-relative curve at the one destination the runtime resolves', () => {
+    // `duckDb` is the one curve whose swing depends on the destination's own resting
+    // value, and `rewireRoutes` hands `routeSwing` the patch's `voice.amplitude` for it.
+    // That is correct while `voice.amplitude` is the only duckDb destination and silently
+    // wrong the moment it is not — so declaring a second one has to fail here, where the
+    // message says what to do, rather than in a rendered buffer nobody is looking at.
+    const duckers = MODULATION_DESTINATIONS.filter((d) => d.curve === 'duckDb').map((d) => d.path);
+    expect(
+      duckers,
+      'a new duckDb destination needs rewireRoutes to resolve ITS base, not the amplitude',
+    ).toEqual(['voice.amplitude']);
+  });
+
   it('gives every destination a real range, which is what makes depth portable (F73)', () => {
     // A normalised depth only means something if the destination declares how far it can
-    // travel. A zero-width range would make depth silently inert.
+    // travel. A zero-width range would make a `linear` depth silently inert, and would
+    // leave an `octaves` one with nothing to clamp against at the ends of its sweep.
     for (const { path } of MODULATION_DESTINATIONS) {
       const spec = PARAM_SPECS[path];
       if (spec.kind === 'number') {

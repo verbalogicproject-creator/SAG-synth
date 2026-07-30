@@ -14,7 +14,9 @@
  * two in agreement — not this comment.
  */
 
-import type { ParamPath, ParamValue } from './types';
+import { FULL_DEPTH_DUCK_DB, FULL_DEPTH_OCTAVES } from './types';
+import type { ParamPath, ParamValue, Unit } from './types';
+import { PARAM_SPECS } from './schemas';
 import type { EngineState } from './state';
 
 /** Walk a dotted path, tolerating array indices. Undefined for anything absent. */
@@ -48,4 +50,36 @@ export function getParam(state: EngineState, path: ParamPath): ParamValue | unde
   // patch would silently return undefined for every master control.
   if (root === 'master') return deepGet(state.song.master, rest) as ParamValue | undefined;
   return deepGet(state.patch, segments) as ParamValue | undefined;
+}
+
+/**
+ * What a route's `depth` actually means at its destination, as a label.
+ *
+ * A depth is normalised 0..1 and that number is not the thing a player is choosing —
+ * `0.5` is ±2 octaves of cutoff, a 30 dB tremolo, or ±7.5 of resonance, depending
+ * entirely on where the route points. A slider showing "0.50" is showing the storage
+ * format rather than the parameter.
+ *
+ * This lives in core, and it is derived from the destination's declared curve, for the
+ * same reason every other control is generated from `PARAM_SPECS`: the alternative is a
+ * `switch` in the UI that has to be edited whenever the KIND gains a curve, which is
+ * precisely the second list `arch/clients.ngf.md` forbids. Returns `undefined` for a
+ * non-modulatable address, which is the honest answer rather than a guess.
+ */
+export function describeDepth(destination: ParamPath, depth: Unit): string | undefined {
+  const spec = PARAM_SPECS[destination];
+  if (spec.kind !== 'number' || spec.modulation === undefined) return undefined;
+
+  switch (spec.modulation.curve) {
+    case 'octaves':
+      return `±${(depth * FULL_DEPTH_OCTAVES).toFixed(2)} oct`;
+    case 'duckDb':
+      // Negative because it only ever attenuates — the base value is the ceiling.
+      return `−${(depth * FULL_DEPTH_DUCK_DB).toFixed(0)} dB`;
+    case 'linear': {
+      const swing = (depth * (spec.max - spec.min)) / 2;
+      const unit = spec.unit === undefined ? '' : ` ${spec.unit}`;
+      return `±${swing >= 100 ? Math.round(swing) : swing.toFixed(2)}${unit}`;
+    }
+  }
 }

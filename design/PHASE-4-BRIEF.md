@@ -86,10 +86,25 @@ Not decisions so much as gaps to route around. Each is either "drop it" or "buil
 
 ## Pending engine work that touches the UI
 
-**Stage 3.5 — per-destination modulation curves.** Cutoff modulation should mean *octaves*,
-not Hz; amplitude already ducks in dB. Adding a `curve` field to each destination is a small
-contract change, and **it should land before the designed UI draws a depth control**,
-because the control's feel depends on it.
+**Stage 3.5 — per-destination modulation curves. · Landed at 0.1.11.** This was the one
+blocker on drawing a depth control, and it is gone. Each destination now declares its own
+`curve` in `KIND-synth_mod_route` §3.2 — `octaves` for cutoff, `duckDb` for amplitude,
+`linear` for the rest — and the depth control does **not** need to know any of that:
+
+```ts
+describeDepth('voice.filterEnvelope.baseFrequency', 0.5)  // '±2.00 oct'
+describeDepth('voice.amplitude', 0.5)                     // '−30 dB'
+describeDepth('voice.oscillator.detune', 0.5)             // '±600 cents'
+```
+
+`describeDepth(destination, depth)` is in `src/core/params.ts`. Read it; do not reimplement
+the three cases in a component. The debug `ModPanel` already renders it under each route's
+depth slider, which is the throwaway version of what the designed surface should show.
+
+Still open under the same stage heading, and **not** a blocker: the route-overflow
+indicator. Web Audio sums connections into an `AudioParam` and clamps silently, so two deep
+routes at one destination lose travel with nothing saying so. The designed surface would
+naturally want to show it; see ROADMAP.
 
 ## Suggested shape for the session
 
