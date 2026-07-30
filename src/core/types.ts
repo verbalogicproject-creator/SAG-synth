@@ -32,8 +32,18 @@ export type Decibels = number;
 /** Seconds — used only for envelope stages and effect times, never for note placement. */
 export type Seconds = number;
 
-/** Normalised 0..1 control value (velocity, wet, depth, ...). */
+/** Normalised 0..1 control value (velocity, wet, level, ...). */
 export type Unit = number;
+
+/**
+ * Normalised −1..1 control value. A `Unit` that can point the other way.
+ *
+ * Only a modulation route's `depth` uses this, and it is a separate alias rather than a
+ * widened `Unit` because the two mean different things: everywhere else, negative is
+ * meaningless — there is no wet below dry and no level below silence. A route's sign is
+ * a direction, not a smaller amount (KIND-synth_mod_route §3.1).
+ */
+export type SignedUnit = number;
 
 /** Scientific pitch notation, e.g. "C4", "F#3", "Bb-1". Validated by NOTE_NAME_RE. */
 export type NoteName = string;
@@ -353,8 +363,17 @@ export interface ModRoute {
   enabled: boolean;
   source: ModSource;
   destination: ModDestination;
-  /** Normalised. Scaled at the runtime by the DESTINATION's own declared range (F73). */
-  depth: Unit;
+  /**
+   * Normalised and SIGNED. The magnitude scales against the destination's own declared
+   * range and curve (F73); the sign inverts the direction of travel (F82).
+   *
+   * Sign is the route's; polarity is the source's (KIND §3.1). They are not the same
+   * property and neither substitutes for the other: polarity says whether the generator
+   * swings one way or two, sign says which way this connection pushes. A bipolar LFO at
+   * −0.5 swings the same distance as at +0.5 with the phase reversed; unipolar velocity
+   * at −0.5 subtracts where +0.5 added.
+   */
+  depth: SignedUnit;
 }
 
 /** Hard cap on routes per patch, mirroring MAX_LFOS — keeps `ParamPath` a finite union. */
@@ -523,17 +542,25 @@ export interface MasterConfig {
 export type PresetCategory = 'Bass' | 'Lead' | 'Pad' | 'Keys' | 'Drum' | 'FX';
 
 /**
- * 3 — the oscillator-slot bump. `voice.oscillator` became `voice.oscillators`, a list
- * capped at `MAX_OSCILLATORS`, and every route addressed at `voice.oscillator.*` moves to
- * `voice.oscillators.0.*`.
+ * 4 — the signed-depth bump. A route's `depth` widens from `0..1` to `−1..1`.
  *
- * Version 2 patches carry the single `oscillator` dict. Version 1 patches carry that plus
+ * **The migration is the identity, and the version still moves.** Every v3 depth is a
+ * legal v4 depth, so nothing is rewritten — which makes this the one bump where the
+ * number is bought entirely for REFUSAL rather than for migration. A v4 patch carrying
+ * `depth: −0.5` handed to a v3 build must be rejected, not read as `0.5`. Without the
+ * bump it would validate: `unit()` rejects it, but an older build with a narrower schema
+ * and no version signal has no way to know it is looking at a newer document. Silent
+ * inversion of a modulation route is exactly the class of failure this project keeps
+ * paying for, and a version number is the cheapest guard against it.
+ *
+ * Version 3 patches are that, unsigned. Version 2 patches carry a single `oscillator`
+ * dict instead of the `oscillators` list. Version 1 patches carry that plus
  * `voice.filter.frequency`, per-LFO `target`/`min`/`max`, and no `modRoutes` / `eq` /
- * `voice.pan` / `voice.amplitude`. `migratePreset` walks every step in order and F65
+ * `voice.pan` / `voice.amplitude`. `migratePreset` walks every step in order, and F65
  * requires more than slot preservation at 3: a v2 patch and its migrated form must SOUND
  * the same, because the arity changed underneath a voice that still renders one buffer.
  */
-export const PRESET_SCHEMA_VERSION = 3;
+export const PRESET_SCHEMA_VERSION = 4;
 
 export interface SynthPreset {
   /** KIND slot `patch_id`. */

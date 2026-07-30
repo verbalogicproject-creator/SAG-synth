@@ -38,6 +38,9 @@ import { SYNTH_COMMAND_TYPES, type SynthCommand } from './commands';
 // ---------------------------------------------------------------------------
 
 const unit = () => z.number().min(0).max(1);
+
+/** Normalised and signed — a modulation route's depth, and nothing else. See `SignedUnit`. */
+const signedUnit = () => z.number().min(-1).max(1);
 const positive = () => z.number().nonnegative().finite();
 const finite = () => z.number().finite();
 
@@ -202,13 +205,20 @@ export const LFOConfigSchema = z.object({
   retrigger: z.boolean(),
 });
 
-/** KIND-synth_mod_route §1. `destination` is gated by the declared vocabulary — F71. */
+/**
+ * KIND-synth_mod_route §1. `destination` is gated by the declared vocabulary — F71.
+ *
+ * `depth` is `signedUnit()` rather than `unit()` since schema_version 4: the magnitude
+ * scales, the sign inverts. Everything else normalised on this document stays `unit()`,
+ * because negative is meaningless for a wet mix or a level and letting it through would
+ * be a decoy the runtime silently absorbs.
+ */
 export const ModRouteSchema = z.object({
   id: IdSchema,
   enabled: z.boolean(),
   source: ModSourceSchema,
   destination: ModDestinationSchema,
-  depth: unit(),
+  depth: signedUnit(),
 });
 
 export const VelocityConfigSchema = z.object({
@@ -505,7 +515,7 @@ const ROUTE_PARAM_SPECS = {
   enabled: { kind: 'boolean' },
   source: { kind: 'enum', values: MOD_SOURCES },
   destination: { kind: 'enum', values: MOD_DESTINATION_PATHS },
-  depth: num(0, 1),
+  depth: num(-1, 1),
 } as const satisfies Record<RouteParamKey, ParamSpec>;
 
 export const ROUTE_PARAM_KEYS = Object.keys(ROUTE_PARAM_SPECS) as RouteParamKey[];
@@ -1158,6 +1168,13 @@ export function migratePreset(raw: unknown): MigrationResult<unknown> {
   if (doc.schemaVersion === 2) {
     migratePresetV2ToV3(doc);
     doc.schemaVersion = 3;
+  }
+  // 3 -> 4 has no step. Depth widened from 0..1 to -1..1, so every v3 document is already
+  // a valid v4 one and there is nothing to rewrite. The step is written out rather than
+  // omitted because the chain above is read as a ledger of shapes, and a version silently
+  // missing from it looks like the bug it is elsewhere.
+  if (doc.schemaVersion === 3) {
+    doc.schemaVersion = 4;
   }
   return { ok: true, value: doc };
 }

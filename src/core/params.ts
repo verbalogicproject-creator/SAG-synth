@@ -15,7 +15,7 @@
  */
 
 import { FULL_DEPTH_DUCK_DB, FULL_DEPTH_OCTAVES } from './types';
-import type { ParamPath, ParamValue, Unit } from './types';
+import type { ParamPath, ParamValue, SignedUnit } from './types';
 import { PARAM_SPECS } from './schemas';
 import type { EngineState } from './state';
 
@@ -55,10 +55,10 @@ export function getParam(state: EngineState, path: ParamPath): ParamValue | unde
 /**
  * What a route's `depth` actually means at its destination, as a label.
  *
- * A depth is normalised 0..1 and that number is not the thing a player is choosing —
- * `0.5` is ±2 octaves of cutoff, a 30 dB tremolo, or ±7.5 of resonance, depending
- * entirely on where the route points. A slider showing "0.50" is showing the storage
- * format rather than the parameter.
+ * A depth is normalised −1..1 and that number is not the thing a player is choosing —
+ * `0.5` is 2 octaves of cutoff, a 30 dB tremolo, or 7.5 of resonance, depending entirely
+ * on where the route points. A slider showing "0.50" is showing the storage format rather
+ * than the parameter.
  *
  * This lives in core, and it is derived from the destination's declared curve, for the
  * same reason every other control is generated from `PARAM_SPECS`: the alternative is a
@@ -66,20 +66,42 @@ export function getParam(state: EngineState, path: ParamPath): ParamValue | unde
  * precisely the second list `arch/clients.ngf.md` forbids. Returns `undefined` for a
  * non-modulatable address, which is the honest answer rather than a guess.
  */
-export function describeDepth(destination: ParamPath, depth: Unit): string | undefined {
+export function describeDepth(destination: ParamPath, depth: SignedUnit): string | undefined {
   const spec = PARAM_SPECS[destination];
   if (spec.kind !== 'number' || spec.modulation === undefined) return undefined;
 
+  const magnitude = Math.abs(depth);
   switch (spec.modulation.curve) {
     case 'octaves':
-      return `±${(depth * FULL_DEPTH_OCTAVES).toFixed(2)} oct`;
+      return signed(depth, `${(magnitude * FULL_DEPTH_OCTAVES).toFixed(2)} oct`);
     case 'duckDb':
-      // Negative because it only ever attenuates — the base value is the ceiling.
-      return `−${(depth * FULL_DEPTH_DUCK_DB).toFixed(0)} dB`;
+      // The sign here is the OPPOSITE of the depth's, and deliberately: this label says
+      // what happens to the parameter, not what is stored. A positive depth ducks — the
+      // base is the ceiling — so it reads as a loss. A negative one boosts above the base
+      // (KIND §3.3), which is out of `voice.amplitude`'s declared range immediately, and
+      // reading it as "+30 dB" is the whole reason it is worth showing.
+      return signed(-depth, `${(magnitude * FULL_DEPTH_DUCK_DB).toFixed(0)} dB`);
     case 'linear': {
-      const swing = (depth * (spec.max - spec.min)) / 2;
+      const swing = (magnitude * (spec.max - spec.min)) / 2;
       const unit = spec.unit === undefined ? '' : ` ${spec.unit}`;
-      return `±${swing >= 100 ? Math.round(swing) : swing.toFixed(2)}${unit}`;
+      return signed(depth, `${swing >= 100 ? Math.round(swing) : swing.toFixed(2)}${unit}`);
     }
   }
+}
+
+/**
+ * Sign prefix for a depth label. Zero gets none — there is no direction to report, and
+ * `−0` is not a state anything can distinguish (KIND F82).
+ *
+ * `±` used to prefix all three of these, and dropping it is the point rather than a
+ * casualty. `±` was describing the SOURCE's polarity — a bipolar LFO does swing both ways
+ * — but polarity belongs to the source and sign belongs to the route (KIND §3.1), and a
+ * function handed only `(destination, depth)` was never in a position to say which. What
+ * it can say honestly is which way this connection pushes, which is also what the design's
+ * `+75%` / `−20%` shows.
+ */
+function signed(value: number, rendered: string): string {
+  if (value > 0) return `+${rendered}`;
+  if (value < 0) return `−${rendered}`;
+  return rendered;
 }

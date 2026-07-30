@@ -92,10 +92,15 @@ describe('ModPanel — the route-overflow indicator on screen', () => {
     );
   });
 
-  it('shows what a depth means at its destination, not just the raw 0..1', async () => {
+  it('shows what a depth means at its destination, not just the raw −1..1', async () => {
     // The other half of the Stage 3.5 surface, and the reason the curve had to land first.
+    // `±` became `+` at schema_version 4: the panel now shows which way the route pushes,
+    // because `±` was reporting the source's polarity while claiming to describe the depth.
     const text = await renderPanel(stateWith([panRoute('a', 0.4)]));
 
-    expect(text).toContain('±0.40');
+    expect(text).toContain('+0.40');
+    // And the sign is drawn, not just stored — a panel that rendered `Math.abs(depth)`
+    // would pass the line above and lose the one thing the bump was for.
+    expect(await renderPanel(stateWith([panRoute('a', -0.4)]))).toContain('−0.40');
   });
 });

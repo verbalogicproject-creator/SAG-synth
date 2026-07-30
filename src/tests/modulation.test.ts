@@ -152,6 +152,94 @@ describe('modulationLoad — what the routes ask of each destination', () => {
     expect(load?.overflows).toBe(true);
   });
 
+  /**
+   * schema_version 4. Every gate above uses positive depths, and every one of them still
+   * passes under the source-grouped arithmetic below — which is the point: grouping is
+   * invisible until a sign exists, and then it is the whole answer.
+   */
+  it('reports a cancelling pair as standing still, not as double travel', () => {
+    // The case the KIND now declares in §3.3. Two routes from ONE LFO at +d and -d feed
+    // two scalers reading the same generator, so the scales sum to zero before the swing
+    // ever happens and the destination does not move. Two cables, two `enabled` flags,
+    // and silence — which on this instrument is a diagnosis that has cost real hours, so
+    // the indicator has to be able to say it rather than report 2x travel.
+    const [load] = modulationLoad(
+      stateWith([
+        route({ id: 'a', destination: 'voice.pan', depth: 0.8, source: 'lfo.0' }),
+        route({ id: 'b', destination: 'voice.pan', depth: -0.8, source: 'lfo.0' }),
+      ]),
+    );
+
+    expect(load?.reach).toEqual({ min: 0, max: 0 });
+    expect(load?.overflows).toBe(false);
+    expect(load?.routeIds).toEqual(['a', 'b']);
+  });
+
+  it('does NOT cancel across two different LFOs — they are independent signals', () => {
+    // The negative half, and the reason `reachOf` groups by source instead of summing
+    // everything. Two generators at +d and -d are not one generator at zero: they drift
+    // in and out of phase and the worst case is the sum of their magnitudes. Treating
+    // these as cancelling would report a patch that swings the full width as motionless,
+    // which is the same lie as the previous gate with the sign reversed.
+    const [load] = modulationLoad(
+      stateWith([
+        route({ id: 'a', destination: 'voice.pan', depth: 0.8, source: 'lfo.0' }),
+        route({ id: 'b', destination: 'voice.pan', depth: -0.8, source: 'lfo.1' }),
+      ]),
+    );
+
+    expect(load?.reach).toEqual({ min: -1.6, max: 1.6 });
+    expect(load?.overflows).toBe(true);
+  });
+
+  it('points a negative velocity route downward, keeping it one-directional', () => {
+    // Unipolar means one direction, not one FIXED direction. Velocity at -0.5 subtracts
+    // where +0.5 added, and the reach stays asymmetric either way — a bipolar reading
+    // would invent an upward excursion that the source cannot produce.
+    const [load] = modulationLoad(
+      stateWith([route({ destination: 'voice.pan', depth: -0.5, source: 'velocity' })]),
+    );
+
+    expect(load?.reach.max).toBe(0);
+    expect(load?.reach.min).toBeCloseTo(-1, 6);
+    expect(load?.overflows).toBe(false);
+  });
+
+  it('flags a negative amplitude duck, because a boost leaves the range immediately', () => {
+    // KIND §3.3: negative `duckDb` makes the base the FLOOR rather than the ceiling.
+    // `voice.amplitude` is declared 0..1 and rests at 1.0, so the boost is out of range
+    // the moment it is switched on — a legal patch the indicator has to report rather
+    // than a configuration to refuse.
+    const [load] = modulationLoad(
+      stateWith([route({ destination: 'voice.amplitude', depth: -0.5 })]),
+    );
+
+    expect(load?.reach.max).toBeGreaterThan(1);
+    expect(load?.reach.min).toBeCloseTo(1, 6);
+    expect(load?.overflows).toBe(true);
+  });
+
+  it('mirrors travel when the sign flips, on every curve — F82 at the arithmetic', () => {
+    // Magnitude preserved, direction reversed. An implementation that signed the
+    // magnitude too would shrink the reach instead of turning it round, which is F82's
+    // second negative probe stated in terms this file can check without a renderer.
+    for (const path of ['voice.pan', 'voice.filterEnvelope.baseFrequency'] as const) {
+      const [up] = modulationLoad(stateWith([route({ destination: path, depth: 0.5 })]));
+      const [down] = modulationLoad(stateWith([route({ destination: path, depth: -0.5 })]));
+      // A bipolar source swings both ways, so the REACH is symmetric either way — the
+      // sign shows up in composition, not in one route's envelope. That is the honest
+      // result and worth pinning: it is why the cancelling gate above exists at all.
+      expect(down?.reach.min, `${path} lost travel with the sign`).toBeCloseTo(
+        up?.reach.min ?? NaN,
+        9,
+      );
+      expect(down?.reach.max, `${path} lost travel with the sign`).toBeCloseTo(
+        up?.reach.max ?? NaN,
+        9,
+      );
+    }
+  });
+
   it('reports one entry per destination, in the KIND order rather than the patch order', () => {
     // Two routes at one destination are one load; two destinations are two. Declared order
     // so the report does not reshuffle itself when a route is added.

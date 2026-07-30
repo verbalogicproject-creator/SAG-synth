@@ -54,6 +54,7 @@ import type {
   ModDestination,
   OscillatorIndex,
   OscillatorConfig,
+  SignedUnit,
   Song,
   SynthPreset,
   Unit,
@@ -312,8 +313,21 @@ interface RouteSwing {
  *   falls `depth × 60` dB below it, which is also what a tremolo circuit does.
  *   Re-centring the resting gain on the midpoint of that span turns a bipolar generator
  *   into a one-directional duck without needing an offset node in the graph.
+ *
+ * **The sign needs no code of its own, and that is worth stating rather than leaving to be
+ * rediscovered.** A negative depth makes `scale` negative, `rewireRoutes` puts it in a
+ * `Tone.Gain`, and a gain node with a negative value inverts its input — which is exactly
+ * F82. It works only because the scaling lives on the CONNECTION rather than on the
+ * generator; inverting a shared `Tone.LFO` would invert every route reading it. The one
+ * thing checked rather than assumed is that Tone permits it: `Param.minValue` special-cases
+ * `normalRange`, `positive`, `audioRange` and others to a floor, and `Gain` defaults to
+ * `units: "gain"`, which is in none of those lists and falls through to the native
+ * `GainNode.gain.minValue` — the full negative float range (`Tone/core/context/Param.ts`).
+ * `duckDb` inverts too, and there it changes meaning rather than phase: the trough lands
+ * ABOVE the base and the duck becomes a boost, declared in KIND §3.3 and reported by
+ * `modulationLoad` rather than repaired here.
  */
-function routeSwing(destination: ModDestination, depth: Unit, base: number): RouteSwing {
+function routeSwing(destination: ModDestination, depth: SignedUnit, base: number): RouteSwing {
   const spec = PARAM_SPECS[destination];
   if (spec.kind !== 'number' || spec.modulation === undefined) return { scale: 0 };
 

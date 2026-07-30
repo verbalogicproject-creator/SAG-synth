@@ -1,4 +1,4 @@
-# SAG-synth roadmap — 0.1.16 → 0.2.0
+# SAG-synth roadmap — 0.1.17 → 0.2.0
 
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
@@ -7,8 +7,14 @@ from the repo, not recalled; where something is unverified it says so.
 
 ## Where we actually are
 
-**Version 0.1.16 — the engine is complete.** 365 tests across three projects. Build clean.
-Preset schema version **3**, framework KINDs at tag `v0.0.9`.
+**Version 0.1.17 — the engine is complete, and Phase 4 has started.** 376 tests across
+three projects. Build clean. Preset schema version **4**, framework KINDs at tag `v0.0.10`.
+
+0.1.17 is the signed-depth bump — Phase 4 stage 4.0, and the last engine change the
+designed surface needed. A route's `depth` is now `−1..1`: the magnitude scales against
+the destination's declared curve, the sign inverts the direction. It landed before any UI
+because a signed depth changes how a cable is drawn, and building the cable component
+twice was the alternative.
 
 **All 119 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
 and three tests keep it honest. The signal path, per voice:
@@ -46,7 +52,7 @@ The original plan said "ship v0.1.0 after Stage 4", and increments got bumped al
 until the number and the plan disagreed. Settled as:
 
 - **0.1.x** — the throwaway debug surface over a growing engine.
-- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.16.**
+- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.17.**
 
   0.1.9 was labelled "the last 0.1" when it shipped. That was a prediction and it did not
   hold: three separate EQ reports followed, each a genuinely different cause — a command

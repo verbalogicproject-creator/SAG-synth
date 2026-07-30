@@ -2185,6 +2185,144 @@ describe('ToneRuntime — modulation routing', () => {
     expect(Math.abs(measured - predicted) / predicted).toBeLessThan(0.02);
   });
 
+  /**
+   * F82 — the sign, in a rendered buffer. schema_version 4.
+   *
+   * Measured through VELOCITY rather than an LFO, and that choice is the gate. A bipolar
+   * LFO at `+d` and at `−d` visits exactly the same set of cutoff values — the sign
+   * reverses the phase, not the travel — so any measurement averaged over a cycle comes
+   * out identical for both and the gate would pass whatever the runtime did with the sign.
+   * Velocity is unipolar and captured at note-on, so the route becomes a STATIC offset:
+   * `+d` holds the filter open, `−d` holds it shut, and the difference sits still long
+   * enough to measure without arguing about phase.
+   */
+  function renderVelocityRouted(depth: number): Promise<Float32Array> {
+    return renderRouted({
+      enabled: true,
+      destination: 'voice.filterEnvelope.baseFrequency',
+      depth,
+      seconds: 0.6,
+      mutate: (patch) => {
+        patch.voice.modRoutes[0]!.source = 'velocity';
+      },
+    });
+  }
+
+  /** Where the top of the spectrum sits, in octaves above 20 Hz, past the attack. */
+  const edge = (data: Float32Array) =>
+    spectralEdgeOctaves(data, SR, Math.floor(0.25 * SR), 0.99, 4096);
+
+  it('F82 — a negative route pushes the destination the other way', async () => {
+    const [down, still, up] = await Promise.all([
+      renderVelocityRouted(-0.35),
+      renderVelocityRouted(0),
+      renderVelocityRouted(0.35),
+    ]);
+
+    // All three have to be sounding, or "darker" could just be "quieter and gone".
+    for (const data of [down, still, up]) expect(rms(data)).toBeGreaterThan(0.01);
+
+    // Strictly ordered, with the unmodulated render between the two. Either half alone
+    // is weak: "up is brighter than down" would pass an implementation that ignored the
+    // sign and merely applied twice the depth in one direction.
+    expect(edge(up)).toBeGreaterThan(edge(still) + 0.5);
+    expect(edge(still)).toBeGreaterThan(edge(down) + 0.5);
+  });
+
+  it('F82 — the sign changes direction, not distance', async () => {
+    // The second negative probe, and the one that catches a plausible wrong answer rather
+    // than an obviously broken one: an implementation applying the sign to the MAGNITUDE
+    // as well makes `−d` travel less as well as the other way, which reads as "inverted
+    // modulation is quieter" and is a volume control wearing a direction's clothes.
+    //
+    // Octaves are the right unit for the comparison because the curve is declared in
+    // them — the displacement is symmetric in log-frequency, which is exactly what it is
+    // not in Hz.
+    const [down, still, up] = await Promise.all([
+      renderVelocityRouted(-0.35),
+      renderVelocityRouted(0),
+      renderVelocityRouted(0.35),
+    ]);
+
+    const rise = edge(up) - edge(still);
+    const fall = edge(still) - edge(down);
+    expect(rise).toBeGreaterThan(0.5);
+    expect(fall).toBeGreaterThan(0.5);
+    // 25%: the spectral edge is a 99%-energy percentile over a 4096-point window, and the
+    // two directions run into different neighbours — the top meets the anti-alias filter,
+    // the bottom meets the noise floor. Tighter than this measures the measurement.
+    expect(Math.abs(rise - fall) / ((rise + fall) / 2)).toBeLessThan(0.25);
+  });
+
+  it('two routes from ONE LFO at opposite signs cancel; from two LFOs they do not', async () => {
+    // The composition rule the KIND added at §3.3, and the case `modulationLoad` groups by
+    // source to get right. Routes sharing a generator share a signal: their scalers sum
+    // before the swing happens, so `+d` and `−d` on one LFO reach zero and the filter sits
+    // perfectly still with two cables plugged in and two `enabled` flags reading true.
+    //
+    // The second half is what makes it a test rather than a coincidence. Two SEPARATE LFOs
+    // at the same opposite depths are independent signals that cannot cancel, and they have
+    // to move the filter — otherwise "nothing happened" would be explained just as well by
+    // a runtime that silently drops any route carrying a negative depth.
+    const pair = (sameSource: boolean) => (patch: SynthPreset) => {
+      // Different RATES, and the first attempt at this gate got it wrong by using the same
+      // one for both. Two LFOs at 6 Hz, both `sync: false` and both started by the same
+      // offline render, are phase-locked — so they are not merely similar signals, they
+      // are the same signal arriving twice, and `+d` / `−d` cancelled just as exactly as
+      // the shared-source pair did. The control half measured 5.3e-7 against the
+      // experimental half's 1.6e-6: two nothings. Independence has to be built into the
+      // patch, not assumed from the slot index.
+      patch.voice.lfos = [
+        { id: 'lfo-0', enabled: true, type: 'sine', frequency: 6, sync: false, retrigger: false },
+        { id: 'lfo-1', enabled: true, type: 'sine', frequency: 2.5, sync: false, retrigger: false },
+      ];
+      patch.voice.modRoutes = [
+        {
+          id: 'route-0',
+          enabled: true,
+          source: 'lfo.0',
+          destination: 'voice.filterEnvelope.baseFrequency',
+          depth: 0.4,
+        },
+        {
+          id: 'route-1',
+          enabled: true,
+          source: sameSource ? 'lfo.0' : 'lfo.1',
+          destination: 'voice.filterEnvelope.baseFrequency',
+          depth: -0.4,
+        },
+      ];
+    };
+
+    const [cancelled, independent, unmodulated] = await Promise.all([
+      renderRouted({
+        enabled: true,
+        destination: 'voice.filterEnvelope.baseFrequency',
+        depth: 0.4,
+        mutate: pair(true),
+      }),
+      renderRouted({
+        enabled: true,
+        destination: 'voice.filterEnvelope.baseFrequency',
+        depth: 0.4,
+        mutate: pair(false),
+      }),
+      renderRouted({
+        enabled: false,
+        destination: 'voice.filterEnvelope.baseFrequency',
+        depth: 0.4,
+      }),
+    ]);
+
+    for (const data of [cancelled, independent]) expect(rms(data)).toBeGreaterThan(0.01);
+
+    // The cancelled pair moves no more than an unmodulated note does — its residue is the
+    // same measurement noise, not a smaller wobble.
+    expect(movement(cancelled, hfAt)).toBeLessThan(movement(unmodulated, hfAt) * 2);
+    // The independent pair moves, and by a lot more than either of those.
+    expect(movement(independent, hfAt)).toBeGreaterThan(movement(cancelled, hfAt) * 3);
+  });
+
   it('a faster LFO modulates more often than a slow one over the same window', async () => {
     // Guards against the rate being ignored — a route that always wobbles at 1 Hz would
     // pass every depth gate above.

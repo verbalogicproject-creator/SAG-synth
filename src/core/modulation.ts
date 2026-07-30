@@ -19,7 +19,7 @@
  */
 
 import { FULL_DEPTH_DUCK_DB, FULL_DEPTH_OCTAVES, MODULATION_DESTINATIONS } from './types';
-import type { ModCurve, ModDestination, ModRoute } from './types';
+import type { ModCurve, ModDestination, ModRoute, ModSource } from './types';
 import { PARAM_SPECS } from './schemas';
 import { getParam } from './params';
 import type { EngineState } from './state';
@@ -67,41 +67,60 @@ function reachOf(
   limit: { min: number; max: number },
   routes: readonly ModRoute[],
 ): { min: number; max: number } {
-  if (curve === 'duckDb') {
-    let centre = base;
-    let up = 0;
-    let down = 0;
-    for (const route of routes) {
+  /** One route's signed contribution, in whatever unit its curve composes in. */
+  const scaleOf = (route: ModRoute): number => {
+    if (curve === 'duckDb') {
       const trough = base * Math.pow(10, (-route.depth * FULL_DEPTH_DUCK_DB) / 20);
-      const scale = (base - trough) / 2;
-      centre = (base + trough) / 2;
-      if (route.source === 'velocity') up += scale * 2;
-      else {
-        up += scale;
-        down += scale;
-      }
+      return (base - trough) / 2;
     }
-    return { min: centre - down, max: centre + up };
+    return curve === 'octaves'
+      ? route.depth * FULL_DEPTH_OCTAVES
+      : (route.depth * (limit.max - limit.min)) / 2;
+  };
+
+  // `rewireRoutes` ASSIGNS `nodes.gain.gain.value = swing.baseOverride` per route, so the
+  // last enabled one owns the resting value rather than a combination of them. Only
+  // `duckDb` re-centres at all; for the others the centre is the parameter's own value.
+  let centre = base;
+  if (curve === 'duckDb') {
+    for (const route of routes) {
+      centre = (base + base * Math.pow(10, (-route.depth * FULL_DEPTH_DUCK_DB) / 20)) / 2;
+    }
+  }
+
+  // Group by source before summing, and this is not a tidy-up: routes sharing a source
+  // share a SIGNAL. `rewireRoutes` builds one scaler per connection and they all read the
+  // same generator, so their scales sum before the swing happens — `+d` and `−d` from one
+  // LFO cancel exactly, and the destination sits still with two cables plugged into it.
+  // Routes on different sources are independent generators whose magnitudes add. Summing
+  // everything together would report a cancelling pair as double travel, and summing
+  // magnitudes everywhere would report it as double too. Neither is the answer, and the
+  // difference only became reachable when depth gained a sign.
+  const bySource = new Map<ModSource, number>();
+  for (const route of routes) {
+    bySource.set(route.source, (bySource.get(route.source) ?? 0) + scaleOf(route));
   }
 
   let up = 0;
   let down = 0;
-  for (const route of routes) {
-    const travel =
-      curve === 'octaves'
-        ? route.depth * FULL_DEPTH_OCTAVES
-        : (route.depth * (limit.max - limit.min)) / 2;
-    if (route.source === 'velocity') up += travel * 2;
-    else {
-      up += travel;
-      down += travel;
+  for (const [source, sum] of bySource) {
+    if (source === 'velocity') {
+      // Unipolar (KIND §3.1): velocity runs 0..1 and only ever travels one way. Which way
+      // is now the sign's business, and `rewireRoutes` doubles the scaler to keep the
+      // total distance the same as a bipolar source's.
+      if (sum >= 0) up += sum * 2;
+      else down += -sum * 2;
+    } else {
+      // Bipolar: the same distance either side of centre, whichever way the sign points.
+      up += Math.abs(sum);
+      down += Math.abs(sum);
     }
   }
 
   if (curve === 'octaves') {
     return { min: base * Math.pow(2, -down), max: base * Math.pow(2, up) };
   }
-  return { min: base - down, max: base + up };
+  return { min: centre - down, max: centre + up };
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "id": "factory-default",
   "name": "Init Saw",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "voice": {
     "oscillators": [
       {

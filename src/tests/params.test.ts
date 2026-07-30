@@ -221,8 +221,8 @@ describe('describeDepth — what a normalised depth means where it points', () =
 
   it('reads a cutoff depth in octaves, because that is the declared curve', () => {
     // The whole point of Stage 3.5 in one assertion: this used to be ±4995 Hz.
-    expect(describeDepth('voice.filterEnvelope.baseFrequency', 0.5)).toBe('±2.00 oct');
-    expect(describeDepth('voice.filterEnvelope.baseFrequency', 1)).toBe('±4.00 oct');
+    expect(describeDepth('voice.filterEnvelope.baseFrequency', 0.5)).toBe('+2.00 oct');
+    expect(describeDepth('voice.filterEnvelope.baseFrequency', 1)).toBe('+4.00 oct');
   });
 
   it('reads an amplitude depth as a one-directional duck, not a swing', () => {
@@ -232,8 +232,45 @@ describe('describeDepth — what a normalised depth means where it points', () =
   });
 
   it('reads a linear depth in the destination unit, halved for a bipolar source', () => {
-    expect(describeDepth('voice.oscillators.0.detune', 0.5)).toBe('±600 cents');
-    expect(describeDepth('voice.pan', 0.5)).toBe('±0.50');
+    expect(describeDepth('voice.oscillators.0.detune', 0.5)).toBe('+600 cents');
+    expect(describeDepth('voice.pan', 0.5)).toBe('+0.50');
+  });
+
+  /**
+   * Everything from here down is schema_version 4. `±` used to prefix all three curves,
+   * and it was describing the SOURCE's polarity while claiming to describe the route's
+   * depth — a distinction that did not exist until depth gained a sign (KIND §3.1).
+   */
+  it('shows the direction a route pushes, not just how far', () => {
+    expect(describeDepth('voice.filterEnvelope.baseFrequency', -0.5)).toBe('−2.00 oct');
+    expect(describeDepth('voice.oscillators.0.detune', -0.5)).toBe('−600 cents');
+    expect(describeDepth('voice.pan', -0.5)).toBe('−0.50');
+  });
+
+  it('keeps the magnitude when the sign flips — inversion is not a volume control', () => {
+    // The second of F82's two negative probes, at the label rather than in the buffer:
+    // an implementation that signed the magnitude as well would make `−0.5` read as a
+    // smaller number than `+0.5`, and read as "quieter modulation" rather than "the
+    // other way".
+    for (const { path } of MODULATION_DESTINATIONS) {
+      const positive = describeDepth(path, 0.5);
+      const negative = describeDepth(path, -0.5);
+      expect(negative, `"${path}" has no negative label`).toBeDefined();
+      expect(negative, `"${path}" ignores the sign`).not.toBe(positive);
+      expect(negative?.slice(1), `"${path}" changed magnitude with the sign`).toBe(
+        positive?.slice(1),
+      );
+    }
+  });
+
+  it('reads a negative duck as a BOOST, because that is what it does to the sound', () => {
+    // The sign shown is the OPPOSITE of the stored depth here, and that is the honest
+    // rendering rather than a bug: the label says what happens to the parameter. A
+    // negative duck makes the base the floor instead of the ceiling (KIND §3.3), which
+    // for `voice.amplitude` — declared 0..1 with a base of 1.0 — leaves the declared
+    // range the moment it is switched on. A label reading "−30 dB" for that would be
+    // pointing the wrong way about the one case worth warning anyone about.
+    expect(describeDepth('voice.amplitude', -0.5)).toBe('+30 dB');
   });
 
   it('moves with the depth on every curve — a constant label would pass everything above', () => {
@@ -244,9 +281,18 @@ describe('describeDepth — what a normalised depth means where it points', () =
     }
   });
 
-  it('says zero depth is zero travel, whatever the curve', () => {
+  it('says zero depth is zero travel, whatever the curve, with no direction claimed', () => {
+    // No sign prefix at zero. There is no direction to report, and `−0` is not a state
+    // anything downstream can distinguish — KIND F82 says so explicitly so that a UI
+    // dragging a bipolar depth slider through the centre does not flicker between two
+    // labels for one value.
     for (const { path } of MODULATION_DESTINATIONS) {
-      expect(describeDepth(path, 0), `"${path}" claims travel at depth 0`).toMatch(/^[±−]0(\.0+)?( \S+)?$/);
+      expect(describeDepth(path, 0), `"${path}" claims travel at depth 0`).toMatch(
+        /^0(\.0+)?( \S+)?$/,
+      );
+      expect(describeDepth(path, -0), `"${path}" distinguishes −0 from 0`).toBe(
+        describeDepth(path, 0),
+      );
     }
   });
 });
