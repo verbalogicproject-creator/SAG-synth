@@ -1470,6 +1470,89 @@ describe('ToneRuntime — oscillator mapping (Stage 2c)', () => {
   /** Long enough for `beatDepthDb` to see two full beats. */
   const BEAT_SECONDS = 1.2;
 
+  /**
+   * A TWO-CHANNEL render, which every other gate in this file is not.
+   *
+   * That gap shipped a decoy: `voice.oscillators.N.pan` validated, journalled, replayed
+   * and did nothing, because `Tone.Panner` defaults to `channelCount: 1` and the
+   * voice-level panner therefore down-mixed the slots' placement to mono before panning
+   * it again. In a one-channel render that is invisible — everything is mono by the time
+   * it is measured. Stereo is not a nicety here; it is the only way to see the parameter
+   * at all.
+   */
+  function renderStereo(
+    mutate: (patch: SynthPreset) => void,
+    seconds = 0.8,
+  ): Promise<readonly [Float32Array, Float32Array]> {
+    return Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+            patch.voice.filterEnvelope = {
+              attack: 0.005,
+              decay: 0.01,
+              sustain: 1,
+              release: 0.1,
+              baseFrequency: 2000,
+              octaves: 0,
+            };
+            mutate(patch);
+          }),
+        );
+        runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.9, portamento: 0 });
+      },
+      seconds,
+      2,
+      SR,
+    ).then((buffer) => [buffer.getChannelData(0), buffer.getChannelData(1)] as const);
+  }
+
+  const channel = (data: Float32Array) => rms(data, Math.floor(0.2 * SR), Math.floor(0.6 * SR));
+
+  it('places a slot in the stereo field — hard left is LEFT, not centre and quieter', async () => {
+    // The gate the mono harness could not be. Measured before the fix: L 0.1129 against
+    // R 0.1125 — identical channels at 0.707x the centred level, which is precisely what
+    // a down-mix looks like and precisely what "the knob does nothing" sounds like.
+    const [centreL, centreR] = await renderStereo(() => {});
+    const [leftL, leftR] = await renderStereo((patch) => {
+      patch.voice.oscillators[0]!.pan = -1;
+    });
+
+    expect(channel(centreL)).toBeCloseTo(channel(centreR), 2);
+    expect(channel(leftL)).toBeGreaterThan(channel(leftR) * 20);
+    // And it is not merely quieter on one side: the left channel gains what the right lost.
+    expect(channel(leftL)).toBeGreaterThan(channel(centreL));
+  });
+
+  it('keeps two slots apart when they are panned apart', async () => {
+    // Different CONTENT per channel, not just different levels. Two slots 12 cents apart
+    // split hard left and right leave a large difference signal; the same two centred
+    // leave almost none. A down-mix anywhere in the chain collapses both cases to the same
+    // thing, which is how the first version passed every assertion it had.
+    const split = await renderStereo((patch) => {
+      patch.voice.oscillators = [
+        { ...patch.voice.oscillators[0]!, pan: -1 },
+        { ...patch.voice.oscillators[0]!, id: 'osc-1', detune: 12, pan: 1 },
+      ];
+    });
+    const together = await renderStereo((patch) => {
+      patch.voice.oscillators = [
+        { ...patch.voice.oscillators[0]!, pan: 0 },
+        { ...patch.voice.oscillators[0]!, id: 'osc-1', detune: 12, pan: 0 },
+      ];
+    });
+
+    const side = ([l, r]: readonly [Float32Array, Float32Array]) => {
+      const difference = new Float32Array(l.length);
+      for (let i = 0; i < l.length; i += 1) difference[i] = (l[i]! - r[i]!) / 2;
+      return channel(difference);
+    };
+
+    expect(side(split)).toBeGreaterThan(side(together) * 20);
+  });
+
   it('two slots detuned against each other beat; one slot cannot', async () => {
     // The reason three slots exist. 25 cents at A3 is a difference of about 3.2 Hz, so a
     // 0.6 s window holds two full beats — audible as movement, not as a chorus effect

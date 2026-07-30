@@ -1,4 +1,4 @@
-# SAG-synth roadmap — 0.1.15 → 0.2.0
+# SAG-synth roadmap — 0.1.16 → 0.2.0
 
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
@@ -7,7 +7,7 @@ from the repo, not recalled; where something is unverified it says so.
 
 ## Where we actually are
 
-**Version 0.1.15 — the engine is complete.** 363 tests across three projects. Build clean.
+**Version 0.1.16 — the engine is complete.** 365 tests across three projects. Build clean.
 Preset schema version **3**, framework KINDs at tag `v0.0.9`.
 
 **All 119 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
@@ -46,7 +46,7 @@ The original plan said "ship v0.1.0 after Stage 4", and increments got bumped al
 until the number and the plan disagreed. Settled as:
 
 - **0.1.x** — the throwaway debug surface over a growing engine.
-- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.15.**
+- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.16.**
 
   0.1.9 was labelled "the last 0.1" when it shipped. That was a prediction and it did not
   hold: three separate EQ reports followed, each a genuinely different cause — a command
@@ -69,7 +69,7 @@ reasoning at the end.
 | **2e** polyphony | stealing end to end, driven through the dispatcher | found two of my own gates weaker than their comments |
 | **2f** telemetry | live audio observation from the device | its first run found the synth working and itself broken three ways |
 | **3** effects | the chain, the EQ, the master stage, Q1 closed | found voices connected past the entire chain, and `'eq'` missing from the validator's enum |
-| **3.6** oscillator slots | one oscillator became three; MonoSynth replaced by a hand-built voice | found a per-slot panner costing 3 dB at centre, and `FrequencyEnvelope`'s `exponent` defaulting to 1 where MonoSynth had overridden it to 2 — the factory patch's cutoff settled an octave high and gained forty times the energy above 9 kHz |
+| **3.6** oscillator slots | one oscillator became three; MonoSynth replaced by a hand-built voice | three Tone defaults, none of them documented where they bite: `Panner` down-mixing to mono and erasing per-slot pan entirely, its equal-power centre costing 3 dB, and `FrequencyEnvelope`'s `exponent` defaulting to 1 where MonoSynth overrode it to 2 |
 | **3.5** curves | per-destination modulation curves, the overflow indicator | found `Tone.Distortion`'s `amount` to be a volume knob — +2.1 dB and 22% *less* energy above 2 kHz on the shipped patch; then found the fixed effect still shipped at an `amount` nobody could hear switch on |
 
 Every one of those was found by a gate or by an ear check, not by reading the code.

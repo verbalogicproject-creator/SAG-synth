@@ -194,21 +194,6 @@ function distortionCurve(amount: Unit): { curve: Float32Array; makeup: number } 
  * 44.1 kHz being audible as a shift, so nudging is inaudible.
  */
 /**
- * Makeup for one equal-power panner sitting at centre: `1 / cos(pi/4)`.
- *
- * A `StereoPannerNode` is equal-POWER, so a mono signal through it at pan 0 comes out at
- * 0.707 per channel — 3 dB down. That is correct panning and wrong as a side effect:
- * adding a per-slot panner at schema_version 3 made every existing patch quieter than the
- * version that shipped, which surfaced as an onset gate reading 0.0081 against a 0.01
- * floor and as the distortion knob moving the level 2.4 dB — its makeup is calibrated
- * against the level a voice actually reaches, so a quieter voice re-broke it.
- *
- * A separate node rather than folded into `level`, deliberately.
- * `voice.oscillators.N.level` is a modulation destination and a route's swing is
- * `depth x declared range`; a level gain carrying a hidden 1.41 factor would make a
- * depth-1 route travel the wrong distance at that one destination and nowhere else.
- */
-/**
  * The filter envelope's curve exponent, and it is not ours to choose freely.
  *
  * `FrequencyEnvelope` computes `baseFrequency * 2^(octaves * value^exponent)`. Its OWN
@@ -223,8 +208,6 @@ function distortionCurve(amount: Unit): { curve: Float32Array; makeup: number } 
  * a new tone control whose default silently rewrites every saved patch is not a feature.
  */
 const FILTER_ENVELOPE_EXPONENT = 2;
-
-const CENTRE_PAN_COMPENSATION = Math.SQRT2;
 
 const MIN_EVENT_GAP_SECONDS = 1e-4;
 
@@ -365,8 +348,6 @@ interface SlotNodes {
   osc: Tone.OmniOscillator<Tone.Oscillator>;
   level: Tone.Gain;
   panner: Tone.Panner;
-  /** Undoes the panner's centre attenuation. See `CENTRE_PAN_COMPENSATION`. */
-  compensate: Tone.Gain;
 }
 
 /**
@@ -615,7 +596,6 @@ export class ToneRuntime implements Runtime {
         slot.osc.dispose();
         slot.level.dispose();
         slot.panner.dispose();
-        slot.compensate.dispose();
       }
       nodes.filter.dispose();
       nodes.filterEnvelope.dispose();
@@ -890,13 +870,12 @@ export class ToneRuntime implements Runtime {
     ) as Tone.OmniOscillator<Tone.Oscillator>;
     const level = new Tone.Gain(config === undefined ? 1 : slotGain(config));
     const panner = new Tone.Panner(config?.pan ?? 0);
-    const compensate = new Tone.Gain(CENTRE_PAN_COMPENSATION);
 
     nodes.frequency.connect(osc.frequency);
-    osc.chain(level, panner, compensate, nodes.filter);
+    osc.chain(level, panner, nodes.filter);
     if (config !== undefined) osc.detune.value = slotDetune(config);
 
-    return { osc, level, panner, compensate };
+    return { osc, level, panner };
   }
 
   /**
@@ -910,7 +889,6 @@ export class ToneRuntime implements Runtime {
       slot?.osc.dispose();
       slot?.level.dispose();
       slot?.panner.dispose();
-      slot?.compensate.dispose();
     }
     while (nodes.slots.length < wanted.length) {
       nodes.slots.push(this.buildSlot(nodes, wanted[nodes.slots.length]));
@@ -943,7 +921,19 @@ export class ToneRuntime implements Runtime {
     );
     const frequency = new Tone.Signal({ units: 'frequency', value: 440 });
     const gain = new Tone.Gain(patch === null ? 1 : patch.voice.amplitude);
-    const panner = new Tone.Panner(patch === null ? 0 : patch.voice.pan);
+    // `channelCount: 2` is load-bearing, not tuning. `Tone.Panner` defaults to
+    // `channelCount: 1` with `channelCountMode: 'explicit'`, so it DOWN-MIXES its input to
+    // mono before panning. That was invisible while its input was a mono MonoSynth and
+    // destructive the moment slots could place themselves upstream: a slot panned hard
+    // left came out of here dead centre, 3 dB quieter and otherwise identical — a declared
+    // parameter that validated, journalled, replayed and did nothing.
+    //
+    // At two channels the node follows the spec's STEREO panning law instead, which is
+    // pass-through at pan 0 and pushes the existing image left or right otherwise. That
+    // also removes the makeup gain the slots used to need: the slot panner's own 3 dB
+    // centre loss is now the only one in the chain, which is exactly what a single
+    // MonoSynth-fed panner cost before any of this.
+    const panner = new Tone.Panner({ pan: patch === null ? 0 : patch.voice.pan, channelCount: 2 });
 
     filter.chain(amp, gain);
     gain.connect(panner);
