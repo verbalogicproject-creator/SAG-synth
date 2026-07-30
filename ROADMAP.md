@@ -1,4 +1,4 @@
-# SAG-synth roadmap — 0.1.9 → 0.2.0
+# SAG-synth roadmap — 0.1.10 → 0.2.0
 
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
@@ -7,7 +7,7 @@ from the repo, not recalled; where something is unverified it says so.
 
 ## Where we actually are
 
-**Version 0.1.9 — the engine is complete.** 308 tests across three projects. Build clean.
+**Version 0.1.10 — the engine is complete.** 310 tests across three projects. Build clean.
 Preset schema version 2, framework KINDs at tag `v0.0.6`.
 
 **All 97 declared parameter addresses reach the audio graph.** `UNMAPPED_PARAMS` is empty
@@ -34,7 +34,14 @@ The original plan said "ship v0.1.0 after Stage 4", and increments got bumped al
 until the number and the plan disagreed. Settled as:
 
 - **0.1.x** — the throwaway debug surface over a growing engine.
-- **0.1.9** — feature-complete engine, still on the debug surface. **Here.** The last 0.1.
+- **0.1.9+** — feature-complete engine, still on the debug surface. **Here, at 0.1.10.**
+
+  0.1.9 was labelled "the last 0.1" when it shipped. That was a prediction and it did not
+  hold: three separate EQ reports followed, each a genuinely different cause — a command
+  refused at validation, bands measured under conditions no real patch has, and centres
+  that left two of five controls inert. All three were found by playing the thing, none by
+  reading it. The number keeps moving until the design stage starts; calling one of them
+  final was the mistake, not the work that followed it.
 - **0.2.0** — the designed instrument. Not a bump for its own sake: the release where the
   surface a player touches was designed rather than accreted.
 
