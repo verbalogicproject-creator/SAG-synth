@@ -168,6 +168,19 @@ interface VoiceNodes {
   synth: Tone.MonoSynth;
   gain: Tone.Gain;
   panner: Tone.Panner;
+  /**
+   * This note's velocity, as a signal.
+   *
+   * An LFO is a running generator with an output to connect; velocity is a scalar
+   * captured once at note-on. `Tone.Signal` wraps a `ConstantSourceNode`, whose output
+   * equals its value at every sample, which turns the scalar into something the routing
+   * graph can treat exactly like an LFO — so nothing downstream of the source needs to
+   * know which kind it is.
+   *
+   * One per voice, and per voice is the whole point: two voices sounding at once hold
+   * different velocities, so unlike an LFO this cannot be one node fanned out to the pool.
+   */
+  velocity: Tone.Signal<'number'>;
 }
 
 export class ToneRuntime implements Runtime {
@@ -280,6 +293,7 @@ export class ToneRuntime implements Runtime {
       nodes.synth.dispose();
       nodes.gain.dispose();
       nodes.panner.dispose();
+      nodes.velocity.dispose();
     }
     this.voices.clear();
     this.lastEventTime.clear();
@@ -378,20 +392,32 @@ export class ToneRuntime implements Runtime {
 
     for (const route of patch.voice.modRoutes) {
       if (!route.enabled) continue;
-      if (route.source === 'velocity') {
-        // Velocity is captured per note-on, not a running generator; it has no node to
-        // connect. Wiring it belongs with the velocity work later in Stage 2.
-        this.notImplemented('route.source.velocity');
-        continue;
-      }
       if (!isWirable(route.destination)) {
         this.notImplemented(`route.destination.${route.destination}`);
         continue;
       }
-      const lfo = this.lfos.get(Number(route.source.slice('lfo.'.length)));
-      if (lfo === undefined) continue;
 
       const swing = routeSwing(route.destination, route.depth, patch.voice.amplitude);
+
+      // Velocity is per-voice, so it cannot share one scaler the way an LFO does — each
+      // voice holds a different value and needs its own scaled connection. The two source
+      // kinds therefore differ in TOPOLOGY, not just in which node they read from: an LFO
+      // is one generator with one scaler fanned out; velocity is N sources with N scalers.
+      if (route.source === 'velocity') {
+        for (const nodes of this.voices.values()) {
+          if (swing.baseOverride !== undefined) nodes.gain.gain.value = swing.baseOverride;
+          // Unipolar: velocity runs 0..1 and only ever adds, so the scaler carries the
+          // full swing rather than half of it the way a bipolar LFO does.
+          const scaler = new Tone.Gain(swing.scale * 2);
+          this.scalers.push(scaler);
+          nodes.velocity.connect(scaler);
+          scaler.connect(this.destinationParam(nodes, route.destination));
+        }
+        continue;
+      }
+
+      const lfo = this.lfos.get(Number(route.source.slice('lfo.'.length)));
+      if (lfo === undefined) continue;
 
       // The scaling lives on the CONNECTION, not on the generator.
       //
@@ -451,7 +477,12 @@ export class ToneRuntime implements Runtime {
     gain.connect(panner);
     panner.connect(this.master);
 
-    const nodes: VoiceNodes = { synth, gain, panner };
+    // Built once with the voice, never per note. `Tone.Signal` owns a ConstantSourceNode
+    // and starts it on construction — an AudioScheduledSourceNode throws if started
+    // twice, so recreating this per note-on would fail on the second note of the session.
+    const velocity = new Tone.Signal(0);
+
+    const nodes: VoiceNodes = { synth, gain, panner, velocity };
     this.voices.set(voiceId, nodes);
 
     // Voices are built lazily, so a voice created AFTER the routes were wired would
@@ -481,12 +512,46 @@ export class ToneRuntime implements Runtime {
 
   noteOn(request: RuntimeNoteOn): void {
     const nodes = this.voiceFor(request.voiceId);
+    const time = this.nextEventTime(request.voiceId);
+    const velocityConfig = this.patch?.voice.velocity;
     nodes.synth.portamento = request.portamento;
-    nodes.synth.triggerAttack(
-      request.note,
-      this.nextEventTime(request.voiceId),
-      request.velocity,
-    );
+
+    // Defensive, and honestly so: no probe could make this cancel matter.
+    //
+    // The documented hazard is that a stolen voice is reassigned at the instant it is
+    // released, so a pending write for the outgoing note could still land after the new
+    // note's. It cannot happen here, because `nextEventTime` already makes every write on
+    // a voice land strictly after the previous one — the monotonic clock that exists to
+    // satisfy Tone's start-time assertion turns out to order these too. Replacing this
+    // pair with a bare `.value =` passes every gate in the suite.
+    //
+    // Kept anyway. It costs nothing, and it stops being free insurance the moment
+    // anything schedules a ramp on this signal rather than a step.
+    nodes.velocity.cancelScheduledValues(time);
+    nodes.velocity.setValueAtTime(request.velocity, time);
+
+    if (velocityConfig !== undefined) {
+      // Velocity already reaches the amp envelope through triggerAttack; `toAmplitude`
+      // decides how MUCH of it lands. At 0 every note sounds at full level, at 1 velocity
+      // passes through untouched, and the interpolation between is on the velocity rather
+      // than the resulting gain so that a full-velocity note is unaffected either way.
+      const scaled = 1 - velocityConfig.toAmplitude * (1 - request.velocity);
+
+      // Harder notes open the filter. Applied to the envelope's base rather than through
+      // a route, because it has to be settled before the attack begins — a modulation
+      // arriving alongside the note would sweep in after the transient that carries most
+      // of the brightness.
+      if (this.patch !== null) {
+        const base = this.patch.voice.filterEnvelope.baseFrequency;
+        const octaves = request.velocity * velocityConfig.toFilterOctaves;
+        nodes.synth.filterEnvelope.baseFrequency = base * Math.pow(2, octaves);
+      }
+
+      nodes.synth.triggerAttack(request.note, time, scaled);
+      return;
+    }
+
+    nodes.synth.triggerAttack(request.note, time, request.velocity);
   }
 
   noteOff(request: RuntimeNoteOff): void {
@@ -586,7 +651,7 @@ export class ToneRuntime implements Runtime {
 
   /** Every Tone node this runtime owns. Used to measure the cost model, not by the app. */
   get nodeCount(): number {
-    return this.lfos.size + this.scalers.length + this.voices.size * 3 + 3;
+    return this.lfos.size + this.scalers.length + this.voices.size * 4 + 3;
   }
 }
 
@@ -650,12 +715,6 @@ export const UNMAPPED_PARAMS: readonly string[] = [
   // the pulse family mutually exclusive. That is a property of the patch, not of the
   // runtime, so it is reported per-patch by `unsupportedOscillatorFeatures` through
   // `getUnimplemented()` rather than listed here as a blanket gap.
-
-  // Stage 2d — velocity response. Note that velocity itself DOES sound: it is passed to
-  // `triggerAttack` and MonoSynth scales the amp envelope with it. What is unread is the
-  // patch's control over how much it scales, which is why this is a gap and not silence.
-  'voice.velocity.toAmplitude',
-  'voice.velocity.toFilterOctaves',
 
   // Stage 3 — the effects chain and master. `master.volume` is overridden by
   // STAGE1_MASTER_VOLUME_DB for headroom until the limiter design lands.

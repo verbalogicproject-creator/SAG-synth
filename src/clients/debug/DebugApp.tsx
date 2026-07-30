@@ -21,6 +21,7 @@ import { DEFAULT_PRESET_ID } from '../../core/state';
 import type { Dispatcher } from '../../app/dispatcher';
 import { clampOctave, isMusicalKey, noteForKey } from './keyboard';
 import { VirtualKeyboard } from './VirtualKeyboard';
+import { AmpPanel } from './AmpPanel';
 import { FilterPanel } from './FilterPanel';
 import { ModPanel } from './ModPanel';
 import { OscillatorPanel } from './OscillatorPanel';
@@ -137,11 +138,28 @@ export function DebugApp() {
     }
   }, [dispatcher, runtime]);
 
+  /**
+   * Play velocity for the touch keyboard.
+   *
+   * A hardware keybed measures how fast a key falls; a touchscreen has no such axis, and
+   * this surface sent a hardcoded 0.8 for every note. That made the whole velocity
+   * section — `toAmplitude`, `toFilterOctaves`, and any route sourced from velocity —
+   * impossible to hear on the device it is developed on, however well it gated offline.
+   *
+   * A slider is the crude answer. The designed surface should take velocity from where
+   * the key was struck, which is what mobile synths do and what this cannot.
+   *
+   * Local React state on purpose: it is a property of the performance, not of the patch,
+   * so it belongs nowhere near `EngineState` — the journal records the velocity that each
+   * note actually carried, which is what replay needs.
+   */
+  const [velocity, setVelocity] = useState(0.8);
+
   const noteOn = useCallback(
     (note: string) => {
-      dispatcher.dispatch({ type: 'noteOn', note, velocity: 0.8 });
+      dispatcher.dispatch({ type: 'noteOn', note, velocity });
     },
-    [dispatcher],
+    [dispatcher, velocity],
   );
 
   const noteOff = useCallback(
@@ -322,6 +340,16 @@ export function DebugApp() {
           Multi-touch works — hold two or three keys for a chord. Slide across keys to
           glissando.
         </p>
+      </section>
+
+      <section style={styles.panel}>
+        <h2 style={styles.h2}>Amp &amp; velocity</h2>
+        <AmpPanel
+          state={dispatcher.getState()}
+          onChange={setParamValue}
+          velocity={velocity}
+          onVelocityChange={setVelocity}
+        />
       </section>
 
       <section style={styles.panel}>

@@ -359,6 +359,198 @@ describe('ToneRuntime — readouts', () => {
   });
 });
 
+describe('ToneRuntime — velocity response (Stage 2d)', () => {
+  const FLAT = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+
+  function renderVelocity(options: {
+    velocity: number;
+    toAmplitude?: number;
+    toFilterOctaves?: number;
+    mutate?: (patch: SynthPreset) => void;
+  }): Promise<Float32Array> {
+    return render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          patch.voice.envelope = { ...FLAT };
+          patch.voice.filterEnvelope = {
+            ...FLAT,
+            baseFrequency: 700,
+            octaves: 0,
+          };
+          patch.voice.velocity = {
+            toAmplitude: options.toAmplitude ?? 1,
+            toFilterOctaves: options.toFilterOctaves ?? 0,
+          };
+          options.mutate?.(patch);
+        }),
+      );
+      runtime.noteOn({ voiceId: 0, note: 'C3', velocity: options.velocity, portamento: 0 });
+    }, 0.6);
+  }
+
+  const body = (data: Float32Array) =>
+    rms(data, Math.floor(0.15 * SR), Math.floor(0.45 * SR));
+  const bright = (data: Float32Array) =>
+    hfEnergyRatio(data, SR, 2500, Math.floor(0.3 * SR));
+
+  it('level follows velocity when toAmplitude is 1', async () => {
+    const [soft, hard] = await Promise.all([
+      renderVelocity({ velocity: 0.25 }),
+      renderVelocity({ velocity: 1 }),
+    ]);
+    expect(body(hard)).toBeGreaterThan(body(soft) * 2);
+  });
+
+  it('toAmplitude 0 makes every note sound at full level', async () => {
+    // The other half. A gate that only proves loud-vs-soft would pass an implementation
+    // that ignored toAmplitude entirely and always passed velocity through.
+    const [soft, hard] = await Promise.all([
+      renderVelocity({ velocity: 0.25, toAmplitude: 0 }),
+      renderVelocity({ velocity: 1, toAmplitude: 0 }),
+    ]);
+    expect(body(soft)).toBeCloseTo(body(hard), 2);
+  });
+
+  it('toAmplitude scales between those two, rather than switching', async () => {
+    const [off, half, full] = await Promise.all([
+      renderVelocity({ velocity: 0.25, toAmplitude: 0 }),
+      renderVelocity({ velocity: 0.25, toAmplitude: 0.5 }),
+      renderVelocity({ velocity: 0.25, toAmplitude: 1 }),
+    ]);
+    expect(body(half)).toBeLessThan(body(off));
+    expect(body(half)).toBeGreaterThan(body(full));
+  });
+
+  it('toFilterOctaves opens the filter on harder notes', async () => {
+    const [soft, hard] = await Promise.all([
+      renderVelocity({ velocity: 0.2, toFilterOctaves: 4, toAmplitude: 0 }),
+      renderVelocity({ velocity: 1, toFilterOctaves: 4, toAmplitude: 0 }),
+    ]);
+    // toAmplitude 0 so this measures brightness alone — otherwise the louder note would
+    // read brighter simply for being louder.
+    expect(bright(hard)).toBeGreaterThan(bright(soft));
+  });
+
+  it('toFilterOctaves 0 leaves brightness alone', async () => {
+    const [soft, hard] = await Promise.all([
+      renderVelocity({ velocity: 0.2, toFilterOctaves: 0, toAmplitude: 0 }),
+      renderVelocity({ velocity: 1, toFilterOctaves: 0, toAmplitude: 0 }),
+    ]);
+    expect(Math.abs(bright(hard) - bright(soft))).toBeLessThan(bright(hard) * 0.25);
+  });
+
+  it('velocity drives a route, the same way an LFO does', async () => {
+    const withRoute = (patch: SynthPreset) => {
+      patch.voice.modRoutes = [
+        {
+          id: 'r-vel',
+          enabled: true,
+          source: 'velocity',
+          destination: 'voice.filterEnvelope.baseFrequency',
+          depth: 0.3,
+        },
+      ];
+    };
+
+    const [soft, hard] = await Promise.all([
+      renderVelocity({ velocity: 0.1, toAmplitude: 0, mutate: withRoute }),
+      renderVelocity({ velocity: 1, toAmplitude: 0, mutate: withRoute }),
+    ]);
+    expect(bright(hard)).toBeGreaterThan(bright(soft));
+  });
+
+  it('a stolen voice sounds the NEW note velocity through the amp envelope', async () => {
+    // Proves the reused voice's triggerAttack gets this note's velocity rather than
+    // carrying the previous one's. It does NOT exercise the velocity SIGNAL — nothing is
+    // routed here, so the signal is connected to nothing; the route case is the next test.
+    const stolen = await render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          patch.voice.envelope = { ...FLAT };
+          patch.voice.velocity = { toAmplitude: 1, toFilterOctaves: 0 };
+        }),
+      );
+      runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 1, portamento: 0 });
+      runtime.steal(0);
+      runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.15, portamento: 0 });
+    }, 0.6);
+
+    const quiet = await render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          patch.voice.envelope = { ...FLAT };
+          patch.voice.velocity = { toAmplitude: 1, toFilterOctaves: 0 };
+        }),
+      );
+      runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.15, portamento: 0 });
+    }, 0.6);
+
+    // The stolen slot must settle to the quiet note's level, not the loud one's.
+    expect(body(stolen)).toBeLessThan(body(quiet) * 2.5);
+  });
+
+  it('a stolen voice re-reads velocity into its ROUTES, not just its envelope', async () => {
+    // The gate the previous test cannot be. With a velocity route active, the signal is
+    // what carries the value into the graph — an implementation that wrote it once per
+    // voice and never again passes every other check here, because the amp envelope gets
+    // its velocity through a separate path.
+    const routed = (patch: SynthPreset) => {
+      patch.voice.envelope = { ...FLAT };
+      patch.voice.filterEnvelope = { ...FLAT, baseFrequency: 500, octaves: 0 };
+      patch.voice.velocity = { toAmplitude: 0, toFilterOctaves: 0 };
+      patch.voice.modRoutes = [
+        {
+          id: 'r-vel',
+          enabled: true,
+          source: 'velocity',
+          destination: 'voice.filterEnvelope.baseFrequency',
+          depth: 0.5,
+        },
+      ];
+    };
+
+    const [stolen, direct] = await Promise.all([
+      render((runtime) => {
+        runtime.applyPatch(patchWith(routed));
+        runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 1, portamento: 0 });
+        runtime.steal(0);
+        runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.05, portamento: 0 });
+      }, 0.6),
+      render((runtime) => {
+        runtime.applyPatch(patchWith(routed));
+        runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.05, portamento: 0 });
+      }, 0.6),
+    ]);
+
+    // The reused slot must be as dark as a fresh quiet note — if it kept the loud note's
+    // velocity on the signal, the filter would still be wide open.
+    expect(bright(stolen)).toBeLessThan(bright(direct) * 2);
+  });
+
+  it('builds one velocity signal per voice, since each holds a different value', async () => {
+    let nodeCount = 0;
+    let voiceCount = 0;
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(defaultPreset());
+        for (let i = 0; i < 4; i += 1) {
+          runtime.noteOn({ voiceId: i, note: 'C3', velocity: 0.5, portamento: 0 });
+        }
+        voiceCount = runtime.voiceCount;
+        nodeCount = runtime.nodeCount;
+      },
+      0.2,
+      1,
+      SR,
+    );
+    expect(voiceCount).toBe(4);
+    // 4 voices x (synth + gain + panner + velocity) + master/analyser/meter. No LFOs and
+    // no routes in the factory patch, so nothing else is built.
+    expect(nodeCount).toBe(4 * 4 + 3);
+  });
+});
+
 describe('ToneRuntime — oscillator mapping (Stage 2c)', () => {
   function renderOsc(mutate: (patch: SynthPreset) => void, seconds = 0.6): Promise<Float32Array> {
     return render((runtime) => {
@@ -823,10 +1015,13 @@ describe('ToneRuntime — modulation routing', () => {
 
     expect(voiceCount).toBe(8);
     expect(lfoCount).toBe(1);
-    // 1 LFO + 1 depth scaler + 8 voices x (synth + gain + panner) + master/analyser/meter.
-    // The scaler count tracks ROUTES, not voices — one connection scaler fans out to the
-    // whole pool, so this stays flat as polyphony rises just as the generator count does.
-    expect(nodeCount).toBe(1 + 1 + 8 * 3 + 3);
+    // 1 LFO + 1 depth scaler + 8 voices x (synth + gain + panner + velocity signal)
+    // + master/analyser/meter.
+    //
+    // The two counts scale differently on purpose. Per-voice nodes are unavoidable — each
+    // voice needs its own gain, pan and velocity. What must stay flat is the LFO side: one
+    // generator and one scaler serve the whole pool however many voices sound.
+    expect(nodeCount).toBe(1 + 1 + 8 * 4 + 3);
   });
 
   it('reports a declared destination it cannot yet wire, rather than dropping it', async () => {

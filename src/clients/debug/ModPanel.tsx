@@ -35,6 +35,14 @@ export interface ModPanelProps {
  * Stage 3's effects chain; offering them here would be offering a control that does
  * nothing, which is the decoy problem `voice.filter.frequency` already cost us.
  */
+const SOURCES: readonly { value: 'lfo.0' | 'lfo.1' | 'lfo.2' | 'lfo.3' | 'velocity'; label: string }[] = [
+  { value: 'lfo.0', label: 'LFO 0' },
+  { value: 'lfo.1', label: 'LFO 1' },
+  { value: 'lfo.2', label: 'LFO 2' },
+  { value: 'lfo.3', label: 'LFO 3' },
+  { value: 'velocity', label: 'velocity' },
+];
+
 const WIRED_DESTINATIONS: readonly { path: ModDestination; label: string }[] = [
   { path: 'voice.filterEnvelope.baseFrequency', label: 'cutoff — filter sweep' },
   { path: 'voice.filter.Q', label: 'resonance' },
@@ -100,16 +108,15 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
         <button
           type="button"
           style={button}
-          disabled={lfos.length === 0}
           onClick={() =>
             onCommand({
               type: 'addRoute',
               route: {
                 id: `route-${modRoutes.length}-${state.revision}`,
                 enabled: true,
-                // Slot 0 always exists by the time this is clickable, and the reducer
-                // rejects a route whose source slot is empty.
-                source: 'lfo.0',
+                // Velocity when there is no LFO yet: it needs no slot, and the reducer
+                // rejects a route naming an empty one.
+                source: lfos.length > 0 ? 'lfo.0' : 'velocity',
                 destination: 'voice.filterEnvelope.baseFrequency',
                 depth: 0.3,
               },
@@ -118,7 +125,9 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
         >
           + route
         </button>
-        {lfos.length === 0 && <span style={dim}>add an LFO first — a route needs a source</span>}
+        {lfos.length === 0 && (
+          <span style={dim}>no LFO yet — a new route will use velocity as its source</span>
+        )}
       </div>
 
       {lfos.map((lfo, index) => (
@@ -153,7 +162,26 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
         <div key={route.id} style={slot}>
           <div style={row}>
             <strong>route {index}</strong>
-            <span style={dim}>{route.source} →</span>
+            {/* Velocity needs no LFO slot, so it is selectable even with none added. */}
+            <select
+              value={route.source}
+              onChange={(event) =>
+                onChange(
+                  `voice.modRoutes.${index}.source` as ParamPath,
+                  event.target.value as ParamValue,
+                )
+              }
+              style={button}
+            >
+              {SOURCES.filter(
+                (source) => source.value === 'velocity' || Number(source.value.slice(4)) < lfos.length,
+              ).map((source) => (
+                <option key={source.value} value={source.value}>
+                  {source.label}
+                </option>
+              ))}
+            </select>
+            <span style={dim}>→</span>
             <select
               value={route.destination}
               onChange={(event) =>
