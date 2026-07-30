@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@300;400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-primary": "#006970",
+                    "surface-container-low": "#1b1b1d",
+                    "on-secondary-fixed": "#370e00",
+                    "inverse-surface": "#e5e1e4",
+                    "primary-fixed-dim": "#00dbe9",
+                    "error-container": "#93000a",
+                    "on-error": "#690005",
+                    "secondary-fixed": "#ffdbce",
+                    "outline-variant": "#3b494b",
+                    "surface-container": "#201f21",
+                    "surface-container-lowest": "#0e0e10",
+                    "tertiary": "#e5ffbe",
+                    "on-secondary-container": "#531900",
+                    "primary": "#dbfcff",
+                    "on-primary-container": "#006970",
+                    "surface-container-highest": "#353437",
+                    "surface-dim": "#131315",
+                    "on-secondary-fixed-variant": "#802a00",
+                    "on-primary-fixed": "#002022",
+                    "secondary-fixed-dim": "#ffb59a",
+                    "outline": "#849495",
+                    "on-tertiary-fixed": "#112000",
+                    "surface-container-high": "#2a2a2c",
+                    "secondary": "#ffb59a",
+                    "on-surface": "#e5e1e4",
+                    "on-primary-fixed-variant": "#004f54",
+                    "tertiary-fixed-dim": "#90db00",
+                    "on-background": "#e5e1e4",
+                    "primary-container": "#00f0ff",
+                    "background": "#131315",
+                    "on-surface-variant": "#b9cacb",
+                    "tertiary-fixed": "#a5fa00",
+                    "error": "#ffb4ab",
+                    "surface-bright": "#39393b",
+                    "on-tertiary": "#203600",
+                    "on-primary": "#00363a",
+                    "inverse-on-surface": "#303032",
+                    "surface": "#131315",
+                    "tertiary-container": "#9ef000",
+                    "primary-fixed": "#7df4ff",
+                    "on-error-container": "#ffdad6",
+                    "secondary-container": "#ff5e07",
+                    "on-secondary": "#5a1b00",
+                    "on-tertiary-fixed-variant": "#314f00",
+                    "surface-variant": "#353437",
+                    "surface-tint": "#00dbe9",
+                    "on-tertiary-container": "#436900"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "touch-target-min": "44px",
+                    "module-padding": "12px",
+                    "gutter": "4px",
+                    "unit": "4px",
+                    "control-gap": "8px"
+            },
+            "fontFamily": {
+                    "module-header": ["Space Grotesk"],
+                    "body-sm": ["JetBrains Mono"],
+                    "readout-lg": ["JetBrains Mono"],
+                    "label-caps": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "module-header": ["14px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                    "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                    "readout-lg": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+                    "label-caps": ["10px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .step-button.active {
+            box-shadow: 0 0 12px 2px rgba(0, 219, 233, 0.4);
+        }
+
+        .step-button.playing {
+            border-color: #00dbe9;
+            transform: scale(1.05);
+        }
+
+        .well-inset {
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+            border: 1px solid #3b494b;
+        }
+
+        .knob-track {
+            background: conic-gradient(from 180deg, #00dbe9 var(--value), #3b494b 0);
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #3b494b;
+            border-radius: 2px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 8px;
+            background: #00dbe9;
+            margin-top: -6px;
+            border-radius: 1px;
+            box-shadow: 0 0 8px rgba(0, 219, 233, 0.6);
+        }
+
+        .vertical-slider {
+            writing-mode: bt-lr; /* IE */
+            -webkit-appearance: slider-vertical;
+            width: 8px;
+            height: 80px;
+        }
+        
+        .grid-subtle {
+            background-image: radial-gradient(#ffffff08 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-sm text-body-sm">
+<!-- Top Navigation Shell -->
+<header class="bg-surface text-primary-fixed-dim font-module-header text-module-header uppercase tracking-widest border-b border-outline-variant flex justify-between items-center px-module-padding h-12 w-full z-50">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-fixed-dim">settings_input_component</span>
+<span>SAG-SYNTH</span>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden md:flex gap-4">
+<span class="text-on-surface-variant hover:bg-surface-variant px-2 py-1 transition-colors duration-200 cursor-pointer">OSC</span>
+<span class="text-on-surface-variant hover:bg-surface-variant px-2 py-1 transition-colors duration-200 cursor-pointer">ADSR</span>
+<span class="text-on-surface-variant hover:bg-surface-variant px-2 py-1 transition-colors duration-200 cursor-pointer">FILTER</span>
+<span class="text-primary-fixed-dim border-b-2 border-primary-fixed-dim px-2 py-1">SEQ</span>
+<span class="text-on-surface-variant hover:bg-surface-variant px-2 py-1 transition-colors duration-200 cursor-pointer">FX</span>
+</nav>
+<span class="material-symbols-outlined cursor-pointer hover:bg-surface-variant p-1 rounded transition-colors duration-200">settings</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 overflow-hidden p-unit grid grid-cols-1 md:grid-cols-12 gap-gutter relative grid-subtle">
+<!-- Left Global Controls Panel -->
+<section class="md:col-span-3 lg:col-span-2 bg-surface-container-low border border-outline-variant rounded-lg p-module-padding flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<h2 class="font-module-header text-module-header uppercase text-primary-fixed-dim">Transport</h2>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center bg-on-primary-fixed-variant rounded text-primary-fixed-dim hover:bg-primary-container hover:text-on-primary-container transition-colors" id="playBtn">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center bg-surface-container-highest border border-outline-variant rounded text-on-surface-variant" id="stopBtn">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">stop</span>
+</button>
+</div>
+</div>
+<!-- Tempo Control -->
+<div class="flex flex-col gap-3">
+<label class="font-label-caps text-label-caps text-outline uppercase">Tempo (BPM)</label>
+<div class="flex items-center gap-4">
+<div class="relative w-16 h-16 rounded-full border-2 border-outline-variant flex items-center justify-center bg-surface-dim well-inset">
+<div class="absolute inset-1 rounded-full knob-track" style="--value: 45%;"></div>
+<div class="absolute inset-2 rounded-full bg-surface-container shadow-inner"></div>
+<div class="w-1 h-4 bg-primary-fixed-dim absolute top-2 rounded-full origin-bottom rotate-45"></div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant px-3 py-1 rounded">
+<span class="font-readout-lg text-readout-lg text-primary-fixed-dim">120.0</span>
+</div>
+</div>
+</div>
+<!-- Swing & Length -->
+<div class="grid grid-cols-2 gap-3">
+<div class="flex flex-col gap-2">
+<label class="font-label-caps text-label-caps text-outline uppercase">Swing</label>
+<div class="h-24 bg-surface-container-lowest rounded well-inset p-2 flex flex-col items-center justify-end">
+<input class="vertical-slider w-1 h-16 accent-primary-fixed-dim" orient="vertical" type="range" value="15"/>
+<span class="mt-1 font-label-caps text-primary-fixed-dim">15%</span>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-caps text-label-caps text-outline uppercase">Length</label>
+<div class="h-24 bg-surface-container-lowest rounded well-inset p-2 flex flex-col items-center justify-between">
+<div class="flex flex-col gap-1 w-full">
+<button class="w-full text-center py-1 bg-surface-container-highest rounded text-[10px] text-on-surface">16</button>
+<button class="w-full text-center py-1 bg-surface-dim border border-outline-variant rounded text-[10px] text-outline">32</button>
+<button class="w-full text-center py-1 bg-surface-dim border border-outline-variant rounded text-[10px] text-outline">64</button>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-auto">
+<div class="p-2 border border-outline-variant rounded bg-surface-dim">
+<div class="flex justify-between mb-1">
+<span class="font-label-caps text-outline">CPU LOAD</span>
+<span class="font-label-caps text-primary-fixed-dim">14%</span>
+</div>
+<div class="w-full bg-outline-variant h-1 rounded-full overflow-hidden">
+<div class="bg-primary-fixed-dim h-full w-[14%]"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Center Sequencer Module -->
+<section class="md:col-span-9 lg:col-span-10 flex flex-col gap-gutter">
+<!-- Visualizer / Oscilloscope -->
+<div class="h-32 bg-surface-container-lowest border border-outline-variant rounded-lg relative overflow-hidden flex items-center justify-center">
+<div class="absolute inset-0 opacity-10 bg-[linear-gradient(90deg,rgba(255,255,255,0.1)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.1)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+<svg class="w-full h-full" viewbox="0 0 1000 100">
+<path class="opacity-80" d="M 0 50 Q 50 10, 100 50 T 200 50 T 300 50 T 400 50 T 500 50 T 600 50 T 700 50 T 800 50 T 900 50 T 1000 50" fill="none" stroke="#00dbe9" stroke-width="1.5">
+<animate attributename="d" dur="2s" repeatcount="indefinite" values="M 0 50 Q 50 10, 100 50 T 200 50 T 300 50 T 400 50 T 500 50 T 600 50 T 700 50 T 800 50 T 900 50 T 1000 50; M 0 50 Q 50 90, 100 50 T 200 50 T 300 50 T 400 50 T 500 50 T 600 50 T 700 50 T 800 50 T 900 50 T 1000 50; M 0 50 Q 50 10, 100 50 T 200 50 T 300 50 T 400 50 T 500 50 T 600 50 T 700 50 T 800 50 T 900 50 T 1000 50"></animate>
+</path>
+</svg>
+<div class="absolute top-2 left-3 font-label-caps text-primary-fixed-dim bg-on-primary-fixed-variant px-2 rounded">MASTER OUT</div>
+</div>
+<!-- 16-Step Grid -->
+<div class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg p-module-padding flex flex-col gap-8">
+<!-- Steps & Velocity -->
+<div class="grid grid-cols-4 sm:grid-cols-8 lg:grid-cols-16 gap-3">
+<!-- JS will populate these buttons -->
+<script>
+                        const createSequencer = () => {
+                            const grid = document.querySelector('.lg\\:grid-cols-16');
+                            for (let i = 1; i <= 16; i++) {
+                                const stepContainer = document.createElement('div');
+                                stepContainer.className = 'flex flex-col items-center gap-4';
+                                
+                                const stepBtn = document.createElement('button');
+                                stepBtn.className = `step-button w-full aspect-square rounded-lg border-2 border-outline-variant transition-all duration-150 flex items-center justify-center font-label-caps ${i % 4 === 1 ? 'bg-surface-container-high' : 'bg-surface-dim'}`;
+                                stepBtn.innerHTML = i;
+                                stepBtn.onclick = () => stepBtn.classList.toggle('active');
+                                stepBtn.onclick = () => {
+                                    if (stepBtn.dataset.active === 'true') {
+                                        stepBtn.dataset.active = 'false';
+                                        stepBtn.classList.remove('bg-primary-fixed-dim', 'text-on-primary-fixed', 'active');
+                                        stepBtn.classList.add('text-on-surface-variant');
+                                    } else {
+                                        stepBtn.dataset.active = 'true';
+                                        stepBtn.classList.add('bg-primary-fixed-dim', 'text-on-primary-fixed', 'active');
+                                        stepBtn.classList.remove('text-on-surface-variant');
+                                    }
+                                };
+                                
+                                const velTrack = document.createElement('div');
+                                velTrack.className = 'w-4 h-32 bg-surface-container-lowest well-inset rounded-full relative flex flex-col justify-end p-0.5 overflow-hidden';
+                                
+                                const velFill = document.createElement('div');
+                                velFill.className = 'bg-primary-fixed-dim opacity-40 w-full rounded-full transition-all duration-100';
+                                velFill.style.height = `${40 + Math.random() * 50}%`;
+                                
+                                const velHandle = document.createElement('input');
+                                velHandle.type = 'range';
+                                velHandle.orient = 'vertical';
+                                velHandle.className = 'absolute inset-0 w-full h-full opacity-0 cursor-ns-resize';
+                                velHandle.oninput = (e) => {
+                                    velFill.style.height = `${e.target.value}%`;
+                                    velFill.style.opacity = e.target.value > 0 ? (0.3 + (e.target.value/100)*0.7) : 0.1;
+                                };
+
+                                velTrack.appendChild(velFill);
+                                velTrack.appendChild(velHandle);
+                                
+                                stepContainer.appendChild(velTrack);
+                                stepContainer.appendChild(stepBtn);
+                                grid.appendChild(stepContainer);
+                            }
+                        };
+                        window.onload = createSequencer;
+                    </script>
+</div>
+<!-- Footer Module Actions -->
+<div class="mt-auto border-t border-outline-variant pt-6 flex flex-wrap items-center justify-between gap-4">
+<div class="flex items-center gap-6">
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-outline uppercase">Time Division</span>
+<div class="flex bg-surface-container-lowest rounded overflow-hidden border border-outline-variant">
+<button class="px-3 py-1 bg-on-primary-fixed-variant text-primary-fixed-dim font-label-caps">1/16</button>
+<button class="px-3 py-1 text-outline font-label-caps hover:bg-surface-variant">1/8</button>
+<button class="px-3 py-1 text-outline font-label-caps hover:bg-surface-variant">1/4</button>
+<button class="px-3 py-1 text-outline font-label-caps hover:bg-surface-variant">TRIP</button>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-outline uppercase">Direction</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-fixed-dim cursor-pointer">trending_flat</span>
+<span class="material-symbols-outlined text-outline cursor-pointer">keyboard_tab_rtl</span>
+<span class="material-symbols-outlined text-outline cursor-pointer">shuffle</span>
+</div>
+</div>
+</div>
+<div class="flex gap-3">
+<button class="px-6 py-2 border border-outline-variant rounded font-label-caps text-on-surface-variant uppercase hover:bg-surface-variant transition-colors">Clear All</button>
+<button class="px-6 py-2 bg-on-primary-fixed-variant text-primary-fixed-dim rounded font-label-caps uppercase hover:bg-primary-container hover:text-on-primary-container transition-colors">Save Pattern</button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Bar (Mobile) -->
+<footer class="md:hidden bg-surface-container-lowest border-t border-outline-variant fixed bottom-0 w-full z-50 flex justify-around items-center h-16">
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary">
+<span class="material-symbols-outlined">graphic_eq</span>
+<span class="font-label-caps text-label-caps">OSC</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-caps text-label-caps">ADSR</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary">
+<span class="material-symbols-outlined">filter_list</span>
+<span class="font-label-caps text-label-caps">FILTER</span>
+</div>
+<div class="flex flex-col items-center justify-center text-primary-fixed-dim bg-on-primary-fixed-variant rounded-full px-4 py-1">
+<span class="material-symbols-outlined">reorder</span>
+<span class="font-label-caps text-label-caps">SEQ</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary">
+<span class="material-symbols-outlined">blur_on</span>
+<span class="font-label-caps text-label-caps">FX</span>
+</div>
+</footer>
+<script>
+        // Simple playhead animation
+        let currentStep = 0;
+        let isPlaying = false;
+        let interval;
+
+        const playBtn = document.getElementById('playBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        const stepThrough = () => {
+            const steps = document.querySelectorAll('.step-button');
+            steps.forEach((s, idx) => {
+                s.classList.toggle('playing', idx === currentStep);
+            });
+            currentStep = (currentStep + 1) % 16;
+        };
+
+        playBtn.onclick = () => {
+            if (isPlaying) {
+                clearInterval(interval);
+                isPlaying = false;
+                playBtn.innerHTML = '<span class="material-symbols-outlined" style="font-variation-settings: \'FILL\' 1;">play_arrow</span>';
+            } else {
+                interval = setInterval(stepThrough, 125); // 120bpm approx
+                isPlaying = true;
+                playBtn.innerHTML = '<span class="material-symbols-outlined" style="font-variation-settings: \'FILL\' 1;">pause</span>';
+            }
+        };
+
+        stopBtn.onclick = () => {
+            clearInterval(interval);
+            isPlaying = false;
+            currentStep = 0;
+            playBtn.innerHTML = '<span class="material-symbols-outlined" style="font-variation-settings: \'FILL\' 1;">play_arrow</span>';
+            const steps = document.querySelectorAll('.step-button');
+            steps.forEach(s => s.classList.remove('playing'));
+        };
+    </script>
+</body></html>

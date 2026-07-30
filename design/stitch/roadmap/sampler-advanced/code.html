@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SAG-SYNTH | Sampler &amp; Editor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#e5e1e4",
+                        "outline-variant": "#3b494b",
+                        "tertiary-fixed": "#a5fa00",
+                        "surface-bright": "#39393b",
+                        "on-secondary-fixed": "#370e00",
+                        "on-primary-fixed-variant": "#004f54",
+                        "surface-container-lowest": "#0e0e10",
+                        "on-tertiary-container": "#436900",
+                        "primary-fixed": "#7df4ff",
+                        "primary-fixed-dim": "#00dbe9",
+                        "surface-container-high": "#2a2a2c",
+                        "surface-container-highest": "#353437",
+                        "surface-container-low": "#1b1b1d",
+                        "on-surface-variant": "#b9cacb",
+                        "tertiary-fixed-dim": "#90db00",
+                        "surface": "#131315",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "primary": "#dbfcff",
+                        "secondary-fixed-dim": "#ffb59a",
+                        "on-secondary-container": "#531900",
+                        "tertiary": "#e5ffbe",
+                        "secondary-fixed": "#ffdbce",
+                        "on-tertiary-fixed": "#112000",
+                        "on-error-container": "#ffdad6",
+                        "on-surface": "#e5e1e4",
+                        "inverse-on-surface": "#303032",
+                        "on-background": "#e5e1e4",
+                        "on-primary": "#00363a",
+                        "inverse-primary": "#006970",
+                        "on-secondary": "#5a1b00",
+                        "on-primary-container": "#006970",
+                        "error": "#ffb4ab",
+                        "surface-variant": "#353437",
+                        "secondary": "#ffb59a",
+                        "secondary-container": "#ff5e07",
+                        "surface-tint": "#00dbe9",
+                        "outline": "#849495",
+                        "on-tertiary-fixed-variant": "#314f00",
+                        "on-primary-fixed": "#002022",
+                        "primary-container": "#00f0ff",
+                        "surface-container": "#201f21",
+                        "on-secondary-fixed-variant": "#802a00",
+                        "background": "#131315",
+                        "on-tertiary": "#203600",
+                        "tertiary-container": "#9ef000",
+                        "surface-dim": "#131315"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "module-padding": "12px",
+                        "touch-target-min": "44px",
+                        "gutter": "4px",
+                        "control-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "module-header": ["Space Grotesk"],
+                        "readout-lg": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"],
+                        "body-sm": ["JetBrains Mono"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+            user-select: none;
+            min-height: 100dvh;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .control-well {
+            background: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(255,255,255,0.02) 100%);
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);
+        }
+        .knob-base {
+            background: linear-gradient(135deg, #2a2a2c 0%, #131315 100%);
+            box-shadow: 
+                0 4px 6px -1px rgba(0, 0, 0, 0.5), 
+                0 2px 4px -1px rgba(0, 0, 0, 0.3),
+                inset 0 1px 1px rgba(255,255,255,0.1);
+        }
+        .neon-glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+        }
+        .neon-glow-red {
+            box-shadow: 0 0 15px rgba(255, 94, 7, 0.3);
+        }
+        .waveform-grid {
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), 
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .waveform-svg {
+            stroke: #00f0ff;
+            stroke-width: 1.5;
+            filter: drop-shadow(0 0 2px rgba(0,240,255,0.6));
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b494b;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="font-body-sm text-body-sm flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-module-padding w-full h-touch-target-min fixed top-0 z-50">
+<div class="flex items-center gap-control-gap">
+<span class="material-symbols-outlined text-primary-container cursor-pointer active:scale-95 transition-transform">menu</span>
+<h1 class="font-module-header text-[14px] uppercase tracking-[0.1em] text-primary-container">SAG-SYNTH</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-surface-container px-3 py-1 rounded border border-outline-variant">
+<span class="font-label-caps text-[9px] text-on-surface-variant">CPU: 12%</span>
+</div>
+<span class="font-label-caps text-[9px] text-primary-container">128 BPM</span>
+</div>
+</header>
+<main class="pt-14 pb-20 px-module-padding flex flex-col gap-3 overflow-y-auto min-h-screen">
+<!-- Waveform Display -->
+<section class="flex-shrink-0 h-44 bg-surface-container-lowest rounded-xl border border-outline-variant relative overflow-hidden waveform-grid">
+<div class="absolute top-3 left-4 z-10">
+<span class="font-label-caps text-[10px] tracking-widest text-primary-container/80 uppercase">Sample: edit_004.wav</span>
+</div>
+<div class="h-full flex items-center justify-center relative px-4">
+<svg class="w-full h-24 waveform-svg" preserveaspectratio="none" viewbox="0 0 100 20">
+<path d="M0 10 Q 5 2, 10 10 T 20 10 T 30 10 T 40 10 T 50 10 T 60 10 T 70 10 T 80 10 T 90 10 T 100 10" fill="none"></path>
+</svg>
+<!-- Crop Region -->
+<div class="absolute inset-y-0 left-1/4 right-1/4 bg-primary-container/5 border-x border-primary-container/50"></div>
+<!-- Handles -->
+<div class="absolute inset-y-0 left-1/4 w-[1px] bg-primary-container neon-glow-cyan z-20">
+<div class="absolute top-1/2 -translate-y-1/2 -left-2.5 w-5 h-8 bg-surface-container-highest border border-primary-container/50 rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-[14px]">drag_indicator</span>
+</div>
+</div>
+<div class="absolute inset-y-0 right-1/4 w-[1px] bg-primary-container neon-glow-cyan z-20">
+<div class="absolute top-1/2 -translate-y-1/2 -right-2.5 w-5 h-8 bg-surface-container-highest border border-primary-container/50 rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container text-[14px]">drag_indicator</span>
+</div>
+</div>
+</div>
+<div class="absolute bottom-3 right-3 flex gap-2">
+<button class="w-7 h-7 flex items-center justify-center bg-surface-container-high/80 backdrop-blur border border-outline-variant text-primary-container rounded active:scale-95">
+<span class="material-symbols-outlined text-[16px]">zoom_in</span>
+</button>
+<button class="w-7 h-7 flex items-center justify-center bg-surface-container-high/80 backdrop-blur border border-outline-variant text-primary-container rounded active:scale-95">
+<span class="material-symbols-outlined text-[16px]">zoom_out</span>
+</button>
+</div>
+</section>
+<!-- Transport & Utility -->
+<section class="grid grid-cols-4 gap-2">
+<button class="h-16 bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all hover:bg-surface-container-highest">
+<span class="material-symbols-outlined text-primary-container text-[20px]">file_open</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant tracking-wider">LOAD</span>
+</button>
+<button class="h-16 bg-secondary-container/10 border border-secondary-container/40 rounded-xl flex flex-col items-center justify-center gap-1 active:scale-90 transition-all neon-glow-red" id="rec-btn">
+<span class="material-symbols-outlined text-secondary-container fill text-[20px]" style="font-variation-settings: 'FILL' 1;">fiber_manual_record</span>
+<span class="font-label-caps text-[8px] text-secondary-container tracking-wider">REC</span>
+</button>
+<button class="h-16 bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all hover:bg-surface-container-highest">
+<span class="material-symbols-outlined text-primary-container text-[20px]">content_cut</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant tracking-wider">TRIM</span>
+</button>
+<button class="h-16 bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all hover:bg-surface-container-highest">
+<span class="material-symbols-outlined text-primary-container text-[20px]">save</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant tracking-wider">SAVE</span>
+</button>
+</section>
+<!-- Parameters Area -->
+<div class="grid grid-cols-12 gap-2">
+<!-- Playback -->
+<div class="col-span-5 flex flex-col">
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant h-full flex flex-col">
+<h2 class="font-label-caps text-[9px] text-on-surface-variant mb-4 flex items-center gap-2 tracking-widest uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+                    Playback
+                </h2>
+<div class="space-y-4 flex-grow flex flex-col justify-between">
+<div class="grid grid-cols-2 gap-2">
+<div class="flex flex-col">
+<span class="font-label-caps text-[7px] text-on-surface-variant mb-1 uppercase tracking-tighter">Start</span>
+<div class="control-well py-1.5 rounded-lg border border-white/5 text-center">
+<span class="font-readout-lg text-[13px] text-primary-container">0.254</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-[7px] text-on-surface-variant mb-1 uppercase tracking-tighter">End</span>
+<div class="control-well py-1.5 rounded-lg border border-white/5 text-center">
+<span class="font-readout-lg text-[13px] text-primary-container">1.892</span>
+</div>
+</div>
+</div>
+<div class="flex justify-between items-center bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-2">
+<span class="font-label-caps text-[8px] text-primary-container tracking-wider">LOOP</span>
+<div class="w-8 h-4 bg-primary-container/20 border border-primary-container/30 rounded-full relative">
+<div class="w-3 h-3 bg-primary-container rounded-full absolute right-0.5 top-0.5 shadow-sm"></div>
+</div>
+</div>
+<div class="flex flex-col items-center py-2">
+<div class="relative w-14 h-14 rounded-full knob-base border border-outline-variant flex items-center justify-center">
+<!-- Dial Track -->
+<svg class="absolute inset-0 w-full h-full -rotate-90">
+<circle class="text-white/5" cx="28" cy="28" fill="transparent" r="24" stroke="currentColor" stroke-width="2"></circle>
+<circle class="text-primary-container" cx="28" cy="28" fill="transparent" r="24" stroke="currentColor" stroke-dasharray="150" stroke-dashoffset="120" stroke-width="3"></circle>
+</svg>
+<!-- Knob Cap -->
+<div class="w-10 h-10 bg-surface-container-highest rounded-full z-10 flex items-center justify-center border border-white/10 shadow-inner">
+<div class="w-[2px] h-3 bg-primary-container absolute -top-1 rounded-full origin-[center_18px] rotate-[-45deg]"></div>
+</div>
+</div>
+<span class="mt-2 font-readout-lg text-[12px] text-primary-container">+1.2st</span>
+<span class="font-label-caps text-[7px] text-on-surface-variant uppercase mt-0.5">Pitch</span>
+</div>
+</div>
+</section>
+</div>
+<!-- Time Stretch & ADSR -->
+<div class="col-span-7 flex flex-col gap-2">
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant">
+<h2 class="font-label-caps text-[9px] text-on-surface-variant mb-4 flex items-center gap-2 tracking-widest uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                    Time Stretch
+                </h2>
+<div class="flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="relative w-16 h-16 rounded-full knob-base border border-outline-variant flex items-center justify-center">
+<svg class="absolute inset-0 w-full h-full -rotate-90">
+<circle class="text-white/5" cx="32" cy="32" fill="transparent" r="26" stroke="currentColor" stroke-width="3"></circle>
+<circle class="text-secondary" cx="32" cy="32" fill="transparent" r="26" stroke="currentColor" stroke-dasharray="163" stroke-dashoffset="80" stroke-width="4"></circle>
+</svg>
+<div class="w-11 h-11 bg-surface-container-highest rounded-full z-10 flex items-center justify-center border border-white/10 shadow-inner">
+<div class="w-[2px] h-4 bg-secondary absolute -top-1 rounded-full origin-[center_21px] rotate-[60deg]"></div>
+</div>
+</div>
+<span class="mt-2 font-readout-lg text-[14px] text-primary-container">145%</span>
+</div>
+<div class="flex-grow flex flex-col gap-1.5">
+<div class="bg-primary-container/10 border border-primary-container/40 text-primary-container text-center py-1 rounded-lg text-[8px] font-label-caps tracking-widest cursor-pointer shadow-sm">CLASSIC</div>
+<div class="bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant text-center py-1 rounded-lg text-[8px] font-label-caps tracking-widest cursor-pointer">GRANULAR</div>
+<div class="bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant text-center py-1 rounded-lg text-[8px] font-label-caps tracking-widest cursor-pointer">PITCH SHIFT</div>
+</div>
+</div>
+</section>
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant">
+<h2 class="font-label-caps text-[9px] text-on-surface-variant mb-4 flex items-center gap-2 tracking-widest uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                    Envelope
+                </h2>
+<div class="grid grid-cols-4 gap-2">
+<div class="flex flex-col items-center gap-2">
+<div class="w-2 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-white/5">
+<div class="absolute bottom-0 w-full bg-primary-container/60 h-[20%]"></div>
+</div>
+<span class="font-label-caps text-[7px] text-on-surface-variant">A</span>
+</div>
+<div class="flex flex-col items-center gap-2">
+<div class="w-2 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-white/5">
+<div class="absolute bottom-0 w-full bg-primary-container/60 h-[40%]"></div>
+</div>
+<span class="font-label-caps text-[7px] text-on-surface-variant">D</span>
+</div>
+<div class="flex flex-col items-center gap-2">
+<div class="w-2 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-white/5">
+<div class="absolute bottom-0 w-full bg-primary-container/60 h-[70%]"></div>
+</div>
+<span class="font-label-caps text-[7px] text-on-surface-variant">S</span>
+</div>
+<div class="flex flex-col items-center gap-2">
+<div class="w-2 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-white/5">
+<div class="absolute bottom-0 w-full bg-primary-container/60 h-[30%]"></div>
+</div>
+<span class="font-label-caps text-[7px] text-on-surface-variant">R</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+<!-- Key Mapping -->
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant mb-4">
+<h2 class="font-label-caps text-[9px] text-on-surface-variant mb-4 flex items-center gap-2 tracking-widest uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+            Key Mapping
+        </h2>
+<div class="flex flex-col gap-4">
+<div class="h-8 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-lg flex items-end px-1 gap-px relative overflow-hidden">
+<div class="absolute inset-y-0 left-[20%] right-[30%] bg-primary-container/10 border-x border-primary-container/30 z-10 flex items-center justify-center">
+<span class="font-label-caps text-[7px] text-primary-container/60 tracking-[0.2em]">ZONE_A</span>
+</div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+<div class="flex-grow h-4 bg-white/5 rounded-t-sm"></div>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<div class="flex flex-col">
+<span class="font-label-caps text-[7px] text-on-surface-variant mb-1 uppercase text-center">Low Key</span>
+<div class="control-well py-2 rounded-lg border border-white/5 text-center">
+<span class="font-readout-lg text-[13px] text-primary-container">C2</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-[7px] text-on-surface-variant mb-1 uppercase text-center">Root</span>
+<div class="control-well py-2 rounded-lg border border-primary-container/40 text-center">
+<span class="font-readout-lg text-[13px] text-primary-container">E3</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-[7px] text-on-surface-variant mb-1 uppercase text-center">High Key</span>
+<div class="control-well py-2 rounded-lg border border-white/5 text-center">
+<span class="font-readout-lg text-[13px] text-primary-container">G4</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation (8-tab) -->
+<nav class="fixed bottom-0 left-0 w-full h-16 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant flex items-center px-1 z-50">
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">waves</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">OSC</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">slow_motion_video</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">LFO</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">architecture</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">FILTER</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">equalizer</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">DRUMS</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">reorder</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">SEQ</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">album</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">SONG</span>
+</div>
+<!-- Active -->
+<div class="flex-1 flex flex-col items-center justify-center text-primary-container relative">
+<div class="absolute inset-0 mx-1 my-2 bg-primary-container/10 rounded-xl border border-primary-container/20"></div>
+<span class="material-symbols-outlined text-[22px] z-10">grid_view</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1 z-10">SAMPLE</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline-variant hover:text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[22px]">blur_on</span>
+<span class="font-label-caps text-[7px] tracking-tight mt-1">FX</span>
+</div>
+</nav>
+<script>
+    const recButton = document.getElementById('rec-btn');
+    let isRecording = false;
+
+    recButton.addEventListener('click', () => {
+        isRecording = !isRecording;
+        if (isRecording) {
+            recButton.classList.add('animate-pulse');
+            recButton.style.boxShadow = "0 0 25px rgba(255, 94, 7, 0.6)";
+            recButton.querySelector('span:first-child').style.color = "#ffb4ab";
+        } else {
+            recButton.classList.remove('animate-pulse');
+            recButton.style.boxShadow = "0 0 15px rgba(255, 94, 7, 0.3)";
+            recButton.querySelector('span:first-child').style.color = "";
+        }
+    });
+</script>
+</body></html>

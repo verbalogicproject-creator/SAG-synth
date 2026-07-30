@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>SAG-SYNTH | SEQ</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+            overscroll-behavior: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .piano-roll-grid {
+            background-image: 
+                linear-gradient(to right, rgba(59, 73, 75, 0.2) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(59, 73, 75, 0.2) 1px, transparent 1px);
+            background-size: 40px 24px; /* Width = Step, Height = Semi-tone */
+        }
+
+        .piano-roll-grid-sub {
+            background-image: 
+                linear-gradient(to right, rgba(59, 73, 75, 0.05) 1px, transparent 1px);
+            background-size: 10px 24px; /* 16th notes */
+        }
+
+        .key-black {
+            background: linear-gradient(90deg, #1b1b1d 0%, #0e0e10 100%);
+        }
+
+        .key-white {
+            background: linear-gradient(90deg, #2a2a2c 0%, #1b1b1d 100%);
+        }
+
+        .note-active {
+            box-shadow: 0 0 10px rgba(0, 219, 233, 0.4);
+        }
+
+        /* Custom Scrollbar for the technical look */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0e0e10;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b494b;
+            border-radius: 2px;
+        }
+
+        .inset-panel {
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .led-glow {
+            filter: drop-shadow(0 0 2px #00dbe9);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#9ef000",
+                        "tertiary-fixed-dim": "#90db00",
+                        "primary": "#dbfcff",
+                        "inverse-on-surface": "#303032",
+                        "secondary-fixed-dim": "#ffb59a",
+                        "tertiary": "#e5ffbe",
+                        "surface-container-high": "#2a2a2c",
+                        "on-surface": "#e5e1e4",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed": "#002022",
+                        "error": "#ffb4ab",
+                        "secondary": "#ffb59a",
+                        "on-primary": "#00363a",
+                        "surface-variant": "#353437",
+                        "surface-dim": "#131315",
+                        "surface-container-lowest": "#0e0e10",
+                        "tertiary-fixed": "#a5fa00",
+                        "surface-container": "#201f21",
+                        "secondary-fixed": "#ffdbce",
+                        "on-tertiary-container": "#436900",
+                        "on-secondary-fixed": "#370e00",
+                        "primary-fixed": "#7df4ff",
+                        "on-surface-variant": "#b9cacb",
+                        "inverse-primary": "#006970",
+                        "outline-variant": "#3b494b",
+                        "surface": "#131315",
+                        "on-error": "#690005",
+                        "on-primary-container": "#006970",
+                        "surface-bright": "#39393b",
+                        "on-primary-fixed-variant": "#004f54",
+                        "on-secondary-container": "#531900",
+                        "surface-tint": "#00dbe9",
+                        "primary-fixed-dim": "#00dbe9",
+                        "on-secondary-fixed-variant": "#802a00",
+                        "surface-container-highest": "#353437",
+                        "secondary-container": "#ff5e07",
+                        "outline": "#849495",
+                        "inverse-surface": "#e5e1e4",
+                        "on-tertiary-fixed": "#112000",
+                        "background": "#131315",
+                        "primary-container": "#00f0ff",
+                        "on-background": "#e5e1e4",
+                        "error-container": "#93000a",
+                        "surface-container-low": "#1b1b1d",
+                        "on-tertiary-fixed-variant": "#314f00",
+                        "on-tertiary": "#203600",
+                        "on-secondary": "#5a1b00"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "gutter": "4px",
+                        "touch-target-min": "44px",
+                        "module-padding": "12px",
+                        "control-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "module-header": ["Space Grotesk"],
+                        "readout-lg": ["JetBrains Mono"],
+                        "body-sm": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "module-header": ["14px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "readout-lg": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+                        "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                        "label-caps": ["10px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="flex flex-col h-screen overflow-hidden">
+<!-- TopAppBar -->
+<header class="bg-surface text-primary-fixed-dim font-module-header text-module-header uppercase tracking-widest flex justify-between items-center px-module-padding h-12 w-full border-b border-outline-variant z-50">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-fixed-dim">settings_input_component</span>
+<span>SAG-SYNTH</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 bg-surface-container-high px-2 py-1 rounded">
+<span class="text-[10px] font-label-caps text-outline">BPM</span>
+<span class="font-readout-lg text-primary-fixed-dim text-[14px]">128.0</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant transition-colors cursor-pointer p-1 rounded">settings</span>
+</div>
+</header>
+<!-- Main Sequencer Workspace -->
+<main class="flex-1 flex flex-col relative overflow-hidden bg-background">
+<!-- Timeline Bar -->
+<div class="h-8 w-full bg-surface-container-lowest border-b border-outline-variant flex items-end">
+<div class="w-12 border-r border-outline-variant h-full bg-surface-dim"></div>
+<div class="flex-1 overflow-hidden relative h-full flex">
+<div class="flex items-center gap-[40px] px-2 h-full font-readout-lg text-[10px] text-outline opacity-50">
+<span>1.1</span><span>1.2</span><span>1.3</span><span>1.4</span>
+<span>2.1</span><span>2.2</span><span>2.3</span><span>2.4</span>
+<span>3.1</span><span>3.2</span><span>3.3</span><span>3.4</span>
+<span>4.1</span><span>4.2</span><span>4.3</span><span>4.4</span>
+</div>
+<!-- Playhead -->
+<div class="absolute left-1/4 top-0 bottom-0 w-px bg-primary-fixed-dim led-glow z-20"></div>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden">
+<!-- Vertical Piano Keyboard -->
+<div class="w-12 bg-surface-dim border-r border-outline-variant overflow-y-auto scrollbar-hide flex flex-col-reverse" id="piano-keys">
+<!-- Programmatically generated keys or manual for demo -->
+<div class="h-6 w-full border-b border-outline-variant key-white flex items-center justify-end px-1 text-[8px] font-label-caps text-outline">C3</div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white flex items-center justify-end px-1 text-[8px] font-label-caps text-outline">F3</div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white flex items-center justify-end px-1 text-[8px] font-label-caps text-outline">C4</div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+<div class="h-6 w-full border-b border-outline-variant key-black"></div>
+<div class="h-6 w-full border-b border-outline-variant key-white"></div>
+</div>
+<!-- Scrollable Grid Area -->
+<div class="flex-1 overflow-auto relative piano-roll-grid flex flex-col-reverse" id="grid-container">
+<div class="absolute inset-0 piano-roll-grid-sub pointer-events-none opacity-30"></div>
+<!-- Mock Notes -->
+<div class="absolute left-[40px] bottom-[288px] w-20 h-5 bg-primary-fixed-dim/80 border border-primary rounded-sm note-active flex items-center px-1">
+<div class="w-1 h-3 bg-white/20 rounded-full mr-1"></div>
+</div>
+<div class="absolute left-[120px] bottom-[336px] w-10 h-5 bg-primary-fixed-dim/80 border border-primary rounded-sm note-active"></div>
+<div class="absolute left-[160px] bottom-[384px] w-40 h-5 bg-primary-fixed-dim/80 border border-primary rounded-sm note-active"></div>
+<div class="absolute left-[320px] bottom-[240px] w-20 h-5 bg-secondary-container/80 border border-secondary rounded-sm shadow-[0_0_8px_rgba(255,94,7,0.4)]"></div>
+<!-- Spacer for content height match -->
+<div class="h-[576px] w-[1600px]"></div>
+</div>
+</div>
+<!-- Velocity / Automation Lane -->
+<div class="h-24 w-full bg-surface-container-low border-t border-outline-variant flex flex-col">
+<div class="flex justify-between items-center px-2 py-1 bg-surface-dim border-b border-outline-variant/30">
+<span class="font-label-caps text-[9px] text-outline">VELOCITY</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">edit</span>
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">gesture</span>
+</div>
+</div>
+<div class="flex-1 flex items-end px-2 gap-px pb-1 overflow-hidden">
+<!-- Velocity Bars -->
+<div class="w-2 h-1/2 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-2/3 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/4 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-3/4 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-4/5 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/2 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/3 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/2 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-2/3 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/4 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-3/4 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-4/5 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/2 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/3 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/2 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-2/3 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/4 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-3/4 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-4/5 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+<div class="w-2 h-1/2 bg-primary-fixed-dim/40 rounded-t-sm"></div>
+</div>
+</div>
+<!-- Floating Controls Panel -->
+<div class="absolute right-4 bottom-28 flex flex-col gap-2 z-40">
+<button class="w-10 h-10 bg-surface-container-highest border border-outline-variant rounded-lg flex items-center justify-center text-primary-fixed-dim shadow-xl active:scale-95 transition-transform">
+<span class="material-symbols-outlined">zoom_in</span>
+</button>
+<button class="w-10 h-10 bg-surface-container-highest border border-outline-variant rounded-lg flex items-center justify-center text-primary-fixed-dim shadow-xl active:scale-95 transition-transform">
+<span class="material-symbols-outlined">zoom_out</span>
+</button>
+<div class="h-px bg-outline-variant my-1"></div>
+<button class="w-10 h-10 bg-surface-container-highest border border-outline-variant rounded-lg flex items-center justify-center text-on-surface shadow-xl active:scale-95 transition-transform">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+</div>
+<!-- Transport Context Bar -->
+<div class="absolute bottom-20 left-1/2 -translate-x-1/2 flex items-center bg-surface-container-high/90 backdrop-blur-md rounded-full px-4 py-2 border border-outline-variant gap-4 z-40">
+<button class="text-on-surface hover:text-primary-fixed-dim"><span class="material-symbols-outlined">skip_previous</span></button>
+<button class="w-8 h-8 bg-primary-fixed-dim text-on-primary-fixed rounded-full flex items-center justify-center led-glow"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span></button>
+<button class="text-on-surface hover:text-primary-fixed-dim"><span class="material-symbols-outlined">stop</span></button>
+<div class="w-px h-4 bg-outline-variant"></div>
+<button class="text-error"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">fiber_manual_record</span></button>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="bg-surface-container-lowest text-primary-fixed-dim font-label-caps text-label-caps fixed bottom-0 w-full z-50 border-t border-outline-variant flex justify-around items-center h-16 w-full">
+<!-- OSC -->
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform cursor-pointer">
+<span class="material-symbols-outlined">graphic_eq</span>
+<span>OSC</span>
+</div>
+<!-- ADSR -->
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform cursor-pointer">
+<span class="material-symbols-outlined">analytics</span>
+<span>ADSR</span>
+</div>
+<!-- FILTER -->
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform cursor-pointer">
+<span class="material-symbols-outlined">filter_list</span>
+<span>FILTER</span>
+</div>
+<!-- SEQ (ACTIVE) -->
+<div class="flex flex-col items-center justify-center text-primary-fixed-dim bg-on-primary-fixed-variant rounded-full px-4 py-1 scale-95 transition-transform cursor-pointer">
+<span class="material-symbols-outlined">reorder</span>
+<span>SEQ</span>
+</div>
+<!-- FX -->
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary transition-transform cursor-pointer">
+<span class="material-symbols-outlined">blur_on</span>
+<span>FX</span>
+</div>
+</nav>
+<script>
+        // Sync piano roll scrolling
+        const grid = document.getElementById('grid-container');
+        const keys = document.getElementById('piano-keys');
+
+        grid.addEventListener('scroll', () => {
+            keys.scrollTop = grid.scrollTop;
+        });
+
+        // Simple Note Toggling simulation
+        grid.addEventListener('click', (e) => {
+            if (e.target.classList.contains('piano-roll-grid')) {
+                const rect = grid.getBoundingClientRect();
+                const x = e.clientX - rect.left + grid.scrollLeft;
+                const y = e.clientY - rect.top + grid.scrollTop;
+                
+                // Snap to grid (40px x 24px)
+                const gridX = Math.floor(x / 40) * 40;
+                const gridY = Math.floor(y / 24) * 24;
+
+                const note = document.createElement('div');
+                note.className = 'absolute bg-primary-fixed-dim/80 border border-primary rounded-sm note-active';
+                note.style.left = `${gridX}px`;
+                note.style.top = `${gridY}px`;
+                note.style.width = '40px';
+                note.style.height = '24px';
+                
+                note.onclick = (event) => {
+                    event.stopPropagation();
+                    note.remove();
+                };
+
+                grid.appendChild(note);
+            }
+        });
+
+        // Horizontal scroll with touch swipe logic (standard mobile behavior)
+    </script>
+</body></html>

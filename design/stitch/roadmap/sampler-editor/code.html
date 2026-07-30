@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SAG-SYNTH | Sampler &amp; Editor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+            overflow: hidden;
+            user-select: none;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .control-well {
+            background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(255,255,255,0.05) 100%);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .knob-track {
+            background: conic-gradient(from 180deg, #00f0ff var(--value), #3b494b 0);
+        }
+        .neon-glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+        }
+        .neon-glow-red {
+            box-shadow: 0 0 15px rgba(255, 180, 171, 0.3);
+        }
+        .waveform-container {
+            background-image: linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="font-body-sm text-body-sm">
+<!-- TopAppBar -->
+<header class="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-module-padding w-full h-touch-target-min fixed top-0 z-50">
+<div class="flex items-center gap-control-gap">
+<span class="material-symbols-outlined text-primary-container cursor-pointer active:scale-95 transition-transform">menu</span>
+<h1 class="font-module-header text-module-header tracking-tighter text-primary-container">SAG-SYNTH</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-surface-container px-3 py-1 rounded border border-outline-variant">
+<span class="font-label-caps text-label-caps text-on-surface-variant">CPU: 12%</span>
+</div>
+<span class="font-module-header text-module-header text-primary-container">128 BPM</span>
+</div>
+</header>
+<main class="pt-12 pb-20 px-gutter h-screen flex flex-col gap-gutter overflow-hidden">
+<!-- Top Section: Waveform Display -->
+<section class="flex-grow flex flex-col bg-surface-container-low rounded-xl border border-outline-variant relative overflow-hidden waveform-container">
+<div class="absolute top-2 left-3 z-10">
+<span class="font-label-caps text-label-caps text-primary-container bg-surface-container-highest px-2 py-0.5 rounded">SAMPLE_EDIT_004.WAV</span>
+</div>
+<div class="flex-grow flex items-center justify-center relative px-8">
+<!-- Waveform Visualization -->
+<div class="w-full h-48 relative">
+
+<!-- Crop Handles (Visual Overlay) -->
+<div class="absolute inset-y-0 left-1/4 w-1 bg-primary-container/80 neon-glow-cyan z-20 cursor-ew-resize">
+<div class="absolute top-1/2 -translate-y-1/2 -left-2 w-5 h-8 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-container text-[12px]">drag_handle</span>
+</div>
+</div>
+<div class="absolute inset-y-0 right-1/4 w-1 bg-primary-container/80 neon-glow-cyan z-20 cursor-ew-resize">
+<div class="absolute top-1/2 -translate-y-1/2 -right-2 w-5 h-8 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-container text-[12px]">drag_handle</span>
+</div>
+</div>
+<!-- Shaded Inactive Areas -->
+<div class="absolute inset-y-0 left-0 w-1/4 bg-background/60"></div>
+<div class="absolute inset-y-0 right-0 w-1/4 bg-background/60"></div>
+</div>
+</div>
+<!-- Zoom Controls Overlay -->
+<div class="absolute bottom-2 right-2 flex gap-1">
+<button class="w-8 h-8 flex items-center justify-center bg-surface-container-high border border-outline-variant text-primary-container active:scale-95">
+<span class="material-symbols-outlined text-[18px]">zoom_in</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center bg-surface-container-high border border-outline-variant text-primary-container active:scale-95">
+<span class="material-symbols-outlined text-[18px]">zoom_out</span>
+</button>
+</div>
+</section>
+<!-- Middle Section: Main Controls -->
+<section class="grid grid-cols-4 gap-gutter h-24">
+<button class="col-span-1 bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 group active:scale-95 transition-all">
+<span class="material-symbols-outlined text-primary-container">folder_open</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary-container">LOAD SAMPLE</span>
+</button>
+<button class="col-span-1 bg-error-container/20 border border-error/30 rounded-xl flex flex-col items-center justify-center gap-1 active:scale-90 transition-all neon-glow-red">
+<span class="material-symbols-outlined text-error fill" style="font-variation-settings: 'FILL' 1;">mic</span>
+<span class="font-label-caps text-label-caps text-error">MIC RECORD</span>
+</button>
+<button class="col-span-1 bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-primary-container">content_cut</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant">TRIM</span>
+</button>
+<button class="col-span-1 bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-primary-container">save</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant">SAVE</span>
+</button>
+</section>
+<!-- Bottom Section: Sample Parameters -->
+<section class="bg-surface-container-high p-module-padding rounded-xl border border-outline-variant">
+<h2 class="font-label-caps text-label-caps text-on-surface-variant mb-4 flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary-container neon-glow-cyan"></span>
+                PLAYBACK PARAMETERS
+            </h2>
+<div class="grid grid-cols-4 gap-4">
+<!-- Start/End Point Readouts -->
+<div class="col-span-1 flex flex-col gap-2">
+<div class="flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1 uppercase">Start</span>
+<div class="control-well bg-surface-container-lowest p-2 rounded border border-outline-variant/30">
+<span class="font-readout-lg text-readout-lg text-primary-container">0.254s</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1 uppercase">End</span>
+<div class="control-well bg-surface-container-lowest p-2 rounded border border-outline-variant/30">
+<span class="font-readout-lg text-readout-lg text-primary-container">1.892s</span>
+</div>
+</div>
+</div>
+<!-- Pitch Shift Knob -->
+<div class="col-span-1 flex flex-col items-center justify-center">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Pitch</span>
+<div class="relative w-16 h-16 rounded-full border-2 border-outline-variant flex items-center justify-center cursor-pointer group">
+<div class="absolute inset-0 rounded-full knob-track" style="--value: 240deg;"></div>
+<div class="w-12 h-12 bg-surface-container-high rounded-full z-10 flex items-center justify-center shadow-lg border border-outline-variant">
+<div class="w-1 h-4 bg-primary-container absolute top-1 rounded-full origin-bottom rotate-[-45deg]"></div>
+</div>
+</div>
+<span class="mt-2 font-readout-lg text-readout-lg text-primary-container">+1.2st</span>
+</div>
+<!-- Toggles Column -->
+<div class="col-span-2 grid grid-cols-2 gap-4 h-full">
+<div class="flex flex-col items-center justify-center bg-surface-container border border-outline-variant rounded-lg p-2 active:scale-95 transition-transform cursor-pointer">
+<span class="material-symbols-outlined text-primary-container text-[32px]">loop</span>
+<span class="font-label-caps text-label-caps text-primary-container mt-1">LOOP ON</span>
+<div class="mt-2 w-8 h-1 bg-primary-container neon-glow-cyan rounded-full"></div>
+</div>
+<div class="flex flex-col items-center justify-center bg-surface-container border border-outline-variant/30 rounded-lg p-2 opacity-60 active:scale-95 transition-transform cursor-pointer">
+<span class="material-symbols-outlined text-on-surface-variant text-[32px]">history</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant mt-1">REVERSE</span>
+<div class="mt-2 w-8 h-1 bg-outline-variant rounded-full"></div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full flex justify-around items-center px-gutter py-2 h-16 bg-surface-container-lowest border-t border-outline-variant z-50">
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary active:scale-90 transition-all cursor-pointer">
+<span class="material-symbols-outlined">waves</span>
+<span class="font-label-caps text-label-caps">OSC</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary active:scale-90 transition-all cursor-pointer">
+<span class="material-symbols-outlined">architecture</span>
+<span class="font-label-caps text-label-caps">FILT</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary active:scale-90 transition-all cursor-pointer">
+<span class="material-symbols-outlined">filter_list</span>
+<span class="font-label-caps text-label-caps">ENV</span>
+</div>
+<!-- Active Tab -->
+<div class="flex flex-col items-center justify-center bg-primary-container/10 text-primary-container shadow-[0_0_8px_rgba(0,240,255,0.3)] rounded-xl px-4 py-1 active:scale-90 transition-all cursor-pointer">
+<span class="material-symbols-outlined">grid_view</span>
+<span class="font-label-caps text-label-caps">SAMPLE</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline hover:text-primary active:scale-90 transition-all cursor-pointer">
+<span class="material-symbols-outlined">piano</span>
+<span class="font-label-caps text-label-caps">KEYS</span>
+</div>
+</nav>
+<!-- Extra UI Layer: Visual Atmosphere -->
+<div class="fixed top-20 right-4 pointer-events-none opacity-20">
+<div class="w-32 h-32">
+
+</div>
+</div>
+<script>
+        // Simple micro-interaction for the Record button pulse
+        const recButton = document.querySelector('.bg-error-container\\/20');
+        let isRecording = false;
+
+        recButton.addEventListener('click', () => {
+            isRecording = !isRecording;
+            if (isRecording) {
+                recButton.classList.add('animate-pulse');
+                recButton.style.boxShadow = "0 0 25px rgba(255, 180, 171, 0.6)";
+            } else {
+                recButton.classList.remove('animate-pulse');
+                recButton.style.boxShadow = "0 0 15px rgba(255, 180, 171, 0.3)";
+            }
+        });
+    </script>
+</body></html>

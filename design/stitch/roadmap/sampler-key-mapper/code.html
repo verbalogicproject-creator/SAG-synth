@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SAG-SYNTH | Sampler &amp; Editor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+            user-select: none;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .control-well {
+            background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(255,255,255,0.05) 100%);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .knob-track {
+            background: conic-gradient(from 180deg, #00f0ff var(--value), #3b494b 0);
+        }
+        .neon-glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+        }
+        .neon-glow-red {
+            box-shadow: 0 0 15px rgba(255, 180, 171, 0.3);
+        }
+        .waveform-container {
+            background-image: linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        /* Custom scrollbar for mobile overflow */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b494b;
+            border-radius: 2px;
+        }
+    </style>
+<style>
+        body {
+            min-height: 100dvh;
+        }
+    </style>
+</head>
+<body class="font-body-sm text-body-sm flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-surface-container-high border-b border-outline-variant flex justify-between items-center px-module-padding w-full h-touch-target-min fixed top-0 z-50">
+<div class="flex items-center gap-control-gap">
+<span class="material-symbols-outlined text-primary-container cursor-pointer active:scale-95 transition-transform">menu</span>
+<h1 class="font-module-header text-module-header tracking-tighter text-primary-container">SAG-SYNTH</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-surface-container px-3 py-1 rounded border border-outline-variant">
+<span class="font-label-caps text-label-caps text-on-surface-variant">CPU: 12%</span>
+</div>
+<span class="font-module-header text-module-header text-primary-container">128 BPM</span>
+</div>
+</header>
+<main class="pt-12 pb-20 px-gutter flex flex-col gap-gutter overflow-y-auto min-h-screen">
+<!-- Waveform Display -->
+<section class="flex-shrink-0 h-48 bg-surface-container-low rounded-xl border border-outline-variant relative overflow-hidden waveform-container">
+<div class="absolute top-2 left-3 z-10">
+<span class="font-label-caps text-label-caps text-primary-container bg-surface-container-highest px-2 py-0.5 rounded">SAMPLE_EDIT_004.WAV</span>
+</div>
+<div class="h-full flex items-center justify-center relative px-8">
+<div class="w-full h-32 relative">
+<!-- Crop Handles -->
+<div class="absolute inset-y-0 left-1/4 w-1 bg-primary-container/80 neon-glow-cyan z-20">
+<div class="absolute top-1/2 -translate-y-1/2 -left-2 w-5 h-8 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-container text-[12px]">drag_handle</span>
+</div>
+</div>
+<div class="absolute inset-y-0 right-1/4 w-1 bg-primary-container/80 neon-glow-cyan z-20">
+<div class="absolute top-1/2 -translate-y-1/2 -right-2 w-5 h-8 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-container text-[12px]">drag_handle</span>
+</div>
+</div>
+<div class="absolute inset-y-0 left-0 w-1/4 bg-background/60"></div>
+<div class="absolute inset-y-0 right-0 w-1/4 bg-background/60"></div>
+</div>
+</div>
+<div class="absolute bottom-2 right-2 flex gap-1">
+<button class="w-8 h-8 flex items-center justify-center bg-surface-container-high border border-outline-variant text-primary-container active:scale-95">
+<span class="material-symbols-outlined text-[18px]">zoom_in</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center bg-surface-container-high border border-outline-variant text-primary-container active:scale-95">
+<span class="material-symbols-outlined text-[18px]">zoom_out</span>
+</button>
+</div>
+</section>
+<!-- Transport & Utility Controls -->
+<section class="grid grid-cols-4 gap-gutter h-20">
+<button class="bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 group active:scale-95">
+<span class="material-symbols-outlined text-primary-container text-[20px]">folder_open</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant">LOAD</span>
+</button>
+<button class="bg-error-container/20 border border-error/30 rounded-xl flex flex-col items-center justify-center gap-1 active:scale-90 neon-glow-red" id="rec-btn">
+<span class="material-symbols-outlined text-error fill text-[20px]" style="font-variation-settings: 'FILL' 1;">mic</span>
+<span class="font-label-caps text-[8px] text-error">REC</span>
+</button>
+<button class="bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95">
+<span class="material-symbols-outlined text-primary-container text-[20px]">content_cut</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant">TRIM</span>
+</button>
+<button class="bg-surface-container-high border border-outline-variant rounded-xl flex flex-col items-center justify-center gap-1 active:scale-95">
+<span class="material-symbols-outlined text-primary-container text-[20px]">save</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant">SAVE</span>
+</button>
+</section>
+<!-- Multi-Column Parameters Area -->
+<div class="grid grid-cols-12 gap-gutter">
+<!-- Left: Playback & Pitch -->
+<div class="col-span-5 flex flex-col gap-gutter">
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant flex-grow">
+<h2 class="font-label-caps text-[10px] text-on-surface-variant mb-3 flex items-center gap-1 uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container neon-glow-cyan"></span>
+                    Playback
+                </h2>
+<div class="space-y-3">
+<div class="grid grid-cols-2 gap-2">
+<div class="flex flex-col">
+<span class="font-label-caps text-[8px] text-on-surface-variant mb-1 uppercase">Start</span>
+<div class="control-well bg-surface-container-lowest px-1 py-1 rounded border border-outline-variant/30 text-center">
+<span class="font-readout-lg text-[14px] text-primary-container">0.254</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-[8px] text-on-surface-variant mb-1 uppercase">End</span>
+<div class="control-well bg-surface-container-lowest px-1 py-1 rounded border border-outline-variant/30 text-center">
+<span class="font-readout-lg text-[14px] text-primary-container">1.892</span>
+</div>
+</div>
+</div>
+<div class="flex justify-between items-center bg-surface-container border border-outline-variant rounded p-2">
+<span class="font-label-caps text-[9px] text-primary-container">LOOP</span>
+<div class="w-10 h-5 bg-primary-container/20 border border-primary-container/40 rounded-full relative p-0.5">
+<div class="w-3.5 h-3.5 bg-primary-container rounded-full shadow-lg ml-auto"></div>
+</div>
+</div>
+<div class="flex items-center justify-center py-2">
+<div class="flex flex-col items-center">
+<div class="relative w-12 h-12 rounded-full border-2 border-outline-variant flex items-center justify-center cursor-pointer">
+<div class="absolute inset-0 rounded-full knob-track" style="--value: 240deg;"></div>
+<div class="w-8 h-8 bg-surface-container-high rounded-full z-10 flex items-center justify-center border border-outline-variant">
+<div class="w-0.5 h-3 bg-primary-container absolute top-1 rounded-full origin-bottom rotate-[-45deg]"></div>
+</div>
+</div>
+<span class="mt-1 font-readout-lg text-[12px] text-primary-container">+1.2st</span>
+<span class="font-label-caps text-[8px] text-on-surface-variant uppercase">Pitch</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right: Time Stretch & ADSR -->
+<div class="col-span-7 flex flex-col gap-gutter">
+<!-- Time Stretch -->
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant">
+<h2 class="font-label-caps text-[10px] text-on-surface-variant mb-3 flex items-center gap-1 uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary neon-glow-cyan"></span>
+                    Time Stretch
+                </h2>
+<div class="flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="relative w-14 h-14 rounded-full border-2 border-outline-variant flex items-center justify-center">
+<div class="absolute inset-0 rounded-full knob-track" style="--value: 120deg; filter: hue-rotate(180deg);"></div>
+<div class="w-10 h-10 bg-surface-container-high rounded-full z-10 flex items-center justify-center border border-outline-variant">
+<div class="w-0.5 h-4 bg-primary-container absolute top-1 rounded-full origin-bottom rotate-[60deg]"></div>
+</div>
+</div>
+<span class="mt-1 font-readout-lg text-[14px] text-primary-container">145%</span>
+</div>
+<div class="flex-grow space-y-1">
+<div class="bg-primary-container/10 border border-primary-container text-primary-container text-center py-1 rounded text-[10px] font-label-caps cursor-pointer">CLASSIC</div>
+<div class="bg-surface-container border border-outline-variant text-on-surface-variant text-center py-1 rounded text-[10px] font-label-caps cursor-pointer">GRANULAR</div>
+<div class="bg-surface-container border border-outline-variant text-on-surface-variant text-center py-1 rounded text-[10px] font-label-caps cursor-pointer">PITCH SHIFT</div>
+</div>
+</div>
+</section>
+<!-- ADSR -->
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant">
+<h2 class="font-label-caps text-[10px] text-on-surface-variant mb-3 flex items-center gap-1 uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary neon-glow-cyan"></span>
+                    Sample ADSR
+                </h2>
+<div class="grid grid-cols-4 gap-1">
+<div class="flex flex-col items-center gap-1">
+<div class="w-1.5 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-outline-variant/30">
+<div class="absolute bottom-0 w-full bg-primary-container/80 h-[20%]"></div>
+</div>
+<span class="font-label-caps text-[8px] text-on-surface-variant">A</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="w-1.5 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-outline-variant/30">
+<div class="absolute bottom-0 w-full bg-primary-container/80 h-[40%]"></div>
+</div>
+<span class="font-label-caps text-[8px] text-on-surface-variant">D</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="w-1.5 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-outline-variant/30">
+<div class="absolute bottom-0 w-full bg-primary-container/80 h-[70%]"></div>
+</div>
+<span class="font-label-caps text-[8px] text-on-surface-variant">S</span>
+</div>
+<div class="flex flex-col items-center gap-1">
+<div class="w-1.5 h-16 bg-surface-container-lowest rounded-full relative overflow-hidden border border-outline-variant/30">
+<div class="absolute bottom-0 w-full bg-primary-container/80 h-[30%]"></div>
+</div>
+<span class="font-label-caps text-[8px] text-on-surface-variant">R</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+<!-- Key Mapping Section -->
+<section class="bg-surface-container-high p-3 rounded-xl border border-outline-variant mb-4">
+<h2 class="font-label-caps text-[10px] text-on-surface-variant mb-4 flex items-center gap-1 uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+            Key Mapping
+        </h2>
+<div class="flex flex-col gap-4">
+<!-- Visual Keyboard Range Display -->
+<div class="h-10 w-full bg-surface-container-lowest border border-outline-variant rounded flex items-end px-1 gap-px relative">
+<!-- Highlighted Range Overlay -->
+<div class="absolute inset-y-0 left-[20%] right-[30%] bg-primary-container/20 border-x-2 border-primary-container z-10 flex items-center justify-center">
+<span class="font-label-caps text-[8px] text-primary-container opacity-50">SAMPLE ZONE</span>
+</div>
+<!-- Mini Keys -->
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+<div class="flex-grow h-6 bg-surface-variant/40 rounded-t-sm"></div>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<div class="flex flex-col">
+<span class="font-label-caps text-[8px] text-on-surface-variant mb-1">LOW KEY</span>
+<div class="control-well bg-surface-container-lowest p-2 rounded border border-outline-variant/30 text-center">
+<span class="font-readout-lg text-[14px] text-primary-container">C2</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-[8px] text-on-surface-variant mb-1">ROOT NOTE</span>
+<div class="control-well bg-surface-container-lowest p-2 rounded border border-primary-container/50 text-center">
+<span class="font-readout-lg text-[14px] text-primary-container">E3</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-[8px] text-on-surface-variant mb-1">HIGH KEY</span>
+<div class="control-well bg-surface-container-lowest p-2 rounded border border-outline-variant/30 text-center">
+<span class="font-readout-lg text-[14px] text-primary-container">G4</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (8-tab system) -->
+<nav class="fixed bottom-0 left-0 w-full flex justify-between items-center px-1 py-1 h-16 bg-surface-container-lowest border-t border-outline-variant z-50">
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">waves</span>
+<span class="font-label-caps text-[7px]">OSC</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+<span class="font-label-caps text-[7px]">ADSR</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">architecture</span>
+<span class="font-label-caps text-[7px]">FILTER</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">equalizer</span>
+<span class="font-label-caps text-[7px]">DRUMS</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">reorder</span>
+<span class="font-label-caps text-[7px]">SEQ</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">album</span>
+<span class="font-label-caps text-[7px]">SONG</span>
+</div>
+<!-- Active Tab -->
+<div class="flex-1 flex flex-col items-center justify-center bg-primary-container/10 text-primary-container shadow-[0_0_8px_rgba(0,240,255,0.3)] rounded-lg px-1 py-1 cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">grid_view</span>
+<span class="font-label-caps text-[7px]">SAMPLE</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center text-outline hover:text-primary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">blur_on</span>
+<span class="font-label-caps text-[7px]">FX</span>
+</div>
+</nav>
+<script>
+    const recButton = document.getElementById('rec-btn');
+    let isRecording = false;
+
+    recButton.addEventListener('click', () => {
+        isRecording = !isRecording;
+        if (isRecording) {
+            recButton.classList.add('animate-pulse');
+            recButton.style.boxShadow = "0 0 25px rgba(255, 180, 171, 0.6)";
+        } else {
+            recButton.classList.remove('animate-pulse');
+            recButton.style.boxShadow = "0 0 15px rgba(255, 180, 171, 0.3)";
+        }
+    });
+</script>
+</body></html>

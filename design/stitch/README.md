@@ -1,11 +1,23 @@
-# The Stitch design — what was taken, and what was left
+# The Stitch design — seven to build, eleven to build towards
 
-Eyal designed the synth in Google Stitch with Gemini and exported 36 screens. Seven are
-here. This records which, why, and where each one disagrees with the engine — because a
-design and an engine that disagree silently is how a control ends up looking broken.
+Eyal designed the synth in Google Stitch with Gemini and exported 36 screens. **They are
+not all v0.2.0, and they were never meant to be** — the set is a roadmap of possibilities
+drawn ahead of the engine, which is a genuinely useful thing to have and the reason the
+whole export is preserved rather than pruned.
+
+Split accordingly:
+
+- **`design/stitch/*`** — seven screens the current engine can actually drive. These are
+  what v0.2.0 builds.
+- **`design/stitch/roadmap/*`** — eleven screens designed ahead. Each names a capability
+  that does not exist yet, and the version it would belong to.
+
+The remaining eighteen are `_nav` and `_refined` iterations of screens already here —
+different tab bars on the same content. Kept out because they are versions of a decision,
+not alternatives to it.
 
 Originals were at `/storage/emulated/0/Download/sag-synth-stitch/`, a downloads folder that
-gets cleared.
+gets cleared. That is why this exists at all.
 
 ## The finding that shaped the selection
 
@@ -32,20 +44,26 @@ what v0.2.0 can be.
 | `06-preset-browser` | `preset_browser` | Buildable — `savePreset`/`loadPreset`/`deletePreset` and `IdbPersistence` all exist and are untouched by any UI. |
 | `07-global-setup` | `sag_synth_global_setup` | Master and settings. |
 
-## Left behind, and why
+## `roadmap/` — designed ahead of the engine
 
-Every one of these is a screen for an engine that does not exist. Building the surface first
-would produce controls that dispatch nothing.
+Not rejected. Each of these is a capability decision made visually before it was made in
+code, which is the right order — it is much cheaper to find out a feature needs a different
+data model by drawing it than by building it. What each one costs, roughly nearest first:
 
-- **Drums** (`drum_machine` ×3, `drum_sequencer`) — no drum engine at all.
-- **Sequencer** (`step_sequencer`, `piano_roll_sequencer`) — needs `Tone.Transport`. v0.3.0,
-  and blocked on an unresearched question about how its lookahead interacts with our pure
-  allocator.
-- **Song mode** (×4) — same dependency.
-- **Sampler** (`sampler_editor`, `advanced_sampler_refined`, `key_mapper`) — no sampler.
-- **Arpeggiator**, **macro performance** — nothing behind either.
-- **Nine `_nav` variants** — the same screens with different tab bars. Iterations, not
-  alternatives; keeping them would mean keeping the ambiguity.
+| Screen | Needs | Earliest |
+|---|---|---|
+| `xy-touchpad` | Nothing new in the engine. Two modulation destinations driven by one gesture — the routing model already supports it. **The cheapest thing here by a wide margin.** | 0.2.x |
+| `step-sequencer` | `Tone.Transport`. The note model already exists: `NoteEvent[]` in beats with the 16-step grid as a projection, per the frozen decision. | 0.3.0 |
+| `piano-roll` | Same dependency, same note model. A different view over one structure, which is exactly what that decision was for. | 0.3.0 |
+| `song-mode` | Transport, plus multi-track playback. `SongTrack` and `preset_snapshot` are already declared and unused. | 0.3.0 |
+| `arpeggiator` | Transport for its clock. Otherwise it is a note generator feeding the existing dispatcher. | 0.3.0 |
+| `drum-machine` · `drum-sequencer` | A drum engine. Nothing exists — samples or synthesised percussion, either way a second voice architecture beside the MonoSynth pool. MIDI import already flags channel-10 as drums (F70) and nothing consumes it. | 0.4.0 |
+| `sampler-editor` · `sampler-advanced` · `sampler-key-mapper` | A sampler: buffer loading, key mapping, loop points, and a storage story for audio that `KIND-synth_patch` §5 explicitly excludes from the patch document. The largest item here. | 0.4.0+ |
+| `macro-performance` | A macro layer — one control driving several parameters at once. Adjacent to routing but a different shape: routes are modulation, macros are static mappings. | undecided |
+
+The ordering is not the design's fault or preference; it is what each one costs given what
+exists. `xy-touchpad` standing alone at the top is worth noticing — it is a whole
+performance surface that needs no new engine work at all.
 
 ## Where the design and the engine disagree
 
