@@ -474,21 +474,79 @@ describe('ToneRuntime — modulation routing', () => {
     expect(movement(on, hfAt)).toBeGreaterThan(movement(off, hfAt) * 3);
   });
 
-  it('F74 — an enabled amplitude route makes the level pulse; disabled holds it steady', async () => {
-    // Base gain 0.5 so a depth-0.8 swing (±0.4) stays inside unity. Leaving the base at 1
-    // would push peaks to 1.4 and measure the master trim's headroom as well as tremolo.
-    const tremolo = { destination: 'voice.amplitude', depth: 0.8, rate: 4 };
-    const halfGain = (patch: SynthPreset) => {
-      patch.voice.amplitude = 0.5;
-    };
+  /** Peak-to-trough of the level across the note, in dB — how deep the tremolo sounds. */
+  function duckDepthDb(data: Float32Array): number {
+    const points = Array.from({ length: 24 }, (_unused, i) => rmsAt(data, 0.15 + i * 0.02));
+    const loud = Math.max(...points);
+    const quiet = Math.max(Math.min(...points), 1e-9);
+    return 20 * Math.log10(loud / quiet);
+  }
 
+  it('F74 — an enabled amplitude route ducks the level; disabled holds it steady', async () => {
+    const tremolo = { destination: 'voice.amplitude', depth: 0.3, rate: 4 };
     const [off, on] = await Promise.all([
-      renderRouted({ ...tremolo, enabled: false, mutate: halfGain }),
-      renderRouted({ ...tremolo, enabled: true, mutate: halfGain }),
+      renderRouted({ ...tremolo, enabled: false }),
+      renderRouted({ ...tremolo, enabled: true }),
     ]);
 
     expect(rms(on)).toBeGreaterThan(0.005);
-    expect(movement(on, rmsAt)).toBeGreaterThan(movement(off, rmsAt) * 3);
+    expect(duckDepthDb(on)).toBeGreaterThan(duckDepthDb(off) * 3);
+  });
+
+  it('F74 — depth 0.3 is a tremolo you can hear, not a measurable one', async () => {
+    // The gate that would have caught the original mapping. A linear swing about a base of
+    // 1.0 gave depth 0.3 about 2.4 dB peak-to-peak, which passed every "did it move" check
+    // above and was reported from the device as barely audible. Loudness is logarithmic,
+    // so the gate has to be too: this asserts a perceptual floor, not a difference.
+    const on = await renderRouted({
+      enabled: true,
+      destination: 'voice.amplitude',
+      depth: 0.3,
+      rate: 4,
+    });
+
+    expect(duckDepthDb(on)).toBeGreaterThan(10);
+  });
+
+  it('a shallow amplitude route stays gentle — depth still means something', async () => {
+    // The other side of the previous check. A mapping that made everything dramatic would
+    // pass it just as well as a correct one.
+    const [gentle, firm] = await Promise.all([
+      renderRouted({ enabled: true, destination: 'voice.amplitude', depth: 0.05, rate: 4 }),
+      renderRouted({ enabled: true, destination: 'voice.amplitude', depth: 0.5, rate: 4 }),
+    ]);
+
+    expect(duckDepthDb(gentle)).toBeLessThan(duckDepthDb(firm));
+    expect(duckDepthDb(gentle)).toBeLessThan(10);
+  });
+
+  it('one LFO driving two destinations gives each its own depth', async () => {
+    // The regression this exists for: the swing used to be set on the GENERATOR, so a
+    // second route from the same LFO overwrote the first's. A cutoff route sharing an LFO
+    // with a pan route came out modulating the cutoff by ±0.3 Hz — inaudible, and
+    // invisible to every other gate here, because each destination on its own was fine.
+    const withSecondRoute = (patch: SynthPreset) => {
+      patch.voice.modRoutes = [
+        ...patch.voice.modRoutes,
+        { id: 'route-1', enabled: true, source: 'lfo.0', destination: 'voice.pan', depth: 0.9 },
+      ];
+    };
+
+    const [alone, shared] = await Promise.all([
+      renderRouted({ enabled: true, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.4 }),
+      renderRouted({
+        enabled: true,
+        destination: 'voice.filterEnvelope.baseFrequency',
+        depth: 0.4,
+        mutate: withSecondRoute,
+      }),
+    ]);
+
+    // Adding a pan route must not change how far the cutoff route travels. Rendered mono,
+    // so the pan route itself is not what is being measured here.
+    const aloneTravel = movement(alone, hfAt);
+    const sharedTravel = movement(shared, hfAt);
+    expect(sharedTravel).toBeGreaterThan(aloneTravel * 0.5);
   });
 
   it('F73 — a deeper route travels further than a shallow one at the same rate', async () => {
@@ -562,8 +620,10 @@ describe('ToneRuntime — modulation routing', () => {
 
     expect(voiceCount).toBe(8);
     expect(lfoCount).toBe(1);
-    // 1 LFO + 8 voices x (synth + gain + panner) + master/analyser/meter.
-    expect(nodeCount).toBe(1 + 8 * 3 + 3);
+    // 1 LFO + 1 depth scaler + 8 voices x (synth + gain + panner) + master/analyser/meter.
+    // The scaler count tracks ROUTES, not voices — one connection scaler fans out to the
+    // whole pool, so this stays flat as polyphony rises just as the generator count does.
+    expect(nodeCount).toBe(1 + 1 + 8 * 3 + 3);
   });
 
   it('reports a declared destination it cannot yet wire, rather than dropping it', async () => {

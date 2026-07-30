@@ -106,17 +106,53 @@ function isWirable(destination: ModDestination): destination is WirableDestinati
 }
 
 /**
- * How far a route at this depth may swing its destination, in the destination's OWN unit.
+ * Duck depth at `depth: 1.0`, in dB. 60 dB is silence for any practical purpose.
  *
- * F73: depth is normalised, and the range it scales against comes from the destination's
- * spec — which is the only reason one `depth: 0.5` can mean the same thing on a Hz
- * destination and a cents one. Halved because the LFO is bipolar (KIND §3.1), so the
- * peak-to-peak travel is the full `depth × range` the check asserts.
+ * Loudness is perceived logarithmically, so a linear depth reads wrong on an amplitude
+ * destination: at depth 0.3 a linear swing of ±0.15 is about **2.4 dB peak-to-peak**,
+ * which measures as modulation and sounds like nothing. Mapping depth through dB instead
+ * gives 0.1 a gentle pulse, 0.3 a firm one, and 1.0 a gate.
  */
-function routeSwing(destination: ModDestination, depth: Unit): number {
+const FULL_DEPTH_DUCK_DB = 60;
+
+/**
+ * How a normalised depth becomes an actual swing at one destination.
+ *
+ * `scale` is what a unit LFO gets multiplied by. `baseOverride` re-centres the parameter's
+ * resting value when the modulation is not symmetric about it.
+ */
+interface RouteSwing {
+  scale: number;
+  baseOverride?: number;
+}
+
+/**
+ * F73: depth is normalised, and the range it scales against comes from the destination's
+ * own spec — the only reason one `depth: 0.5` can mean the same thing on a Hz destination
+ * and a cents one. Halved because the LFO is bipolar (KIND §3.1), so peak-to-peak travel
+ * is the full `depth × range`.
+ *
+ * `voice.amplitude` is the exception, and for two reasons that compound. Its declared
+ * range is 0..1 and its base is **1.0** — the very top — so a symmetric swing spends half
+ * its travel going louder than full, which a speaker at level cannot render. And gain is
+ * perceived logarithmically, so the half that does duck is a couple of dB.
+ *
+ * So an amplitude route DUCKS: the peak stays at the patch's own level and the trough
+ * falls `depth × 60` dB below it. That is also what a tremolo circuit does — it attenuates
+ * rather than swinging about a midpoint. Re-centring the resting gain on the midpoint of
+ * that span is what turns a bipolar generator into a one-directional duck without needing
+ * an offset node in the graph.
+ */
+function routeSwing(destination: ModDestination, depth: Unit, base: number): RouteSwing {
   const spec = PARAM_SPECS[destination];
-  if (spec.kind !== 'number') return 0;
-  return (depth * (spec.max - spec.min)) / 2;
+  if (spec.kind !== 'number') return { scale: 0 };
+
+  if (destination === 'voice.amplitude') {
+    const trough = base * Math.pow(10, (-depth * FULL_DEPTH_DUCK_DB) / 20);
+    return { scale: (base - trough) / 2, baseOverride: (base + trough) / 2 };
+  }
+
+  return { scale: (depth * (spec.max - spec.min)) / 2 };
 }
 
 /**
@@ -148,6 +184,12 @@ export class ToneRuntime implements Runtime {
    * from what KIND-synth_patch describes. See `SHARED_LFO_PHASE_DEPARTURE` below.
    */
   private readonly lfos = new Map<number, Tone.LFO>();
+
+  /**
+   * One depth scaler per live connection. Rebuilt wholesale on every rewire, which is why
+   * they are a flat list rather than keyed by route id — nothing looks one up.
+   */
+  private readonly scalers: Tone.Gain[] = [];
 
   /** Last time scheduled on each voice; see MIN_EVENT_GAP_SECONDS. */
   private readonly lastEventTime = new Map<VoiceId, number>();
@@ -229,6 +271,8 @@ export class ToneRuntime implements Runtime {
   }
 
   dispose(): void {
+    for (const scaler of this.scalers) scaler.dispose();
+    this.scalers.length = 0;
     for (const lfo of this.lfos.values()) lfo.dispose();
     this.lfos.clear();
     for (const nodes of this.voices.values()) {
@@ -321,6 +365,12 @@ export class ToneRuntime implements Runtime {
    */
   private rewireRoutes(patch: SynthPreset): void {
     for (const lfo of this.lfos.values()) lfo.disconnect();
+    for (const scaler of this.scalers) scaler.dispose();
+    this.scalers.length = 0;
+
+    // Amplitude ducking re-centres the resting gain, so any voice whose route was just
+    // removed or re-depthed has to go back to the patch's own value first.
+    for (const nodes of this.voices.values()) nodes.gain.gain.value = patch.voice.amplitude;
 
     for (const route of patch.voice.modRoutes) {
       if (!route.enabled) continue;
@@ -337,11 +387,22 @@ export class ToneRuntime implements Runtime {
       const lfo = this.lfos.get(Number(route.source.slice('lfo.'.length)));
       if (lfo === undefined) continue;
 
-      const swing = routeSwing(route.destination, route.depth);
-      lfo.min = -swing;
-      lfo.max = swing;
+      const swing = routeSwing(route.destination, route.depth, patch.voice.amplitude);
+
+      // The scaling lives on the CONNECTION, not on the generator.
+      //
+      // Setting `lfo.min`/`lfo.max` per route looked equivalent and was not: one LFO
+      // driving two destinations is the whole point of routes, and the second route
+      // silently overwrote the first's swing. A cutoff route sharing an LFO with a pan
+      // route came out modulating the cutoff by ±0.3 Hz. The generator now emits a unit
+      // signal and every connection scales it for itself.
+      const scaler = new Tone.Gain(swing.scale);
+      this.scalers.push(scaler);
+      lfo.connect(scaler);
+
       for (const nodes of this.voices.values()) {
-        lfo.connect(this.destinationParam(nodes, route.destination));
+        if (swing.baseOverride !== undefined) nodes.gain.gain.value = swing.baseOverride;
+        scaler.connect(this.destinationParam(nodes, route.destination));
       }
     }
   }
@@ -521,7 +582,7 @@ export class ToneRuntime implements Runtime {
 
   /** Every Tone node this runtime owns. Used to measure the cost model, not by the app. */
   get nodeCount(): number {
-    return this.lfos.size + this.voices.size * 3 + 3;
+    return this.lfos.size + this.scalers.length + this.voices.size * 3 + 3;
   }
 }
 
