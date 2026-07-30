@@ -24,7 +24,16 @@
  */
 
 import * as Tone from 'tone';
-import type { Beats, FilterRolloff, FilterType, Song, SynthPreset } from '../core/types';
+import type {
+  Beats,
+  FilterRolloff,
+  FilterType,
+  ModDestination,
+  Song,
+  SynthPreset,
+  Unit,
+} from '../core/types';
+import { PARAM_SPECS } from '../core/schemas';
 import type { VoiceId } from '../core/state';
 import type {
   Runtime,
@@ -72,13 +81,73 @@ const WAVEFORM_SIZE = 1024;
  */
 const SILENCE_FLOOR_DB = -100;
 
+/**
+ * Which per-voice destinations this stage can actually reach, and what each resolves to.
+ *
+ * Not every declared destination is wireable yet, and the gap is honest rather than
+ * hidden: `voice.oscillator.width` and `.spread` need the unison/pulse oscillator mapping
+ * that Stage 2 has not written, and every `effects.*` / `effects.eq.*` destination needs
+ * the effects chain that Stage 3 will build. A route to one of those validates, journals
+ * and replays correctly, and makes no sound — so `getUnimplemented()` reports it by name
+ * the first time it is asked for.
+ */
+const PER_VOICE_DESTINATIONS = [
+  'voice.filterEnvelope.baseFrequency',
+  'voice.filter.Q',
+  'voice.oscillator.detune',
+  'voice.amplitude',
+  'voice.pan',
+] as const satisfies readonly ModDestination[];
+
+type WirableDestination = (typeof PER_VOICE_DESTINATIONS)[number];
+
+function isWirable(destination: ModDestination): destination is WirableDestination {
+  return (PER_VOICE_DESTINATIONS as readonly string[]).includes(destination);
+}
+
+/**
+ * How far a route at this depth may swing its destination, in the destination's OWN unit.
+ *
+ * F73: depth is normalised, and the range it scales against comes from the destination's
+ * spec — which is the only reason one `depth: 0.5` can mean the same thing on a Hz
+ * destination and a cents one. Halved because the LFO is bipolar (KIND §3.1), so the
+ * peak-to-peak travel is the full `depth × range` the check asserts.
+ */
+function routeSwing(destination: ModDestination, depth: Unit): number {
+  const spec = PARAM_SPECS[destination];
+  if (spec.kind !== 'number') return 0;
+  return (depth * (spec.max - spec.min)) / 2;
+}
+
+/**
+ * The per-voice signal chain.
+ *
+ * `MonoSynth -> Gain -> Panner -> master`, and the two extra nodes are not decoration:
+ * `voice.amplitude` and `voice.pan` are declared modulation destinations, and a
+ * destination needs an audio-rate parameter to point at. MonoSynth exposes neither — its
+ * `volume` is in dB, which is the wrong curve for tremolo, and it has no panning at all.
+ */
+interface VoiceNodes {
+  synth: Tone.MonoSynth;
+  gain: Tone.Gain;
+  panner: Tone.Panner;
+}
+
 export class ToneRuntime implements Runtime {
   private readonly master: Tone.Volume;
   private readonly analyser: Tone.Analyser;
   private readonly meter: Tone.Meter;
 
   /** Keyed by the voiceId CORE assigned. Built lazily — polyphony can be up to 32. */
-  private readonly voices = new Map<VoiceId, Tone.MonoSynth>();
+  private readonly voices = new Map<VoiceId, VoiceNodes>();
+
+  /**
+   * One `Tone.LFO` per filled LFO slot — NOT one per voice.
+   *
+   * This is the shared-phase construction, and it is a deliberate, measured departure
+   * from what KIND-synth_patch describes. See `SHARED_LFO_PHASE_DEPARTURE` below.
+   */
+  private readonly lfos = new Map<number, Tone.LFO>();
 
   /** Last time scheduled on each voice; see MIN_EVENT_GAP_SECONDS. */
   private readonly lastEventTime = new Map<VoiceId, number>();
@@ -160,7 +229,13 @@ export class ToneRuntime implements Runtime {
   }
 
   dispose(): void {
-    for (const voice of this.voices.values()) voice.dispose();
+    for (const lfo of this.lfos.values()) lfo.dispose();
+    this.lfos.clear();
+    for (const nodes of this.voices.values()) {
+      nodes.synth.dispose();
+      nodes.gain.dispose();
+      nodes.panner.dispose();
+    }
     this.voices.clear();
     this.lastEventTime.clear();
     this.analyser.dispose();
@@ -181,22 +256,145 @@ export class ToneRuntime implements Runtime {
   applyPatch(patch: SynthPreset): void {
     const options = monoSynthOptions(patch);
     this.patch = patch;
-    for (const voice of this.voices.values()) voice.set(options);
+    for (const nodes of this.voices.values()) {
+      nodes.synth.set(options);
+      nodes.gain.gain.value = patch.voice.amplitude;
+      nodes.panner.pan.value = patch.voice.pan;
+    }
+    this.syncLfos(patch);
+    this.rewireRoutes(patch);
+  }
+
+  // -------------------------------------------------------------------------
+  // Modulation
+  // -------------------------------------------------------------------------
+
+  /**
+   * Build, update and retire the LFO generators to match the patch.
+   *
+   * Rate and shape are set here; the min/max swing is NOT, because a generator has no
+   * single swing until you know what it is driving. Two routes from one LFO to a Hz
+   * destination and a cents one need different amplitudes, so the swing belongs to the
+   * connection and is applied in `rewireRoutes`.
+   */
+  private syncLfos(patch: SynthPreset): void {
+    const configs = patch.voice.lfos;
+
+    for (const [index, lfo] of this.lfos) {
+      if (index >= configs.length) {
+        lfo.dispose();
+        this.lfos.delete(index);
+      }
+    }
+
+    configs.forEach((config, index) => {
+      // A subdivision string is only meaningful against Tone.Transport, which v0.1.0
+      // does not drive. Treating it as a rate here would produce a silent, wrong tempo.
+      if (typeof config.frequency === 'string') this.notImplemented('lfo.syncedFrequency');
+      const frequency = typeof config.frequency === 'number' ? config.frequency : 1;
+
+      let lfo = this.lfos.get(index);
+      if (lfo === undefined) {
+        lfo = new Tone.LFO({ frequency, type: config.type, min: -1, max: 1 });
+        lfo.start();
+        this.lfos.set(index, lfo);
+      } else {
+        lfo.frequency.value = frequency;
+        lfo.type = config.type;
+      }
+
+      // Shared phase means one generator for every voice, so a per-note phase reset would
+      // restart the modulation for every sounding note at once — audibly wrong on a held
+      // chord. Reported rather than approximated.
+      if (config.retrigger) this.notImplemented('lfo.retrigger');
+    });
+  }
+
+  /**
+   * Rebuild every modulation connection from scratch.
+   *
+   * Wholesale rather than diffed on purpose. A route's identity is not the thing the
+   * audio graph cares about — the (source, destination, depth) triple is — so working out
+   * which connections survived an edit costs more than remaking them, and gets the
+   * disable/re-enable case wrong in ways that leave a stale connection modulating
+   * something nothing points at any more.
+   */
+  private rewireRoutes(patch: SynthPreset): void {
+    for (const lfo of this.lfos.values()) lfo.disconnect();
+
+    for (const route of patch.voice.modRoutes) {
+      if (!route.enabled) continue;
+      if (route.source === 'velocity') {
+        // Velocity is captured per note-on, not a running generator; it has no node to
+        // connect. Wiring it belongs with the velocity work later in Stage 2.
+        this.notImplemented('route.source.velocity');
+        continue;
+      }
+      if (!isWirable(route.destination)) {
+        this.notImplemented(`route.destination.${route.destination}`);
+        continue;
+      }
+      const lfo = this.lfos.get(Number(route.source.slice('lfo.'.length)));
+      if (lfo === undefined) continue;
+
+      const swing = routeSwing(route.destination, route.depth);
+      lfo.min = -swing;
+      lfo.max = swing;
+      for (const nodes of this.voices.values()) {
+        lfo.connect(this.destinationParam(nodes, route.destination));
+      }
+    }
+  }
+
+  /**
+   * The audio-rate parameter a destination resolves to on one voice.
+   *
+   * Note the cutoff: the address is `voice.filterEnvelope.baseFrequency` but the signal
+   * is `synth.filter.frequency`. In a MonoSynth the filter envelope drives that param, so
+   * connecting an LFO to it SUMS with the envelope's contribution rather than replacing
+   * it — the sweep and the wobble compose, which is what a filter LFO is supposed to do.
+   */
+  private destinationParam(nodes: VoiceNodes, destination: WirableDestination): Tone.InputNode {
+    switch (destination) {
+      case 'voice.filterEnvelope.baseFrequency':
+        return nodes.synth.filter.frequency;
+      case 'voice.filter.Q':
+        return nodes.synth.filter.Q;
+      case 'voice.oscillator.detune':
+        return nodes.synth.detune;
+      case 'voice.amplitude':
+        return nodes.gain.gain;
+      case 'voice.pan':
+        return nodes.panner.pan;
+    }
   }
 
   // -------------------------------------------------------------------------
   // Voices
   // -------------------------------------------------------------------------
 
-  private voiceFor(voiceId: VoiceId): Tone.MonoSynth {
+  private voiceFor(voiceId: VoiceId): VoiceNodes {
     const existing = this.voices.get(voiceId);
     if (existing !== undefined) return existing;
 
-    const voice = new Tone.MonoSynth(
+    const synth = new Tone.MonoSynth(
       this.patch === null ? undefined : monoSynthOptions(this.patch),
-    ).connect(this.master);
-    this.voices.set(voiceId, voice);
-    return voice;
+    );
+    const gain = new Tone.Gain(this.patch === null ? 1 : this.patch.voice.amplitude);
+    const panner = new Tone.Panner(this.patch === null ? 0 : this.patch.voice.pan);
+    synth.connect(gain);
+    gain.connect(panner);
+    panner.connect(this.master);
+
+    const nodes: VoiceNodes = { synth, gain, panner };
+    this.voices.set(voiceId, nodes);
+
+    // Voices are built lazily, so a voice created AFTER the routes were wired would
+    // otherwise be the one unmodulated note in a chord. Rewire so it joins the graph.
+    if (this.patch !== null && this.patch.voice.modRoutes.length > 0) {
+      this.rewireRoutes(this.patch);
+    }
+    return nodes;
   }
 
   /**
@@ -217,16 +415,20 @@ export class ToneRuntime implements Runtime {
   }
 
   noteOn(request: RuntimeNoteOn): void {
-    const voice = this.voiceFor(request.voiceId);
-    voice.portamento = request.portamento;
-    voice.triggerAttack(request.note, this.nextEventTime(request.voiceId), request.velocity);
+    const nodes = this.voiceFor(request.voiceId);
+    nodes.synth.portamento = request.portamento;
+    nodes.synth.triggerAttack(
+      request.note,
+      this.nextEventTime(request.voiceId),
+      request.velocity,
+    );
   }
 
   noteOff(request: RuntimeNoteOff): void {
     // A note-off for a voice that was never built is a no-op, not an error: core's
     // allocator may have stolen and reassigned the slot already.
-    const voice = this.voices.get(request.voiceId);
-    if (voice !== undefined) voice.triggerRelease(this.nextEventTime(request.voiceId));
+    const nodes = this.voices.get(request.voiceId);
+    if (nodes !== undefined) nodes.synth.triggerRelease(this.nextEventTime(request.voiceId));
   }
 
   /**
@@ -236,8 +438,8 @@ export class ToneRuntime implements Runtime {
    * `nextEventTime` exists to survive.
    */
   steal(voiceId: VoiceId): void {
-    const voice = this.voices.get(voiceId);
-    if (voice !== undefined) voice.triggerRelease(this.nextEventTime(voiceId));
+    const nodes = this.voices.get(voiceId);
+    if (nodes !== undefined) nodes.synth.triggerRelease(this.nextEventTime(voiceId));
   }
 
   // -------------------------------------------------------------------------
@@ -308,7 +510,54 @@ export class ToneRuntime implements Runtime {
   get voiceCount(): number {
     return this.voices.size;
   }
+
+  /**
+   * How many `Tone.LFO` generators exist. The number the shared-phase departure is about:
+   * it tracks filled LFO slots and is independent of polyphony and of route count.
+   */
+  get lfoCount(): number {
+    return this.lfos.size;
+  }
+
+  /** Every Tone node this runtime owns. Used to measure the cost model, not by the app. */
+  get nodeCount(): number {
+    return this.lfos.size + this.voices.size * 3 + 3;
+  }
 }
+
+/**
+ * Departure from KIND-synth_patch §5, recorded here rather than left implicit.
+ *
+ * The KIND says every voice shares an LFO *configuration* while owning an independent
+ * *phase*. This runtime gives every voice a shared phase: there is one `Tone.LFO` per
+ * filled slot, connected to the corresponding parameter on each voice, because one
+ * generator can feed many AudioParams.
+ *
+ * The arithmetic is the argument. Honouring per-voice phase means one generator per
+ * (slot × sounding voice), so at the declared maxima — 4 LFOs, 32 voices — the pool goes
+ * from **4 generators to 128**, and every one of them is an oscillator running whether or
+ * not its voice is sounding. Shared phase is flat in polyphony; per-voice is a product.
+ *
+ * What it costs: `retrigger` cannot be honoured. Restarting a shared generator on note-on
+ * restarts it for every sounding voice, so a held chord would jump its modulation each
+ * time a new note arrived — worse than not retriggering. `retrigger: true` is therefore
+ * recorded by `notImplemented('lfo.retrigger')` rather than approximated.
+ *
+ * What it does not cost: everything else. Rate, shape, depth, destination and enable all
+ * behave exactly as declared, and free-running LFOs are what analogue polysynths mostly
+ * did anyway.
+ *
+ * Revisit if per-voice phase turns out to matter musically. The fix is per-voice
+ * generators behind the same route model — no contract change, since the KIND already
+ * describes the stricter behaviour this falls short of.
+ */
+export const SHARED_LFO_PHASE_DEPARTURE = {
+  kind: 'KIND-synth_patch §5 — per-voice LFO phase',
+  implemented: 'shared phase: one Tone.LFO per slot, fanned out to every voice',
+  generatorsSharedPhase: 4,
+  generatorsPerVoicePhase: 128,
+  unhonoured: ['lfo.retrigger'],
+} as const;
 
 /**
  * Contract parameters this runtime deliberately does not read, and why.

@@ -209,6 +209,32 @@ Measured on the actual target (Android / Termux / PRoot, headless chromium, Tone
    manual pool much cheaper than expected and is a point in favour of recommending
    MonoSynth pools over PolySynth generally.
 
+6. **One `Tone.LFO` can drive many voices, which dissolves most of open question #3.**
+   The question asked whether honouring per-voice LFO phase — up to 4 × 32 generators —
+   had a cheaper construction. It does, because one LFO can `connect()` to an AudioParam
+   on every voice: the generator count tracks *filled LFO slots*, not slots × polyphony.
+   Measured: **1 generator serving 8 sounding voices**, flat as polyphony rises, against
+   **128 at the declared maxima** if each voice owned its phase. The gate asserts the node
+   count directly, so the property cannot regress silently.
+
+   It costs exactly one feature: `retrigger`. Restarting a shared generator on note-on
+   restarts it for every sounding voice, so a held chord would jump its modulation each
+   time a new note arrived — worse than not retriggering at all. It is reported through
+   `getUnimplemented()` rather than approximated, and the departure from
+   KIND-synth_patch §5 is recorded in `SHARED_LFO_PHASE_DEPARTURE`.
+
+   **The research question this replaces:** not "is per-voice phase affordable" but "does
+   per-voice LFO phase matter musically enough to pay 32× for it". Analogue polysynths
+   mostly ran free-shared LFOs, which suggests the answer is usually no.
+
+7. **A 20 ms RMS window cannot measure tremolo on a low note.** At C3 (7.6 ms period) a
+   20 ms window holds two and a half cycles, so its RMS wobbles with where the window
+   happens to land in the waveform. An *unmodulated* note measured 0.0124 of spread
+   against 0.0177 for a real tremolo — a gate that nearly cannot tell them apart, and it
+   failed for that reason before the window was widened. 40 ms averages five cycles and
+   separates them cleanly. Any amplitude-modulation gate needs its window sized against
+   the **pitch** period, not only the modulation period.
+
 ---
 
 ## What the pack got right and we kept unchanged

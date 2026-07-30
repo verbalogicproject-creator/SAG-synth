@@ -374,3 +374,247 @@ describe('ToneRuntime — v0.1.0 honesty', () => {
     expect([...reported].sort()).toEqual(['applySong', 'transport.play', 'transport.seek']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Modulation routing — KIND-synth_mod_route F73 / F74
+// ---------------------------------------------------------------------------
+
+describe('ToneRuntime — modulation routing', () => {
+  const FLAT_AMP = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+
+  /**
+   * One held note, sounded through a patch carrying one LFO and one route.
+   *
+   * `enabled` is the ONLY thing that varies between the two renders a gate compares.
+   * Everything else — the LFO, the route, its depth and destination — is present in both,
+   * so a difference cannot come from the patch being structurally different. That is what
+   * makes the comparison a test of modulation rather than a test of two unrelated sounds.
+   */
+  function renderRouted(options: {
+    enabled: boolean;
+    destination: string;
+    depth: number;
+    rate?: number;
+    seconds?: number;
+    mutate?: (patch: SynthPreset) => void;
+  }): Promise<Float32Array> {
+    return render(
+      (runtime) => {
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.envelope = { ...FLAT_AMP };
+            // A pinned filter, so the only thing moving the cutoff is the route.
+            patch.voice.filterEnvelope = {
+              attack: 0.005,
+              decay: 0.01,
+              sustain: 1,
+              release: 0.1,
+              baseFrequency: 800,
+              octaves: 0,
+            };
+            patch.voice.lfos = [
+              {
+                id: 'lfo-0',
+                enabled: true,
+                type: 'sine',
+                frequency: options.rate ?? 8,
+                sync: false,
+                retrigger: false,
+              },
+            ];
+            patch.voice.modRoutes = [
+              {
+                id: 'route-0',
+                enabled: options.enabled,
+                source: 'lfo.0',
+                destination: options.destination as never,
+                depth: options.depth,
+              },
+            ];
+            options.mutate?.(patch);
+          }),
+        );
+        runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.9, portamento: 0 });
+      },
+      options.seconds ?? 1,
+    );
+  }
+
+  /** Spread of a measurement across the note — how much the sound MOVES over time. */
+  function movement(data: Float32Array, sample: (d: Float32Array, s: number) => number): number {
+    const points = [0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5].map((t) => sample(data, t));
+    return Math.max(...points) - Math.min(...points);
+  }
+
+  function hfAt(data: Float32Array, seconds: number, aboveHz = 2000): number {
+    return hfEnergyRatio(data, SR, aboveHz, Math.floor(seconds * SR));
+  }
+
+  /**
+   * 40 ms, not 20. A C3 cycle is 7.6 ms, so a 20 ms window holds barely two and a half of
+   * them and its RMS wobbles with wherever the window happens to land in the waveform.
+   * That noise floor measured 0.0124 on an UNMODULATED note — most of the way to the
+   * 0.0177 a real tremolo produced, which is a gate that cannot tell them apart.
+   * 40 ms averages five cycles while still being a sixth of the LFO period at 4 Hz.
+   */
+  function rmsAt(data: Float32Array, seconds: number): number {
+    const start = Math.floor(seconds * SR);
+    return rms(data, start, Math.min(start + Math.floor(0.04 * SR), data.length));
+  }
+
+  it('F74 — an enabled cutoff route moves the filter; the same route disabled does not', async () => {
+    const [off, on] = await Promise.all([
+      renderRouted({ enabled: false, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.3 }),
+      renderRouted({ enabled: true, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.3 }),
+    ]);
+
+    // Both halves are required. "Something changed" alone cannot tell modulation apart
+    // from a patch that simply broke.
+    expect(rms(on)).toBeGreaterThan(0.01);
+    expect(movement(on, hfAt)).toBeGreaterThan(movement(off, hfAt) * 3);
+  });
+
+  it('F74 — an enabled amplitude route makes the level pulse; disabled holds it steady', async () => {
+    // Base gain 0.5 so a depth-0.8 swing (±0.4) stays inside unity. Leaving the base at 1
+    // would push peaks to 1.4 and measure the master trim's headroom as well as tremolo.
+    const tremolo = { destination: 'voice.amplitude', depth: 0.8, rate: 4 };
+    const halfGain = (patch: SynthPreset) => {
+      patch.voice.amplitude = 0.5;
+    };
+
+    const [off, on] = await Promise.all([
+      renderRouted({ ...tremolo, enabled: false, mutate: halfGain }),
+      renderRouted({ ...tremolo, enabled: true, mutate: halfGain }),
+    ]);
+
+    expect(rms(on)).toBeGreaterThan(0.005);
+    expect(movement(on, rmsAt)).toBeGreaterThan(movement(off, rmsAt) * 3);
+  });
+
+  it('F73 — a deeper route travels further than a shallow one at the same rate', async () => {
+    // Depth is normalised against the destination's declared range, so this is the check
+    // that the scaling is monotonic rather than clamped or inverted somewhere.
+    const [shallow, deep] = await Promise.all([
+      renderRouted({ enabled: true, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.05 }),
+      renderRouted({ enabled: true, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.6 }),
+    ]);
+
+    expect(movement(deep, hfAt)).toBeGreaterThan(movement(shallow, hfAt));
+  });
+
+  it('a faster LFO modulates more often than a slow one over the same window', async () => {
+    // Guards against the rate being ignored — a route that always wobbles at 1 Hz would
+    // pass every depth gate above.
+    const crossings = (data: Float32Array) => {
+      const series = Array.from({ length: 40 }, (_unused, i) => hfAt(data, 0.15 + i * 0.01));
+      const mean = series.reduce((a, b) => a + b, 0) / series.length;
+      let count = 0;
+      for (let i = 1; i < series.length; i += 1) {
+        if (series[i - 1]! < mean !== (series[i]! < mean)) count += 1;
+      }
+      return count;
+    };
+
+    const [slow, fast] = await Promise.all([
+      renderRouted({ enabled: true, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.4, rate: 2 }),
+      renderRouted({ enabled: true, destination: 'voice.filterEnvelope.baseFrequency', depth: 0.4, rate: 20 }),
+    ]);
+
+    expect(crossings(fast)).toBeGreaterThan(crossings(slow));
+  });
+
+  it('builds one generator per LFO slot, not one per voice', async () => {
+    // The shared-phase departure, measured rather than asserted. Per-voice phase would
+    // make this 8 (one LFO x eight sounding voices) and 128 at the declared maxima.
+    let lfoCount = 0;
+    let voiceCount = 0;
+    let nodeCount = 0;
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.lfos = [
+              { id: 'l0', enabled: true, type: 'sine', frequency: 5, sync: false, retrigger: false },
+            ];
+            patch.voice.modRoutes = [
+              {
+                id: 'r0',
+                enabled: true,
+                source: 'lfo.0',
+                destination: 'voice.filterEnvelope.baseFrequency',
+                depth: 0.4,
+              },
+            ];
+          }),
+        );
+        for (let i = 0; i < 8; i += 1) {
+          runtime.noteOn({ voiceId: i, note: 'C3', velocity: 0.7, portamento: 0 });
+        }
+        lfoCount = runtime.lfoCount;
+        voiceCount = runtime.voiceCount;
+        nodeCount = runtime.nodeCount;
+      },
+      0.2,
+      1,
+      SR,
+    );
+
+    expect(voiceCount).toBe(8);
+    expect(lfoCount).toBe(1);
+    // 1 LFO + 8 voices x (synth + gain + panner) + master/analyser/meter.
+    expect(nodeCount).toBe(1 + 8 * 3 + 3);
+  });
+
+  it('reports a declared destination it cannot yet wire, rather than dropping it', async () => {
+    // effects.* destinations are declared in the KIND and need the Stage 3 chain. A route
+    // to one validates, journals and replays correctly and makes no sound — so it has to
+    // say so by name, the same way the transport does.
+    let reported: readonly string[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.lfos = [
+              { id: 'l0', enabled: true, type: 'sine', frequency: 5, sync: false, retrigger: false },
+            ];
+            patch.voice.modRoutes = [
+              { id: 'r0', enabled: true, source: 'lfo.0', destination: 'effects.delay.wet', depth: 0.5 },
+            ];
+          }),
+        );
+        reported = runtime.getUnimplemented();
+      },
+      0.05,
+      1,
+      SR,
+    );
+
+    expect(reported).toContain('route.destination.effects.delay.wet');
+  });
+
+  it('reports lfo.retrigger rather than approximating it under shared phase', async () => {
+    let reported: readonly string[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.lfos = [
+              { id: 'l0', enabled: true, type: 'sine', frequency: 5, sync: false, retrigger: true },
+            ];
+          }),
+        );
+        reported = runtime.getUnimplemented();
+      },
+      0.05,
+      1,
+      SR,
+    );
+
+    // Restarting a shared generator on note-on would restart it for every sounding voice,
+    // which is audibly worse on a held chord than not retriggering at all.
+    expect(reported).toContain('lfo.retrigger');
+  });
+});
