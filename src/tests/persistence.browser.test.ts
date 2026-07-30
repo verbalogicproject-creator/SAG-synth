@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { deleteDB, openDB } from 'idb';
 import { IdbPersistence } from '../app/persistence';
 import { defaultPreset, defaultSong } from '../core/state';
+import { PRESET_SCHEMA_VERSION } from '../core/types';
 import type { SynthCommandAppliedEvent } from '../core/sag/events';
 
 let dbNames: string[] = [];
@@ -138,7 +139,11 @@ describe('IdbPersistence — presets', () => {
 
     const loaded = await persistence.loadPreset('legacy-1');
     expect(loaded).not.toBeNull();
-    expect(loaded?.schemaVersion).toBe(1);
+    // Migrated all the way forward, not merely stamped. A versionless document is a
+    // version-ONE document, so it has to run every step to the current version.
+    expect(loaded?.schemaVersion).toBe(PRESET_SCHEMA_VERSION);
+    expect(loaded?.voice.modRoutes).toEqual([]);
+    expect(loaded?.effects.eq.enabled).toBe(false);
     persistence.dispose();
   });
 });

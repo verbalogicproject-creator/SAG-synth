@@ -271,7 +271,7 @@ describe('runtime sync', () => {
   it('pushes the patch only when the patch actually changed', () => {
     const { dispatcher, runtime } = fixtures();
     runtime.calls.length = 0; // discard the construction-time push
-    dispatcher.dispatch(setParam('voice.filter.frequency', 850));
+    dispatcher.dispatch(setParam('voice.filterEnvelope.baseFrequency', 850));
     dispatcher.dispatch({ type: 'setTempo', bpm: 96 }); // song, not patch
 
     expect(calls(runtime, 'applyPatch')).toHaveLength(1);
@@ -293,7 +293,7 @@ describe('runtime sync', () => {
 
   it('re-syncs the graph on undo, without knowing anything about history', () => {
     const { dispatcher, runtime } = fixtures();
-    dispatcher.dispatch(setParam('voice.filter.frequency', 850));
+    dispatcher.dispatch(setParam('voice.filterEnvelope.baseFrequency', 850));
     runtime.calls.length = 0;
 
     dispatcher.dispatch({ type: 'undo' });
@@ -301,7 +301,7 @@ describe('runtime sync', () => {
     // Undo swaps in a whole earlier EngineState, so the patch reference differs and the
     // reference check fires — no undo-specific branch needed.
     expect(calls(runtime, 'applyPatch')).toHaveLength(1);
-    expect(dispatcher.getState().patch.voice.filter.frequency).toBe(2000);
+    expect(dispatcher.getState().patch.voice.filterEnvelope.baseFrequency).toBe(800);
   });
 });
 
@@ -309,7 +309,7 @@ describe('F59 — the journal rebuilds the state that produced it', () => {
   /** A session with edits, performance gestures, a rejection, an undo and a redo. */
   function drive(dispatcher: Dispatcher): void {
     dispatcher.dispatch({ type: 'setTempo', bpm: 96 });
-    dispatcher.dispatch(setParam('voice.filter.frequency', 850));
+    dispatcher.dispatch(setParam('voice.filterEnvelope.baseFrequency', 850));
     dispatcher.dispatch({ type: 'noteOn', note: 'C4', velocity: 0.8 });
     dispatcher.dispatch({ type: 'setTempo', bpm: 9000 }); // rejected
     dispatcher.dispatch(setParam('voice.envelope.attack', 0.5));

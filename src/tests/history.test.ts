@@ -207,7 +207,7 @@ describe('emittedRevision — the revision slot of KIND-synth_command_applied', 
     const seen = new Set<number>([history.present.revision]);
     for (const command of [
       { type: 'setTempo', bpm: 96 },
-      setParam('voice.filter.frequency', 850),
+      setParam('voice.filterEnvelope.baseFrequency', 850),
       { type: 'undo' },
       { type: 'redo' },
       { type: 'seek', position: 2 },
@@ -223,7 +223,7 @@ describe('emittedRevision — the revision slot of KIND-synth_command_applied', 
 
 describe('F59 — replay reproduces live state', () => {
   const session: SynthCommand[] = [
-    setParam('voice.filter.frequency', 850),
+    setParam('voice.filterEnvelope.baseFrequency', 850),
     { type: 'setTempo', bpm: 96 },
     { type: 'addTrack', trackId: 't2', name: 'Lead' },
     { type: 'setStep', trackId: 't2', stepIndex: 0, active: true, noteId: 'n1' },

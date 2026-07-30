@@ -5,10 +5,16 @@
  * ranges, units and legal values are the validator's, not a second copy that can drift
  * from it.
  *
- * Note what is NOT here: `voice.filter.frequency`. It is in `UNMAPPED_PARAMS` — in a
- * MonoSynth the filter envelope owns the cutoff, so exposing it would be a decoy knob
- * that validates, journals, replays, and changes nothing you can hear. The live cutoff
- * is `voice.filterEnvelope.baseFrequency`, labelled "cutoff" below.
+ * Note what is NOT here: `voice.filter.frequency`. It used to be a decoy knob — in a
+ * MonoSynth the filter envelope owns the cutoff, so it validated, journalled, replayed
+ * and changed nothing you could hear — and it was declared in `UNMAPPED_PARAMS` to say
+ * so. At schema_version 2 it was deleted outright, so this panel no longer has to
+ * explain an absence. The live cutoff is `voice.filterEnvelope.baseFrequency`, labelled
+ * "cutoff" below.
+ *
+ * The ordering below is now also declared as `SIGNAL_CHAIN`'s filter section in
+ * `src/core/groups.ts`, which states it once for every surface instead of only this one.
+ * This panel is throwaway and stays as it is; the designed surface reads the chain.
  */
 
 import { PARAM_SPECS } from '../../core/schemas';

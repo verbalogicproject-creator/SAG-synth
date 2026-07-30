@@ -313,21 +313,22 @@ export class ToneRuntime implements Runtime {
 /**
  * Contract parameters this runtime deliberately does not read, and why.
  *
- * `voice.filter.frequency` collides with `voice.filterEnvelope.baseFrequency`. In
- * `Tone.MonoSynth` the filter's cutoff is driven ENTIRELY by the filter envelope — it
- * sweeps `baseFrequency` up to `baseFrequency × 2^octaves` — and the filter's own
- * `frequency` option is overwritten. Only one of our two parameters can be the cutoff.
+ * Listed rather than silently skipped: the debug surface displays them, so a parameter
+ * that does nothing says so instead of looking broken.
  *
- * The shipped defaults settle which: `baseFrequency: 300, octaves: 3` is a designed
- * sweep to 2400 Hz. Treating `filter.frequency: 2000` as the base instead would sweep
- * to 16 kHz and make the factory patch a different, far brighter instrument. So
- * `filterEnvelope.baseFrequency` is authoritative — which is also the 1:1 name match
- * to Tone, and therefore the least surprising mapping.
+ * This list is now EMPTY, and how it emptied is worth recording. Its only entry was
+ * `voice.filter.frequency`, which collided with `voice.filterEnvelope.baseFrequency`:
+ * in `Tone.MonoSynth` the cutoff is driven entirely by the filter envelope, which sweeps
+ * `baseFrequency` up to `baseFrequency × 2^octaves` and overwrites the filter's own
+ * `frequency`. Only one of the two could be the cutoff, so the other was a decoy knob —
+ * it validated, journalled and replayed while changing nothing audible.
  *
- * Listed here rather than silently skipped: the debug surface displays it, so a
- * parameter that does nothing says so instead of looking broken.
+ * Declaring it here was the honest interim move. Deleting the parameter at
+ * schema_version 2 was the actual fix: a contract should not carry an address the engine
+ * has no behaviour for, and "we document that it does nothing" is a weaker guarantee
+ * than "it is not addressable".
  */
-export const UNMAPPED_PARAMS: readonly string[] = ['voice.filter.frequency'];
+export const UNMAPPED_PARAMS: readonly string[] = [];
 
 interface MonoSynthOptions {
   oscillator: { type: 'sine' | 'triangle' | 'sawtooth' | 'square' };

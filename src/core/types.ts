@@ -93,9 +93,17 @@ export type FilterType =
 
 export type FilterRolloff = -12 | -24 | -48 | -96;
 
+/**
+ * Note what is NOT here: `frequency`.
+ *
+ * In a MonoSynth the filter ENVELOPE owns the cutoff — `filterEnvelope.baseFrequency` is
+ * the value the graph actually follows. A `filter.frequency` field alongside it was a
+ * decoy: it validated, journalled, replayed, and changed nothing you could hear. It was
+ * listed in the runtime's `UNMAPPED_PARAMS` for exactly that reason. Removed at
+ * schema_version 2 rather than left as a field the document carries and no one reads.
+ */
 export interface FilterConfig {
   type: FilterType;
-  frequency: number;
   Q: number;
   rolloff: FilterRolloff;
 }
@@ -105,25 +113,105 @@ export interface FilterEnvelopeConfig extends EnvelopeConfig {
   octaves: number;
 }
 
-export type LfoTarget = 'filterFrequency' | 'pitch' | 'amplitude' | 'pan';
-
 export interface LFOConfig {
   id: string;
   enabled: boolean;
-  target: LfoTarget;
   type: LfoShape;
   /**
    * Hz when `sync` is false; a Tone.js subdivision string ("8n", "4n.") when true.
    * Kept as a union rather than two fields so the patch document stays flat.
    */
   frequency: number | string;
-  min: number;
-  max: number;
   /** Lock the LFO phase to Tone.Transport. */
   sync: boolean;
   /** Restart the LFO phase on every note-on instead of running free. */
   retrigger: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.3)
+// ---------------------------------------------------------------------------
+//
+// An LFO used to carry its own destination in a four-value `LfoTarget` union. That
+// shape could not grow: one LFO drove exactly one thing, and the legal destination set
+// was a TypeScript union nothing outside TypeScript could read.
+//
+// What replaced it is not "more destinations" — it is a different place for the
+// declaration. `MODULATION_DESTINATIONS` below is transcribed slot-for-slot from
+// KIND-synth_mod_route §3.2, and every consumer projects from it: the zod validator,
+// the reducer, the runtime's resolver, the journal, the SDK, and the control surface
+// that draws the cables. `src/tests/contract.test.ts` fails if this table and
+// `PARAM_SPECS` disagree in EITHER direction (F72), which is what makes the KIND the
+// authority here rather than a comment that fell out of date.
+
+/**
+ * Polarity is a property of the SOURCE, not of the route (KIND §3.1): an LFO swings
+ * bipolar about the base value, a velocity source only adds. Putting a `bipolar` flag
+ * on the route would let a patch claim a unipolar generator is bipolar — not a
+ * configuration, just a claim the runtime would have to reconcile.
+ */
+export type ModSource = `lfo.${LfoIndex}` | 'velocity';
+
+/**
+ * KIND-synth_mod_route §3.2, verbatim and in the KIND's order.
+ *
+ * `perVoice` is not a hint. It decides whether the runtime builds one modulator per
+ * sounding voice or one on the shared chain, which is the entire cost model for the
+ * feature. Every entry is continuous and carries a declared numeric range in
+ * `PARAM_SPECS` — that is what lets one normalised `depth` mean the same thing across
+ * Hz, cents, dB and unit values (F73).
+ *
+ * Structural parameters are absent on purpose. A route to `voice.filter.type` or
+ * `voice.polyphony` would be a well-formed document describing an incoherent
+ * instruction, so F71 refuses it at the boundary rather than letting the runtime invent
+ * a rounding rule for a discrete value.
+ */
+export const MODULATION_DESTINATIONS = [
+  { path: 'voice.filterEnvelope.baseFrequency', perVoice: true },
+  { path: 'voice.filter.Q', perVoice: true },
+  { path: 'voice.oscillator.detune', perVoice: true },
+  { path: 'voice.oscillator.width', perVoice: true },
+  { path: 'voice.oscillator.spread', perVoice: true },
+  { path: 'voice.amplitude', perVoice: true },
+  { path: 'voice.pan', perVoice: true },
+  { path: 'effects.distortion.amount', perVoice: false },
+  { path: 'effects.distortion.wet', perVoice: false },
+  { path: 'effects.chorus.depth', perVoice: false },
+  { path: 'effects.chorus.wet', perVoice: false },
+  { path: 'effects.delay.feedback', perVoice: false },
+  { path: 'effects.delay.wet', perVoice: false },
+  { path: 'effects.reverb.wet', perVoice: false },
+  { path: 'effects.eq.band0.gain', perVoice: false },
+  { path: 'effects.eq.band1.gain', perVoice: false },
+  { path: 'effects.eq.band2.gain', perVoice: false },
+  { path: 'effects.eq.band3.gain', perVoice: false },
+  { path: 'effects.eq.band4.gain', perVoice: false },
+] as const;
+
+/**
+ * Derived from the table, never written twice. Deliberately NOT constrained with
+ * `satisfies readonly { path: ParamPath }[]`: `ParamPath` is built from `ParamValueMap`,
+ * which reaches back here for a route's `destination` value type, and that constraint
+ * would close the loop into a circular type. The correspondence is proven at runtime
+ * instead, by the same contract test that carries F72 — which is also how the existing
+ * `KIND_SYNTH_PATCH_SLOT_MAP` proves itself.
+ */
+export type ModDestination = (typeof MODULATION_DESTINATIONS)[number]['path'];
+
+export interface ModRoute {
+  /** Caller-supplied stable identity; `removeRoute` targets it and replay reproduces it. */
+  id: string;
+  /** A disabled route keeps its configuration and contributes nothing. F74 toggles this. */
+  enabled: boolean;
+  source: ModSource;
+  destination: ModDestination;
+  /** Normalised. Scaled at the runtime by the DESTINATION's own declared range (F73). */
+  depth: Unit;
+}
+
+/** Hard cap on routes per patch, mirroring MAX_LFOS — keeps `ParamPath` a finite union. */
+export const MAX_ROUTES = 8;
+export type RouteIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /**
  * Voice-stealing policy. Single-member union in v0.1.0 (locked scope), declared as a
@@ -149,12 +237,21 @@ export interface VoiceConfig {
    * configs would explode the preset schema for no v1 benefit.
    */
   lfos: LFOConfig[];
+  /** The modulation graph. Capped at MAX_ROUTES. See KIND-synth_mod_route. */
+  modRoutes: ModRoute[];
   /** Maximum simultaneous sounding voices. */
   polyphony: number;
   /** Glide time between notes, seconds. 0 = off. */
   portamento: Seconds;
   stealPolicy: StealPolicy;
   velocity: VelocityConfig;
+  /**
+   * Base per-voice gain, before velocity scaling. Exists so tremolo has somewhere to
+   * point — a modulation destination needs a declared base value to swing around.
+   */
+  amplitude: Unit;
+  /** Base per-voice position, -1 (hard left) .. 1 (hard right). Autopan's destination. */
+  pan: number;
 }
 
 /** Hard cap on LFOs per patch — bounds `ParamPath` to a finite union. */
@@ -165,7 +262,7 @@ export type LfoIndex = 0 | 1 | 2 | 3;
 // Effects chain
 // ---------------------------------------------------------------------------
 
-export type EffectId = 'distortion' | 'chorus' | 'delay' | 'reverb';
+export type EffectId = 'distortion' | 'chorus' | 'delay' | 'reverb' | 'eq';
 
 export interface DistortionConfig {
   enabled: boolean;
@@ -201,15 +298,51 @@ export interface ReverbConfig {
   wet: Unit;
 }
 
-/** Fixed serial chain order: distortion -> chorus -> delay -> reverb -> master. */
+/** Centre frequencies of the five graphic-EQ bands, Hz. Fixed — see `EqConfig`. */
+export const EQ_BAND_FREQUENCIES = [60, 250, 1000, 4000, 12000] as const;
+
+export type EqBandIndex = 0 | 1 | 2 | 3 | 4;
+
+/** One band. An object rather than a bare number so `frequency`/`Q` can be added later
+ *  without moving every parameter address. */
+export interface EqBandConfig {
+  gain: Decibels;
+}
+
+/**
+ * Five-band graphic EQ at fixed frequencies — the band centres are NOT parameters.
+ *
+ * It sits on the patch's effects chain rather than on the song's master bus, which is
+ * where a mixer EQ would live. The reason is routing: modulation routes are patch-level,
+ * and a route pointing at a song-level destination would be a cross-document reference.
+ * Here, each band gain is an ordinary modulation destination and the EQ travels with the
+ * preset, which for a synth is the more useful behaviour anyway.
+ */
+export interface EqConfig {
+  enabled: boolean;
+  band0: EqBandConfig;
+  band1: EqBandConfig;
+  band2: EqBandConfig;
+  band3: EqBandConfig;
+  band4: EqBandConfig;
+}
+
+/** Fixed serial chain order: distortion -> chorus -> delay -> reverb -> eq -> master. */
 export interface EffectsConfig {
   distortion: DistortionConfig;
   chorus: ChorusConfig;
   delay: DelayConfig;
   reverb: ReverbConfig;
+  eq: EqConfig;
 }
 
-export const EFFECT_CHAIN_ORDER: readonly EffectId[] = ['distortion', 'chorus', 'delay', 'reverb'];
+export const EFFECT_CHAIN_ORDER: readonly EffectId[] = [
+  'distortion',
+  'chorus',
+  'delay',
+  'reverb',
+  'eq',
+];
 
 export interface MasterConfig {
   volume: Decibels;
@@ -223,7 +356,12 @@ export interface MasterConfig {
 
 export type PresetCategory = 'Bass' | 'Lead' | 'Pad' | 'Keys' | 'Drum' | 'FX';
 
-export const PRESET_SCHEMA_VERSION = 1;
+/**
+ * 2 — the modulation-routing bump. Version 1 patches carry `voice.filter.frequency`,
+ * per-LFO `target`/`min`/`max`, and no `modRoutes` / `eq` / `voice.pan` / `voice.amplitude`.
+ * `migratePreset` reconstructs all of it; see F65 in KIND-synth_patch.
+ */
+export const PRESET_SCHEMA_VERSION = 2;
 
 export interface SynthPreset {
   /** KIND slot `patch_id`. */
@@ -350,31 +488,43 @@ export interface Song {
 // type. `PARAM_SPECS` in schemas.ts is declared as `Record<ParamPath, ParamSpec>`,
 // so the compiler refuses to build if a path has no range spec.
 
-export type LfoParamKey =
-  | 'enabled'
-  | 'target'
-  | 'type'
-  | 'frequency'
-  | 'min'
-  | 'max'
-  | 'sync'
-  | 'retrigger';
+/**
+ * `target`, `min` and `max` were removed at schema_version 2. A destination is now a
+ * route's business, and the range a route travels is derived from the destination's own
+ * spec — so an LFO carrying its own min/max was a second, unreconcilable opinion about
+ * how far a parameter may move.
+ */
+export type LfoParamKey = 'enabled' | 'type' | 'frequency' | 'sync' | 'retrigger';
 
 export type LfoParamPath = `voice.lfos.${LfoIndex}.${LfoParamKey}`;
 
-type LfoParamValue<K extends LfoParamKey> = K extends 'target'
-  ? LfoTarget
-  : K extends 'type'
-    ? LfoShape
-    : K extends 'frequency'
-      ? number | string
-      : K extends 'enabled' | 'sync' | 'retrigger'
-        ? boolean
-        : number;
+type LfoParamValue<K extends LfoParamKey> = K extends 'type'
+  ? LfoShape
+  : K extends 'frequency'
+    ? number | string
+    : boolean;
 
 type LfoParamValueMap = {
   [P in LfoParamPath]: P extends `voice.lfos.${LfoIndex}.${infer K extends LfoParamKey}`
     ? LfoParamValue<K>
+    : never;
+};
+
+export type RouteParamKey = 'enabled' | 'source' | 'destination' | 'depth';
+
+export type RouteParamPath = `voice.modRoutes.${RouteIndex}.${RouteParamKey}`;
+
+type RouteParamValue<K extends RouteParamKey> = K extends 'enabled'
+  ? boolean
+  : K extends 'source'
+    ? ModSource
+    : K extends 'destination'
+      ? ModDestination
+      : Unit;
+
+type RouteParamValueMap = {
+  [P in RouteParamPath]: P extends `voice.modRoutes.${RouteIndex}.${infer K extends RouteParamKey}`
+    ? RouteParamValue<K>
     : never;
 };
 
@@ -391,7 +541,6 @@ interface FixedParamValueMap {
   'voice.envelope.release': Seconds;
 
   'voice.filter.type': FilterType;
-  'voice.filter.frequency': number;
   'voice.filter.Q': number;
   'voice.filter.rolloff': FilterRolloff;
 
@@ -407,6 +556,8 @@ interface FixedParamValueMap {
   'voice.stealPolicy': StealPolicy;
   'voice.velocity.toAmplitude': Unit;
   'voice.velocity.toFilterOctaves': number;
+  'voice.amplitude': Unit;
+  'voice.pan': number;
 
   'effects.distortion.amount': Unit;
   'effects.distortion.wet': Unit;
@@ -421,11 +572,18 @@ interface FixedParamValueMap {
   'effects.reverb.dampening': number;
   'effects.reverb.wet': Unit;
 
+  'effects.eq.enabled': boolean;
+  'effects.eq.band0.gain': Decibels;
+  'effects.eq.band1.gain': Decibels;
+  'effects.eq.band2.gain': Decibels;
+  'effects.eq.band3.gain': Decibels;
+  'effects.eq.band4.gain': Decibels;
+
   'master.volume': Decibels;
   'master.limiterThreshold': Decibels;
 }
 
-export type ParamValueMap = FixedParamValueMap & LfoParamValueMap;
+export type ParamValueMap = FixedParamValueMap & LfoParamValueMap & RouteParamValueMap;
 
 export type ParamPath = keyof ParamValueMap & string;
 

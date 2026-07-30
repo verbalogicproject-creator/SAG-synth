@@ -17,6 +17,7 @@ import type {
   Decibels,
   EffectId,
   LFOConfig,
+  ModRoute,
   NoteEvent,
   NoteName,
   ParamPath,
@@ -72,6 +73,22 @@ export interface AddLfoCommand {
 export interface RemoveLfoCommand {
   type: 'removeLfo';
   lfoId: string;
+}
+
+/**
+ * Modulation routing (KIND-synth_mod_route). These mirror the LFO verbs deliberately —
+ * a route is a document in a capped list, exactly as an LFO is, so it gets the same
+ * add / remove / address-a-slot shape rather than a new idiom. Editing an existing
+ * route goes through `setParam('voice.modRoutes.<i>.<key>', ...)`, again like LFOs.
+ */
+export interface AddRouteCommand {
+  type: 'addRoute';
+  route: ModRoute;
+}
+
+export interface RemoveRouteCommand {
+  type: 'removeRoute';
+  routeId: string;
 }
 
 export interface SetEffectEnabledCommand {
@@ -288,6 +305,8 @@ export type SynthCommand =
   | SetParamCommand
   | AddLfoCommand
   | RemoveLfoCommand
+  | AddRouteCommand
+  | RemoveRouteCommand
   | SetEffectEnabledCommand
   | SetMasterVolumeCommand
   // song
@@ -339,6 +358,8 @@ export const SYNTH_COMMAND_TYPES = [
   'setParam',
   'addLfo',
   'removeLfo',
+  'addRoute',
+  'removeRoute',
   'setEffectEnabled',
   'setMasterVolume',
   'newSong',

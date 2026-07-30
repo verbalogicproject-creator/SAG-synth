@@ -125,7 +125,7 @@ export function defaultVoiceConfig(): VoiceConfig {
   return {
     oscillator: { type: 'sawtooth', detune: 0, count: 1, spread: 20, width: 0.5 },
     envelope: { attack: 0.01, decay: 0.2, sustain: 0.4, release: 0.8 },
-    filter: { type: 'lowpass', frequency: 2000, Q: 1, rolloff: -24 },
+    filter: { type: 'lowpass', Q: 1, rolloff: -24 },
     filterEnvelope: {
       attack: 0.02,
       decay: 0.3,
@@ -141,10 +141,16 @@ export function defaultVoiceConfig(): VoiceConfig {
       octaves: 3,
     },
     lfos: [],
+    modRoutes: [],
     polyphony: 8,
     portamento: 0,
     stealPolicy: 'oldest',
     velocity: { toAmplitude: 1, toFilterOctaves: 1 },
+    // Unity gain, centred. These are the base values modulation routes swing around, so
+    // the defaults must be neutral: a tremolo route on a voice already at 0.5 would
+    // quietly halve the patch.
+    amplitude: 1,
+    pan: 0,
   };
 }
 
@@ -154,6 +160,15 @@ export function defaultEffectsConfig(): EffectsConfig {
     chorus: { enabled: false, frequency: 4, delayTime: 2.5, depth: 0.5, wet: 0.5 },
     delay: { enabled: false, delayTime: 0.25, feedback: 0.3, wet: 0.3 },
     reverb: { enabled: false, roomSize: 0.7, dampening: 3000, wet: 0.3 },
+    // Flat and off. An EQ that ships with a curve is a tone decision hiding in a default.
+    eq: {
+      enabled: false,
+      band0: { gain: 0 },
+      band1: { gain: 0 },
+      band2: { gain: 0 },
+      band3: { gain: 0 },
+      band4: { gain: 0 },
+    },
   };
 }
 

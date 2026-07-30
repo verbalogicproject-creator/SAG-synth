@@ -32,7 +32,7 @@ describe('purity', () => {
   it('never mutates the state it was given', () => {
     const state = initialEngineState();
     const snapshot = structuredClone(state);
-    apply(state, setParam('voice.filter.frequency', 440));
+    apply(state, setParam('voice.filterEnvelope.baseFrequency', 440));
     apply(state, { type: 'setTempo', bpm: 200 });
     apply(state, { type: 'addTrack', trackId: 't9' });
     expect(state).toEqual(snapshot);
@@ -72,7 +72,8 @@ describe('patch commands', () => {
   it('setParam writes nested voice params immutably', () => {
     const next = apply(initialEngineState(), setParam('voice.filterEnvelope.octaves', 5));
     expect(next.patch.voice.filterEnvelope.octaves).toBe(5);
-    expect(next.patch.voice.filter.frequency).toBe(2000);
+    // A sibling inside the same nested object must survive the write untouched.
+    expect(next.patch.voice.filterEnvelope.baseFrequency).toBe(800);
   });
 
   it('setParam routes master.* to the song, not the patch', () => {
@@ -91,11 +92,8 @@ describe('patch commands', () => {
       config: {
         id: 'lfo-1',
         enabled: true,
-        target: 'filterFrequency',
         type: 'triangle',
         frequency: 2,
-        min: 200,
-        max: 1800,
         sync: false,
         retrigger: true,
       },
@@ -321,7 +319,7 @@ describe('importMidi', () => {
 describe('F59 — replaying the journal reconstructs state exactly', () => {
   /** A session that touches every category: patch edits, song edits, transport, hot path. */
   const session: Array<{ command: SynthCommand; meta: ReduceMeta }> = [
-    { command: setParam('voice.filter.frequency', 850), meta: meta('c1', 1000) },
+    { command: setParam('voice.filterEnvelope.baseFrequency', 850), meta: meta('c1', 1000) },
     { command: { type: 'setEffectEnabled', effectId: 'delay', enabled: true }, meta: meta('c2', 1001) },
     { command: { type: 'savePreset', name: 'Session Patch' }, meta: meta('c3', 1002) },
     { command: { type: 'setTempo', bpm: 96 }, meta: meta('c4', 1003) },

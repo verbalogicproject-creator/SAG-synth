@@ -15,6 +15,7 @@
 
 import {
   MAX_LFOS,
+  MAX_ROUTES,
   SONG_SCHEMA_VERSION,
   STEPS_PER_BEAT,
   type Beats,
@@ -171,6 +172,13 @@ export function reduce(
           return rejected(`no LFO at index ${index}; add one with addLfo first`);
         }
       }
+      // Routes have the same shape and therefore the same hazard.
+      if (segments[1] === 'modRoutes') {
+        const index = Number(segments[2]);
+        if (state.patch.voice.modRoutes[index] === undefined) {
+          return rejected(`no route at index ${index}; add one with addRoute first`);
+        }
+      }
       return applied(withPatch(state, deepSet(state.patch, segments, command.value) as SynthPreset));
     }
 
@@ -197,6 +205,49 @@ export function reduce(
         withPatch(state, {
           ...state.patch,
           voice: { ...state.patch.voice, lfos: lfos.filter((lfo) => lfo.id !== command.lfoId) },
+        }),
+      );
+    }
+
+    case 'addRoute': {
+      const routes = state.patch.voice.modRoutes;
+      if (routes.length >= MAX_ROUTES) return rejected(`at most ${MAX_ROUTES} routes per patch`);
+      if (routes.some((route) => route.id === command.route.id)) {
+        return rejected(`a route with id "${command.route.id}" already exists`);
+      }
+      // The source names an LFO SLOT, and the slot may be empty — `lfos` is an array
+      // capped at MAX_LFOS, not a fixed-length one. A route pointing at an empty slot
+      // would validate cleanly and then modulate nothing. Rejecting it here puts the
+      // failure in the journal instead of leaving it silent in the audio graph.
+      if (command.route.source !== 'velocity') {
+        const slot = Number(command.route.source.slice('lfo.'.length));
+        if (state.patch.voice.lfos[slot] === undefined) {
+          return rejected(`route source "${command.route.source}" has no LFO in that slot`);
+        }
+      }
+      return applied(
+        withPatch(state, {
+          ...state.patch,
+          voice: {
+            ...state.patch.voice,
+            modRoutes: [...routes, structuredClone(command.route)],
+          },
+        }),
+      );
+    }
+
+    case 'removeRoute': {
+      const routes = state.patch.voice.modRoutes;
+      if (!routes.some((route) => route.id === command.routeId)) {
+        return rejected(`no route with id "${command.routeId}"`);
+      }
+      return applied(
+        withPatch(state, {
+          ...state.patch,
+          voice: {
+            ...state.patch.voice,
+            modRoutes: routes.filter((route) => route.id !== command.routeId),
+          },
         }),
       );
     }

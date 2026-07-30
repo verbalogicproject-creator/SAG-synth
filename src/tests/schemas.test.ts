@@ -30,22 +30,30 @@ describe('every command has a schema', () => {
       loadPreset: { type: 'loadPreset', presetId: 'factory-default' },
       savePreset: { type: 'savePreset', name: 'My Patch' },
       deletePreset: { type: 'deletePreset', presetId: 'p1' },
-      setParam: setParam('voice.filter.frequency', 800),
+      setParam: setParam('voice.filterEnvelope.baseFrequency', 800),
       addLfo: {
         type: 'addLfo',
         config: {
           id: 'lfo-1',
           enabled: true,
-          target: 'pitch',
           type: 'sine',
           frequency: 5,
-          min: -10,
-          max: 10,
           sync: false,
           retrigger: false,
         },
       },
       removeLfo: { type: 'removeLfo', lfoId: 'lfo-1' },
+      addRoute: {
+        type: 'addRoute',
+        route: {
+          id: 'route-1',
+          enabled: true,
+          source: 'lfo.0',
+          destination: 'voice.filterEnvelope.baseFrequency',
+          depth: 0.5,
+        },
+      },
+      removeRoute: { type: 'removeRoute', routeId: 'route-1' },
       setEffectEnabled: { type: 'setEffectEnabled', effectId: 'reverb', enabled: true },
       setMasterVolume: { type: 'setMasterVolume', db: -12 },
       newSong: { type: 'newSong' },
@@ -112,13 +120,13 @@ describe('validateCommand rejects', () => {
   });
 
   it('a parameter value of the wrong type for its path', () => {
-    const result = validateCommand({ type: 'setParam', path: 'voice.filter.frequency', value: true });
+    const result = validateCommand({ type: 'setParam', path: 'voice.filterEnvelope.baseFrequency', value: true });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('finite number');
   });
 
   it('a parameter value outside its declared range', () => {
-    const result = validateCommand({ type: 'setParam', path: 'voice.filter.frequency', value: 44100 });
+    const result = validateCommand({ type: 'setParam', path: 'voice.filterEnvelope.baseFrequency', value: 44100 });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('out of range');
   });
@@ -241,11 +249,8 @@ describe('document validation', () => {
     preset.voice.lfos = Array.from({ length: 5 }, (_unused, i) => ({
       id: `lfo-${i}`,
       enabled: true,
-      target: 'pitch' as const,
       type: 'sine' as const,
       frequency: 4,
-      min: -5,
-      max: 5,
       sync: false,
       retrigger: false,
     }));
@@ -254,7 +259,7 @@ describe('document validation', () => {
 });
 
 describe('migration (F65 / F69)', () => {
-  it('defaults a versionless preset to version 1 without losing a slot', () => {
+  it('migrates a versionless preset forward without losing a slot', () => {
     const legacy = defaultPreset() as unknown as Record<string, unknown>;
     delete legacy.schemaVersion;
     const migrated = migratePreset(legacy);
@@ -264,9 +269,93 @@ describe('migration (F65 / F69)', () => {
       expect(parsed.success).toBe(true);
       if (parsed.success) {
         expect(parsed.data.schemaVersion).toBe(PRESET_SCHEMA_VERSION);
-        expect(parsed.data.voice.filter.frequency).toBe(2000);
+        expect(parsed.data.voice.filterEnvelope.baseFrequency).toBe(800);
       }
     }
+  });
+
+  /**
+   * A genuine version-1 document, written out longhand rather than derived from
+   * `defaultPreset()`. That matters: `defaultPreset()` is already v2-shaped, so
+   * migrating it exercises none of the reconstruction. This one carries the three things
+   * v2 removed — `filter.frequency` and an LFO's `target`/`min`/`max` — and the point of
+   * the check is that the modulation SURVIVES as a route rather than being dropped.
+   */
+  function legacyV1Preset(): Record<string, unknown> {
+    const preset = structuredClone(defaultPreset()) as unknown as Record<string, unknown>;
+    preset.schemaVersion = 1;
+    const voice = preset.voice as Record<string, unknown>;
+    (voice.filter as Record<string, unknown>).frequency = 2000;
+    delete voice.modRoutes;
+    delete voice.amplitude;
+    delete voice.pan;
+    delete (preset.effects as Record<string, unknown>).eq;
+    voice.lfos = [
+      {
+        id: 'lfo-legacy',
+        enabled: true,
+        target: 'filterFrequency',
+        type: 'triangle',
+        frequency: 3,
+        // Half of the destination's declared 20..20000 Hz range.
+        min: 0,
+        max: 10000,
+        sync: false,
+        retrigger: true,
+      },
+    ];
+    return preset;
+  }
+
+  it('F65 — a v1 patch migrates forward with its modulation intact, not dropped', () => {
+    const migrated = migratePreset(legacyV1Preset());
+    expect(migrated.ok).toBe(true);
+    if (!migrated.ok) return;
+
+    const parsed = PresetSchema.safeParse(migrated.value);
+    expect(parsed.success ? null : parsed.error.issues).toBeNull();
+    if (!parsed.success) return;
+
+    expect(parsed.data.schemaVersion).toBe(PRESET_SCHEMA_VERSION);
+
+    // The LFO survives, minus the three fields routing took over.
+    expect(parsed.data.voice.lfos).toHaveLength(1);
+    expect(parsed.data.voice.lfos[0]?.frequency).toBe(3);
+    expect(parsed.data.voice.lfos[0]).not.toHaveProperty('target');
+    expect(parsed.data.voice.lfos[0]).not.toHaveProperty('min');
+
+    // ...and its destination is now a route, at a depth preserving the travel distance:
+    // the v1 sweep covered 10000 of the destination's 19980 Hz range.
+    expect(parsed.data.voice.modRoutes).toHaveLength(1);
+    const route = parsed.data.voice.modRoutes[0]!;
+    expect(route.source).toBe('lfo.0');
+    expect(route.destination).toBe('voice.filterEnvelope.baseFrequency');
+    expect(route.enabled).toBe(true);
+    expect(route.depth).toBeCloseTo(10000 / (20000 - 20), 4);
+
+    // The v2-only slots arrive at neutral values, so migrating cannot change the sound.
+    expect(parsed.data.voice.amplitude).toBe(1);
+    expect(parsed.data.voice.pan).toBe(0);
+    expect(parsed.data.effects.eq.enabled).toBe(false);
+    expect(parsed.data.effects.eq.band2.gain).toBe(0);
+  });
+
+  it('F65 — refuses a version from the future rather than coercing it', () => {
+    const future = structuredClone(defaultPreset()) as unknown as Record<string, unknown>;
+    future.schemaVersion = 99;
+    const migrated = migratePreset(future);
+    expect(migrated.ok).toBe(false);
+    if (!migrated.ok) expect(migrated.error).toContain('newer than this build understands');
+  });
+
+  it('does not mutate the document it was handed', () => {
+    // The dispatcher journals the command verbatim (F62); a migration that edited the
+    // caller's object in place would put a different document in the journal than the
+    // one that was dispatched.
+    const legacy = legacyV1Preset();
+    const before = JSON.stringify(legacy);
+    migratePreset(legacy);
+    expect(JSON.stringify(legacy)).toBe(before);
   });
 
   it('defaults a versionless song swing to 0', () => {

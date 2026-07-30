@@ -449,9 +449,10 @@ export function DebugApp() {
           <dd style={styles.dd}>{unimplemented.join(', ') || 'none'}</dd>
         </dl>
         <p style={styles.dim}>
-          voice.filter.frequency collides with voice.filterEnvelope.baseFrequency — in a
-          MonoSynth the envelope owns the cutoff, so only one can be it. baseFrequency
-          wins; see UNMAPPED_PARAMS in tone-runtime.ts.
+          Schema version 2. The cutoff collision is resolved — voice.filter.frequency is
+          gone and voice.filterEnvelope.baseFrequency is the cutoff. Routing, EQ and the
+          per-voice amp/pan bases are declared but not yet mapped to the audio graph, so
+          they will read back correctly and make no sound until Stage 2 finishes.
         </p>
       </section>
     </main>

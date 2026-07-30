@@ -22,7 +22,14 @@ import { getParam } from '../core/params';
 import { reduce } from '../core/reduce';
 import { initialEngineState, type EngineState } from '../core/state';
 import { setParam } from '../core/commands';
-import type { LFOConfig, ParamPath, ParamValue } from '../core/types';
+import {
+  MAX_LFOS,
+  MAX_ROUTES,
+  type LFOConfig,
+  type ModRoute,
+  type ParamPath,
+  type ParamValue,
+} from '../core/types';
 
 const meta = { commandId: 'c', ts: 1_700_000_000_000 };
 
@@ -47,22 +54,39 @@ function lfoConfig(index: number): LFOConfig {
   return {
     id: `lfo-${index}`,
     enabled: false,
-    target: 'filterFrequency',
     type: 'sine',
     frequency: 2,
-    min: 0,
-    max: 1,
     sync: false,
     retrigger: false,
   };
 }
 
-/** LFO paths address slots that may be empty; fill them so every path is reachable. */
-function stateWithLfos(): EngineState {
+function routeConfig(index: number): ModRoute {
+  return {
+    id: `route-${index}`,
+    enabled: false,
+    // Slot 0 always has an LFO by the time routes are added, and the reducer rejects a
+    // route whose source slot is empty.
+    source: 'lfo.0',
+    destination: 'voice.filterEnvelope.baseFrequency',
+    depth: 0.5,
+  };
+}
+
+/**
+ * LFO and route paths address slots that may be empty; fill them so every path is
+ * reachable. Order matters — `addRoute` rejects a source naming an empty LFO slot.
+ */
+function stateWithSlotsFilled(): EngineState {
   let state = initialEngineState();
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < MAX_LFOS; i += 1) {
     const result = reduce(state, { type: 'addLfo', config: lfoConfig(i) }, meta);
     if (result.status !== 'applied') throw new Error(`addLfo ${i}: ${result.error}`);
+    state = result.state;
+  }
+  for (let i = 0; i < MAX_ROUTES; i += 1) {
+    const result = reduce(state, { type: 'addRoute', route: routeConfig(i) }, meta);
+    if (result.status !== 'applied') throw new Error(`addRoute ${i}: ${result.error}`);
     state = result.state;
   }
   return state;
@@ -71,11 +95,11 @@ function stateWithLfos(): EngineState {
 describe('getParam agrees with setParam', () => {
   it('covers every declared path — no path is silently unreachable', () => {
     // Guards the loop below against shrinking to nothing if PARAM_PATHS is restructured.
-    expect(PARAM_PATHS.length).toBe(70);
+    expect(PARAM_PATHS.length).toBe(97);
   });
 
-  it('reads back exactly what was written, for all 70 paths', () => {
-    const base = stateWithLfos();
+  it('reads back exactly what was written, for every declared path', () => {
+    const base = stateWithSlotsFilled();
     const failures: string[] = [];
 
     for (const path of PARAM_PATHS) {
@@ -145,7 +169,7 @@ describe('getParam agrees with setParam', () => {
   });
 
   it('does not mutate the state it reads', () => {
-    const state = stateWithLfos();
+    const state = stateWithSlotsFilled();
     const before = structuredClone(state);
     for (const path of PARAM_PATHS) getParam(state, path as ParamPath);
     expect(state).toEqual(before);

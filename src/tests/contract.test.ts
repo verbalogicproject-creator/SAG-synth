@@ -25,7 +25,7 @@ import {
   assertEnvelopeConsistent,
   createEnvelope,
 } from '../core/commands';
-import { PARAM_PATHS, PARAM_SPECS } from '../core/schemas';
+import { PARAM_PATHS, PARAM_SPECS, validateCommand } from '../core/schemas';
 import {
   KIND_SYNTH_PATCH_REQUIRED_SLOTS,
   KIND_SYNTH_PATCH_SLOT_MAP,
@@ -37,11 +37,19 @@ import {
   buildCommandAppliedEvent,
   hasRequiredSlots,
 } from '../core/sag/events';
-import { MAX_LFOS } from '../core/types';
+import { MAX_LFOS, MAX_ROUTES, MODULATION_DESTINATIONS } from '../core/types';
 
 // ---------------------------------------------------------------------------
 
-/** The command surface, verbatim from the frozen contract. 34 verbs. */
+/**
+ * The command surface, verbatim from the frozen contract. 36 verbs.
+ *
+ * Went 34 -> 36 at schema_version 2 with `addRoute` / `removeRoute`. There is
+ * deliberately no `setRouteParam`: editing a live route goes through
+ * `setParam('voice.modRoutes.<i>.<key>', ...)`, exactly as editing an LFO does. A third
+ * verb would have been a second way to do one thing, and every verb here is also a wire
+ * format the SDK has to keep supporting.
+ */
 const FROZEN_COMMAND_TYPES = [
   // patch
   'loadPreset',
@@ -50,6 +58,8 @@ const FROZEN_COMMAND_TYPES = [
   'setParam',
   'addLfo',
   'removeLfo',
+  'addRoute',
+  'removeRoute',
   'setEffectEnabled',
   'setMasterVolume',
   // song
@@ -86,7 +96,7 @@ const FROZEN_COMMAND_TYPES = [
 ];
 
 describe('command surface is frozen', () => {
-  it('declares exactly the 34 verbs in the contract, in order', () => {
+  it('declares exactly the 36 verbs in the contract, in order', () => {
     expect([...SYNTH_COMMAND_TYPES]).toEqual(FROZEN_COMMAND_TYPES);
   });
 
@@ -170,7 +180,8 @@ const FROZEN_FIXED_PARAM_PATHS = [
   'voice.envelope.sustain',
   'voice.envelope.release',
   'voice.filter.type',
-  'voice.filter.frequency',
+  // 'voice.filter.frequency' was removed at schema_version 2. In a MonoSynth the filter
+  // envelope owns the cutoff, so it validated, journalled, replayed and changed nothing.
   'voice.filter.Q',
   'voice.filter.rolloff',
   'voice.filterEnvelope.attack',
@@ -184,6 +195,9 @@ const FROZEN_FIXED_PARAM_PATHS = [
   'voice.stealPolicy',
   'voice.velocity.toAmplitude',
   'voice.velocity.toFilterOctaves',
+  // Added at 2: base values for the tremolo and autopan destinations to swing around.
+  'voice.amplitude',
+  'voice.pan',
   'effects.distortion.amount',
   'effects.distortion.wet',
   'effects.chorus.frequency',
@@ -196,34 +210,43 @@ const FROZEN_FIXED_PARAM_PATHS = [
   'effects.reverb.roomSize',
   'effects.reverb.dampening',
   'effects.reverb.wet',
+  // Five-band graphic EQ, added at 2. Band centres are fixed and are NOT parameters.
+  'effects.eq.enabled',
+  'effects.eq.band0.gain',
+  'effects.eq.band1.gain',
+  'effects.eq.band2.gain',
+  'effects.eq.band3.gain',
+  'effects.eq.band4.gain',
   'master.volume',
   'master.limiterThreshold',
 ];
 
-const FROZEN_LFO_PARAM_KEYS = [
-  'enabled',
-  'target',
-  'type',
-  'frequency',
-  'min',
-  'max',
-  'sync',
-  'retrigger',
-];
+/** Was eight. `target`, `min` and `max` were replaced by routes at schema_version 2. */
+const FROZEN_LFO_PARAM_KEYS = ['enabled', 'type', 'frequency', 'sync', 'retrigger'];
+
+const FROZEN_ROUTE_PARAM_KEYS = ['enabled', 'source', 'destination', 'depth'];
 
 describe('parameter surface is frozen (open question Q2)', () => {
-  it('declares exactly the fixed paths plus MAX_LFOS x 8 LFO paths', () => {
+  it('declares exactly the fixed paths plus the LFO and route slot paths', () => {
     const expectedLfoPaths = Array.from({ length: MAX_LFOS }, (_unused, i) => i).flatMap((i) =>
       FROZEN_LFO_PARAM_KEYS.map((key) => `voice.lfos.${i}.${key}`),
     );
+    const expectedRoutePaths = Array.from({ length: MAX_ROUTES }, (_unused, i) => i).flatMap((i) =>
+      FROZEN_ROUTE_PARAM_KEYS.map((key) => `voice.modRoutes.${i}.${key}`),
+    );
     expect([...PARAM_PATHS].sort()).toEqual(
-      [...FROZEN_FIXED_PARAM_PATHS, ...expectedLfoPaths].sort(),
+      [...FROZEN_FIXED_PARAM_PATHS, ...expectedLfoPaths, ...expectedRoutePaths].sort(),
     );
   });
 
-  it('caps LFOs at 4, which is what keeps the path union finite', () => {
+  it('caps LFOs at 4 and routes at 8, which is what keeps the path union finite', () => {
     expect(MAX_LFOS).toBe(4);
-    expect(PARAM_PATHS).toHaveLength(FROZEN_FIXED_PARAM_PATHS.length + MAX_LFOS * 8);
+    expect(MAX_ROUTES).toBe(8);
+    expect(PARAM_PATHS).toHaveLength(
+      FROZEN_FIXED_PARAM_PATHS.length +
+        MAX_LFOS * FROZEN_LFO_PARAM_KEYS.length +
+        MAX_ROUTES * FROZEN_ROUTE_PARAM_KEYS.length,
+    );
   });
 
   it('gives every path a range spec, so no parameter is unvalidated', () => {
@@ -237,6 +260,95 @@ describe('parameter surface is frozen (open question Q2)', () => {
         expect(spec.values.length, `${path} enum is empty`).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * F72 — the check that makes KIND-synth_mod_route the authority rather than a comment.
+ *
+ * `MODULATION_DESTINATIONS` is transcribed from the KIND's §3.2; `PARAM_SPECS` carries a
+ * `modulation` block on each destination, written out by hand. Neither is derived from
+ * the other, precisely so that editing one alone is possible — and caught here.
+ */
+describe('modulation destinations are declared, not assumed (F71 / F72)', () => {
+  const modulatablePaths = PARAM_PATHS.filter((path) => {
+    const spec = PARAM_SPECS[path];
+    return spec.kind === 'number' && spec.modulation !== undefined;
+  });
+
+  it('declares every KIND destination as a real, modulatable parameter address', () => {
+    for (const { path } of MODULATION_DESTINATIONS) {
+      expect(PARAM_PATHS, `"${path}" is not a parameter address`).toContain(path);
+      const spec = PARAM_SPECS[path];
+      expect(spec.kind, `"${path}" must be numeric to be modulatable`).toBe('number');
+      if (spec.kind === 'number') {
+        expect(spec.modulation, `"${path}" is in the KIND but carries no modulation spec`)
+          .toBeDefined();
+      }
+    }
+  });
+
+  it('declares no modulatable parameter the KIND does not list', () => {
+    const declared = new Set<string>(MODULATION_DESTINATIONS.map((d) => d.path));
+    for (const path of modulatablePaths) {
+      expect(declared.has(path), `"${path}" carries a modulation spec but is not in the KIND`)
+        .toBe(true);
+    }
+    expect(modulatablePaths).toHaveLength(MODULATION_DESTINATIONS.length);
+  });
+
+  it('agrees on perVoice for every destination — it decides modulator instance count', () => {
+    for (const { path, perVoice } of MODULATION_DESTINATIONS) {
+      const spec = PARAM_SPECS[path];
+      if (spec.kind === 'number') {
+        expect(spec.modulation?.perVoice, `"${path}" perVoice disagrees with the KIND`)
+          .toBe(perVoice);
+      }
+    }
+  });
+
+  it('gives every destination a real range, which is what makes depth portable (F73)', () => {
+    // A normalised depth only means something if the destination declares how far it can
+    // travel. A zero-width range would make depth silently inert.
+    for (const { path } of MODULATION_DESTINATIONS) {
+      const spec = PARAM_SPECS[path];
+      if (spec.kind === 'number') {
+        expect(spec.max - spec.min, `"${path}" has no range for depth to scale`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('F71 — refuses a route to a real parameter that is not a declared destination', () => {
+    // The negative probe. A gate that only rejects garbage strings proves nothing: this
+    // uses a genuine, well-formed ParamPath that is deliberately structural.
+    expect(PARAM_PATHS).toContain('voice.polyphony');
+    const result = validateCommand({
+      type: 'addRoute',
+      route: {
+        id: 'r1',
+        enabled: true,
+        source: 'lfo.0',
+        destination: 'voice.polyphony',
+        depth: 0.5,
+      },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('F71 — accepts the same route once the destination is a declared one', () => {
+    const result = validateCommand({
+      type: 'addRoute',
+      route: {
+        id: 'r1',
+        enabled: true,
+        source: 'lfo.0',
+        destination: 'voice.filterEnvelope.baseFrequency',
+        depth: 0.5,
+      },
+    });
+    expect(result.ok, result.ok ? '' : result.error).toBe(true);
   });
 });
 

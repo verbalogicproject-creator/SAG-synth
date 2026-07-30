@@ -12,13 +12,19 @@ import { z } from 'zod';
 import {
   LIMITS,
   MAX_LFOS,
+  MAX_ROUTES,
+  MODULATION_DESTINATIONS,
   NOTE_NAME_RE,
   PRESET_SCHEMA_VERSION,
   SONG_SCHEMA_VERSION,
   type LfoParamKey,
   type LfoParamPath,
+  type ModDestination,
+  type ModRoute,
   type ParamPath,
   type ParamValue,
+  type RouteParamKey,
+  type RouteParamPath,
 } from './types';
 import { SYNTH_COMMAND_TYPES, type SynthCommand } from './commands';
 
@@ -70,8 +76,24 @@ export const SupportedWaveShapeSchema = WaveShapeSchema.refine((v) => v !== 'cus
 export const LFO_SHAPES = ['sine', 'triangle', 'sawtooth', 'square'] as const;
 export const LfoShapeSchema = z.enum(LFO_SHAPES);
 
-export const LFO_TARGETS = ['filterFrequency', 'pitch', 'amplitude', 'pan'] as const;
-export const LfoTargetSchema = z.enum(LFO_TARGETS);
+/**
+ * KIND-synth_mod_route §3.1. Four LFO slots plus velocity; polarity is the source's
+ * property, so there is nothing per-route to declare.
+ */
+export const MOD_SOURCES = ['lfo.0', 'lfo.1', 'lfo.2', 'lfo.3', 'velocity'] as const;
+export const ModSourceSchema = z.enum(MOD_SOURCES);
+
+/**
+ * Projected from `MODULATION_DESTINATIONS` (KIND §3.2) rather than retyped. Retyping it
+ * would create the second list this whole change exists to remove; `src/tests/contract.test.ts`
+ * proves the projection against `PARAM_SPECS` in both directions (F72).
+ */
+export const MOD_DESTINATION_PATHS: readonly ModDestination[] = MODULATION_DESTINATIONS.map(
+  (d) => d.path,
+);
+export const ModDestinationSchema = z.enum(
+  MOD_DESTINATION_PATHS as unknown as [ModDestination, ...ModDestination[]],
+);
 
 export const FILTER_TYPES = [
   'lowpass',
@@ -132,7 +154,6 @@ export const EnvelopeConfigSchema = z.object({
 
 export const FilterConfigSchema = z.object({
   type: FilterTypeSchema,
-  frequency: z.number().min(20).max(20000),
   Q: z.number().min(0).max(30),
   rolloff: FilterRolloffSchema,
 });
@@ -145,13 +166,19 @@ export const FilterEnvelopeConfigSchema = EnvelopeConfigSchema.extend({
 export const LFOConfigSchema = z.object({
   id: IdSchema,
   enabled: z.boolean(),
-  target: LfoTargetSchema,
   type: LfoShapeSchema,
   frequency: LfoFrequencySchema,
-  min: finite(),
-  max: finite(),
   sync: z.boolean(),
   retrigger: z.boolean(),
+});
+
+/** KIND-synth_mod_route §1. `destination` is gated by the declared vocabulary — F71. */
+export const ModRouteSchema = z.object({
+  id: IdSchema,
+  enabled: z.boolean(),
+  source: ModSourceSchema,
+  destination: ModDestinationSchema,
+  depth: unit(),
 });
 
 export const VelocityConfigSchema = z.object({
@@ -165,10 +192,13 @@ export const VoiceConfigSchema = z.object({
   filter: FilterConfigSchema,
   filterEnvelope: FilterEnvelopeConfigSchema,
   lfos: z.array(LFOConfigSchema).max(MAX_LFOS),
+  modRoutes: z.array(ModRouteSchema).max(MAX_ROUTES),
   polyphony: z.number().int().min(LIMITS.polyphony.min).max(LIMITS.polyphony.max),
   portamento: positive().max(5),
   stealPolicy: StealPolicySchema,
   velocity: VelocityConfigSchema,
+  amplitude: unit(),
+  pan: z.number().min(-1).max(1),
 });
 
 export const DistortionConfigSchema = z.object({
@@ -199,11 +229,23 @@ export const ReverbConfigSchema = z.object({
   wet: unit(),
 });
 
+const eqBand = () => z.object({ gain: z.number().min(-18).max(18) });
+
+export const EqConfigSchema = z.object({
+  enabled: z.boolean(),
+  band0: eqBand(),
+  band1: eqBand(),
+  band2: eqBand(),
+  band3: eqBand(),
+  band4: eqBand(),
+});
+
 export const EffectsConfigSchema = z.object({
   distortion: DistortionConfigSchema,
   chorus: ChorusConfigSchema,
   delay: DelayConfigSchema,
   reverb: ReverbConfigSchema,
+  eq: EqConfigSchema,
 });
 
 export const MasterConfigSchema = z.object({
@@ -327,6 +369,22 @@ export type ParamSpec =
        * behaviour for.
        */
       choices?: readonly number[];
+      /**
+       * Presence declares this address a legal modulation destination; `perVoice` says
+       * whether the runtime builds one modulator per sounding voice or one on the shared
+       * chain. Both are transcribed from KIND-synth_mod_route §3.2.
+       *
+       * It hangs off the number variant on purpose. An enum or boolean spec cannot carry
+       * it, so the type system already refuses to route an LFO at `voice.filter.type` or
+       * `voice.polyphony` — modulating a discrete value has no continuous meaning, and
+       * the alternative is letting the runtime invent a rounding rule.
+       *
+       * These blocks are written out by hand rather than folded in from
+       * `MODULATION_DESTINATIONS`, so that getting one wrong is POSSIBLE and the F72
+       * contract test has something real to catch. Deriving them would make the gate
+       * vacuous.
+       */
+      modulation?: { perVoice: boolean };
     }
   | { kind: 'boolean' }
   | { kind: 'enum'; values: readonly string[] }
@@ -339,14 +397,25 @@ const num = (min: number, max: number, unit?: string, integer?: boolean): ParamS
       : { kind: 'number', min, max, unit }
     : { kind: 'number', min, max, unit, integer };
 
-/** Spec for each of the eight per-LFO parameters, reused across all MAX_LFOS slots. */
+/** `num()` for an address declared modulatable in KIND-synth_mod_route §3.2. */
+const modNum = (
+  min: number,
+  max: number,
+  unit: string | undefined,
+  perVoice: boolean,
+): ParamSpec => ({
+  kind: 'number',
+  min,
+  max,
+  ...(unit === undefined ? {} : { unit }),
+  modulation: { perVoice },
+});
+
+/** Spec for each of the five per-LFO parameters, reused across all MAX_LFOS slots. */
 const LFO_PARAM_SPECS = {
   enabled: { kind: 'boolean' },
-  target: { kind: 'enum', values: LFO_TARGETS },
   type: { kind: 'enum', values: LFO_SHAPES },
   frequency: { kind: 'frequency' },
-  min: num(-20000, 20000),
-  max: num(-20000, 20000),
   sync: { kind: 'boolean' },
   retrigger: { kind: 'boolean' },
 } as const satisfies Record<LfoParamKey, ParamSpec>;
@@ -360,16 +429,40 @@ const lfoParamSpecs = Object.fromEntries(
 ) as Record<LfoParamPath, ParamSpec>;
 
 /**
+ * Spec for each of the four per-route parameters, reused across all MAX_ROUTES slots.
+ *
+ * `depth` carries no `modulation` block: a route's depth is not itself a destination.
+ * Allowing that would let one route modulate another's depth, which makes the graph
+ * cyclic — explicitly out of scope in KIND-synth_mod_route §6.
+ */
+const ROUTE_PARAM_SPECS = {
+  enabled: { kind: 'boolean' },
+  source: { kind: 'enum', values: MOD_SOURCES },
+  destination: { kind: 'enum', values: MOD_DESTINATION_PATHS },
+  depth: num(0, 1),
+} as const satisfies Record<RouteParamKey, ParamSpec>;
+
+export const ROUTE_PARAM_KEYS = Object.keys(ROUTE_PARAM_SPECS) as RouteParamKey[];
+
+const routeParamSpecs = Object.fromEntries(
+  Array.from({ length: MAX_ROUTES }, (_unused, i) => i).flatMap((i) =>
+    ROUTE_PARAM_KEYS.map(
+      (key) => [`voice.modRoutes.${i}.${key}`, ROUTE_PARAM_SPECS[key]] as const,
+    ),
+  ),
+) as Record<RouteParamPath, ParamSpec>;
+
+/**
  * The finite, exhaustive parameter registry. Declared as `Record<ParamPath, ParamSpec>`
  * so the compiler refuses to build if a path in `ParamValueMap` has no spec — the
  * type union and the runtime table cannot drift apart.
  */
 export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.oscillator.type': { kind: 'enum', values: SUPPORTED_WAVE_SHAPES },
-  'voice.oscillator.detune': num(-1200, 1200, 'cents'),
+  'voice.oscillator.detune': modNum(-1200, 1200, 'cents', true),
   'voice.oscillator.count': num(1, 8, 'voices', true),
-  'voice.oscillator.spread': num(0, 200, 'cents'),
-  'voice.oscillator.width': num(0, 1),
+  'voice.oscillator.spread': modNum(0, 200, 'cents', true),
+  'voice.oscillator.width': modNum(0, 1, undefined, true),
 
   'voice.envelope.attack': num(0, 20, 's'),
   'voice.envelope.decay': num(0, 20, 's'),
@@ -377,8 +470,7 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.envelope.release': num(0, 20, 's'),
 
   'voice.filter.type': { kind: 'enum', values: FILTER_TYPES },
-  'voice.filter.frequency': num(20, 20000, 'Hz'),
-  'voice.filter.Q': num(0, 30),
+  'voice.filter.Q': modNum(0, 30, undefined, true),
   // Four legal slopes, not a range. FILTER_ROLLOFFS already existed; the spec simply
   // was not using it, so `setParam('voice.filter.rolloff', -50)` validated cleanly.
   'voice.filter.rolloff': {
@@ -394,7 +486,9 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.filterEnvelope.decay': num(0, 20, 's'),
   'voice.filterEnvelope.sustain': num(0, 1),
   'voice.filterEnvelope.release': num(0, 20, 's'),
-  'voice.filterEnvelope.baseFrequency': num(20, 20000, 'Hz'),
+  // The live cutoff. `voice.filter.frequency` used to sit beside this and do nothing —
+  // in a MonoSynth the filter envelope owns the cutoff. Removed at schema_version 2.
+  'voice.filterEnvelope.baseFrequency': modNum(20, 20000, 'Hz', true),
   'voice.filterEnvelope.octaves': num(-8, 8, 'oct'),
 
   'voice.polyphony': num(LIMITS.polyphony.min, LIMITS.polyphony.max, 'voices', true),
@@ -402,24 +496,37 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.stealPolicy': { kind: 'enum', values: STEAL_POLICIES },
   'voice.velocity.toAmplitude': num(0, 1),
   'voice.velocity.toFilterOctaves': num(0, 8, 'oct'),
+  'voice.amplitude': modNum(0, 1, undefined, true),
+  'voice.pan': modNum(-1, 1, undefined, true),
 
-  'effects.distortion.amount': num(0, 1),
-  'effects.distortion.wet': num(0, 1),
+  'effects.distortion.amount': modNum(0, 1, undefined, false),
+  'effects.distortion.wet': modNum(0, 1, undefined, false),
   'effects.chorus.frequency': num(0, 20, 'Hz'),
   'effects.chorus.delayTime': num(0, 20, 'ms'),
-  'effects.chorus.depth': num(0, 1),
-  'effects.chorus.wet': num(0, 1),
+  'effects.chorus.depth': modNum(0, 1, undefined, false),
+  'effects.chorus.wet': modNum(0, 1, undefined, false),
   'effects.delay.delayTime': num(0, 2, 's'),
-  'effects.delay.feedback': num(0, 0.95),
-  'effects.delay.wet': num(0, 1),
+  'effects.delay.feedback': modNum(0, 0.95, undefined, false),
+  'effects.delay.wet': modNum(0, 1, undefined, false),
   'effects.reverb.roomSize': num(0, 1),
   'effects.reverb.dampening': num(20, 20000, 'Hz'),
-  'effects.reverb.wet': num(0, 1),
+  'effects.reverb.wet': modNum(0, 1, undefined, false),
+
+  // Five-band graphic EQ. The band CENTRES are fixed (EQ_BAND_FREQUENCIES) and are not
+  // parameters — only the gains move, which is what makes it graphic rather than
+  // parametric.
+  'effects.eq.enabled': { kind: 'boolean' },
+  'effects.eq.band0.gain': modNum(-18, 18, 'dB', false),
+  'effects.eq.band1.gain': modNum(-18, 18, 'dB', false),
+  'effects.eq.band2.gain': modNum(-18, 18, 'dB', false),
+  'effects.eq.band3.gain': modNum(-18, 18, 'dB', false),
+  'effects.eq.band4.gain': modNum(-18, 18, 'dB', false),
 
   'master.volume': num(LIMITS.masterVolume.min, LIMITS.masterVolume.max, 'dB'),
   'master.limiterThreshold': num(-40, 0, 'dB'),
 
   ...lfoParamSpecs,
+  ...routeParamSpecs,
 };
 
 export const PARAM_PATHS = Object.keys(PARAM_SPECS) as ParamPath[];
@@ -536,6 +643,17 @@ export const AddLfoPayloadSchema = z.object({
 export const RemoveLfoPayloadSchema = z.object({
   type: z.literal('removeLfo'),
   lfoId: IdSchema,
+});
+
+/** F71 lives here: `ModRouteSchema.destination` is the declared vocabulary, nothing wider. */
+export const AddRoutePayloadSchema = z.object({
+  type: z.literal('addRoute'),
+  route: ModRouteSchema,
+});
+
+export const RemoveRoutePayloadSchema = z.object({
+  type: z.literal('removeRoute'),
+  routeId: IdSchema,
 });
 
 export const SetEffectEnabledPayloadSchema = z.object({
@@ -742,6 +860,8 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   setParam: SetParamPayloadSchema,
   addLfo: AddLfoPayloadSchema,
   removeLfo: RemoveLfoPayloadSchema,
+  addRoute: AddRoutePayloadSchema,
+  removeRoute: RemoveRoutePayloadSchema,
   setEffectEnabled: SetEffectEnabledPayloadSchema,
   setMasterVolume: SetMasterVolumePayloadSchema,
   newSong: NewSongPayloadSchema,
@@ -807,14 +927,101 @@ export function validateCommand(input: unknown): CommandValidation {
 export type MigrationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /**
- * F65 — a legacy patch with no `schemaVersion` migrates to 1 losslessly; an unknown
- * FUTURE version is refused explicitly rather than silently coerced.
+ * The four destinations a version-1 LFO could name, mapped to the addresses that replaced
+ * them. `amplitude` and `pan` had no parameter address at all in v1 — they were voice
+ * properties with nothing in the document pointing at them, which is why v2 adds
+ * `voice.amplitude` and `voice.pan` as real, declared base values.
+ */
+const V1_LFO_TARGET_TO_DESTINATION: Record<string, ModDestination> = {
+  filterFrequency: 'voice.filterEnvelope.baseFrequency',
+  pitch: 'voice.oscillator.detune',
+  amplitude: 'voice.amplitude',
+  pan: 'voice.pan',
+};
+
+/**
+ * Rebuild a v1 LFO's `target`/`min`/`max` as a route.
+ *
+ * The one place this is an approximation rather than a translation: a v1 LFO named an
+ * absolute min and max, so it could sweep asymmetrically about the patch's base value.
+ * A route swings symmetrically by `depth x range`. Travel distance is therefore preserved
+ * exactly and any asymmetric offset is not. Reproducing the offset would need a `bias`
+ * slot, which KIND-synth_mod_route §2 deliberately does not declare — and no shipped
+ * factory patch uses an asymmetric sweep, so nothing real loses its sound here.
+ */
+function routeFromLegacyLfo(lfo: Record<string, unknown>, index: number): ModRoute | null {
+  const destination = V1_LFO_TARGET_TO_DESTINATION[String(lfo.target)];
+  if (destination === undefined) return null;
+  const spec = PARAM_SPECS[destination];
+  const min = typeof lfo.min === 'number' ? lfo.min : 0;
+  const max = typeof lfo.max === 'number' ? lfo.max : 0;
+  const range = spec.kind === 'number' ? spec.max - spec.min : 1;
+  const depth = range === 0 ? 0 : Math.min(1, Math.abs(max - min) / range);
+  return {
+    id: typeof lfo.id === 'string' ? `${lfo.id}-route` : `migrated-route-${index}`,
+    enabled: lfo.enabled === true,
+    source: `lfo.${Math.min(index, MAX_LFOS - 1) as 0 | 1 | 2 | 3}`,
+    destination,
+    depth,
+  };
+}
+
+/** The v1 -> v2 step: routing, EQ, and the two new per-voice base values. */
+function migratePresetV1ToV2(doc: Record<string, unknown>): void {
+  const voice = doc.voice;
+  if (typeof voice !== 'object' || voice === null) return;
+  const v = voice as Record<string, unknown>;
+
+  // The decoy cutoff. In a MonoSynth the filter envelope owns the frequency, so this
+  // field never reached the audio graph — dropping it loses nothing that ever sounded.
+  if (typeof v.filter === 'object' && v.filter !== null) {
+    const filter = { ...(v.filter as Record<string, unknown>) };
+    delete filter.frequency;
+    v.filter = filter;
+  }
+
+  const legacyLfos = Array.isArray(v.lfos) ? (v.lfos as Record<string, unknown>[]) : [];
+  const routes: ModRoute[] = [];
+  v.lfos = legacyLfos.map((lfo, index) => {
+    const route = routeFromLegacyLfo(lfo, index);
+    if (route !== null && routes.length < MAX_ROUTES) routes.push(route);
+    const { target: _target, min: _min, max: _max, ...rest } = lfo;
+    return rest;
+  });
+  if (v.modRoutes === undefined) v.modRoutes = routes;
+
+  if (v.amplitude === undefined) v.amplitude = 1;
+  if (v.pan === undefined) v.pan = 0;
+
+  if (typeof doc.effects === 'object' && doc.effects !== null) {
+    const effects = doc.effects as Record<string, unknown>;
+    if (effects.eq === undefined) {
+      effects.eq = {
+        enabled: false,
+        band0: { gain: 0 },
+        band1: { gain: 0 },
+        band2: { gain: 0 },
+        band3: { gain: 0 },
+        band4: { gain: 0 },
+      };
+    }
+  }
+}
+
+/**
+ * F65 — a legacy patch migrates forward losslessly; an unknown FUTURE version is refused
+ * explicitly rather than silently coerced.
+ *
+ * Note the defaulting rule, which the v2 bump exposed as a latent bug: a document with no
+ * `schemaVersion` is a version-ONE document, not a current one. Defaulting it to
+ * `PRESET_SCHEMA_VERSION` was harmless while that constant was 1 and would have silently
+ * skipped every migration step the moment it moved.
  */
 export function migratePreset(raw: unknown): MigrationResult<unknown> {
   if (typeof raw !== 'object' || raw === null) return { ok: false, error: 'preset must be an object' };
-  const doc = { ...(raw as Record<string, unknown>) };
+  const doc = structuredClone(raw) as Record<string, unknown>;
   const version = doc.schemaVersion;
-  if (version === undefined) doc.schemaVersion = PRESET_SCHEMA_VERSION;
+  if (version === undefined) doc.schemaVersion = 1;
   else if (typeof version !== 'number' || !Number.isInteger(version)) {
     return { ok: false, error: 'preset schemaVersion must be an integer' };
   } else if (version > PRESET_SCHEMA_VERSION) {
@@ -822,6 +1029,11 @@ export function migratePreset(raw: unknown): MigrationResult<unknown> {
       ok: false,
       error: `preset schemaVersion ${version} is newer than this build understands (${PRESET_SCHEMA_VERSION})`,
     };
+  }
+
+  if (doc.schemaVersion === 1) {
+    migratePresetV1ToV2(doc);
+    doc.schemaVersion = 2;
   }
   return { ok: true, value: doc };
 }
