@@ -55,6 +55,7 @@
   "/root/projects2/SAG-synth/src/tests/hot-command-bridge.browser.test.ts",
   "/root/projects2/SAG-synth/src/tests/mod-panel.browser.test.ts",
   "/root/projects2/SAG-synth/src/tests/modulation.test.ts",
+  "/root/projects2/SAG-synth/src/tests/osc-panel.browser.test.ts",
   "/root/projects2/SAG-synth/src/tests/params.test.ts",
   "/root/projects2/SAG-synth/src/tests/persistence.browser.test.ts",
   "/root/projects2/SAG-synth/src/tests/reduce.test.ts",

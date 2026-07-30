@@ -1,7 +1,7 @@
 # Phase 4 — the design cycle, ready to start
 
 Everything the interactive session needs, so it can begin cold. Written 2026-07-30 at
-`10f5685`; revised the same evening at `9307e69`, engine at v0.1.14, 347 tests green.
+`10f5685`; revised the same evening at `208445c`, engine at v0.1.15, 363 tests green.
 
 ## What is already settled
 
@@ -38,11 +38,23 @@ it looks and where things sit. `PARAM_SPECS` keeps deciding what a knob's range 
 
 ## Blocking decisions — the build cannot start without these
 
-**1. One oscillator or three.** The design has slots A/B/C, each with its own `OCTAVE`,
-`PHASE`, `SYNC`, `LEVEL`, `PAN` and `VEL. SENS`. We have one oscillator and none of those
-parameters. Taking it literally is a schema bump about the size of the whole v2 routing
-change — new paths, new voice construction, a migration. Taking only its visual language
-costs nothing. **This is the largest fork and it changes the shape of v0.2.0.**
+**1. One oscillator or three. — SETTLED: three, and the engine already has them.**
+
+Eyal, 2026-07-30: *"more then one ocsilator will give better sound design"*, then *"Go, 3
+slots"*. Built at 0.1.15, so this is no longer a fork the design cycle has to price — it
+is a capability the surface has to draw.
+
+`voice.oscillators` is a list capped at 3. Each slot carries `enabled`, `type`, `octave`,
+`detune`, `count`, `spread`, `width`, `level`, `pan` — the design's A/B/C set minus
+`PHASE`, `SYNC` and `VEL. SENS`, all three refused with reasons in KIND-synth_patch §5.
+The debug `OscillatorPanel` draws one panel per filled slot with add and remove; that is
+the throwaway version of what the designed surface needs.
+
+**What this changes for the design:** the OSC tab is now a slot family, not a fixed panel.
+Three slots × nine controls is a lot of surface on a phone, and the EXAKT reference's
+lettered module tabs (A/B/C/D) are the obvious answer — they were drawn for exactly this.
+It also triples the OSC panel's jack count on the patch bay, which is why this decision
+had to land before decision 2 was drawn rather than after.
 
 **2. Where routing and the EQ live in a four-tab nav. — ROUTING IS SETTLED: a patch bay.
 The EQ is still open.**
@@ -56,7 +68,7 @@ Not for separation of concerns — that already exists and is mechanically enfor
 **routing surface** it is the right answer, and it dissolves the half of this question it
 touches. A jack is a source, a jack is a destination, a cable is a `ModRoute`. That is not
 a metaphor laid over the data — it is the data: `(source, destination, depth)`, five
-sources, nineteen destinations, eight cables.
+sources, **thirty-one** destinations, eight cables.
 
 Three reasons it beats the alternatives that were listed here:
 
@@ -74,8 +86,8 @@ Three reasons it beats the alternatives that were listed here:
 
 **Where the reference has to stop, and this is the part the drawing does not have.** A
 Moog bay is undeclared mono CV: any output into any input, and if it makes no sense you
-find out by ear. Ours refuses undeclared destinations at the boundary (F71), and only five
-of the nineteen are wired today. So **not every jack accepts every cable**, and the
+find out by ear. Ours refuses undeclared destinations at the boundary (F71), and only 13
+of the 31 are wired today. So **not every jack accepts every cable**, and the
 surface has to say so *before* the cable is dropped — a jack that quietly accepts a lead
 and produces nothing is the decoy-knob failure this project has now shipped five times.
 Dimming or refusing the illegal targets while a cable is being dragged is the minimum.
@@ -135,14 +147,14 @@ Not decisions so much as gaps to route around. Each is either "drop it" or "buil
   declares an evaluation order.
 - **Stereo master meters** — ours is mono.
 - **The five-band EQ is absent from the design** — it exists in the engine and needs a home.
-- **Only 5 of the 19 declared destinations are wired**, and the patch bay makes this
-  urgent rather than academic. `voice.filterEnvelope.baseFrequency`, `voice.filter.Q`,
-  `voice.oscillator.detune`, `voice.amplitude` and `voice.pan` reach the graph. The other
-  fourteen — oscillator width and spread, and every `effects.*` and EQ band — validate,
-  journal and replay correctly and **make no sound**; the runtime reports each by name
-  through `getUnimplemented()`. A table can list fourteen greyed rows and be honest. A bay
-  draws fourteen jacks that look exactly like the five that work, so it has to distinguish
-  them in the drawing or it is a wall of decoys.
+- **Only 13 of the 31 declared destinations are wired**, and the patch bay makes this
+  urgent rather than academic. Cutoff, resonance, voice amplitude, voice pan, and per slot
+  `detune` / `level` / `pan` reach the graph. The other eighteen — every `effects.*` and EQ
+  band, plus per-slot `width` and `spread` — validate, journal and replay correctly and
+  **make no sound**; the runtime reports each by name through `getUnimplemented()`. A table
+  can list eighteen greyed rows and be honest. A bay draws eighteen jacks that look exactly
+  like the thirteen that work, so it has to distinguish them in the drawing or it is a wall
+  of decoys.
 
 ## Pending engine work that touches the UI
 

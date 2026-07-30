@@ -1395,7 +1395,8 @@ describe('ToneRuntime — velocity response (Stage 2d)', () => {
     expect(voiceCount).toBe(4);
     // 4 voices x (synth + gain + panner + velocity) + master/analyser/meter. No LFOs and
     // no routes in the factory patch, so nothing else is built.
-    expect(nodeCount).toBe(4 * 4 + 3);
+    // 4 voices x 7 fixed nodes + 4 oscillator slots x 4 + master/analyser/meter.
+    expect(nodeCount).toBe(4 * 7 + 4 * 4 + 3);
   });
 });
 
@@ -1421,6 +1422,153 @@ describe('ToneRuntime — oscillator mapping (Stage 2c)', () => {
       runtime.noteOn({ voiceId: 0, note: 'A3', velocity: 0.8, portamento: 0 });
     }, seconds);
   }
+
+  /** A second slot, on top of whatever slot 0 already is. */
+  function withSlot(overrides: Partial<{ detune: number; octave: number; level: number; pan: number; enabled: boolean }>) {
+    return (patch: SynthPreset) => {
+      patch.voice.oscillators = [
+        ...patch.voice.oscillators,
+        {
+          id: 'osc-1',
+          enabled: overrides.enabled ?? true,
+          type: 'sawtooth' as const,
+          octave: overrides.octave ?? 0,
+          detune: overrides.detune ?? 0,
+          count: 1,
+          spread: 20,
+          width: 0,
+          level: overrides.level ?? 1,
+          pan: overrides.pan ?? 0,
+        },
+      ];
+    };
+  }
+
+  /**
+   * Peak-to-trough of the level across a sustained note, in dB.
+   *
+   * Two oscillators a few cents apart interfere: they drift in and out of phase at the
+   * difference frequency, and the sum swings between nearly double and nearly nothing.
+   * That beating IS the detuned-pair sound, and one oscillator cannot produce it at all —
+   * which makes this the measurement that separates two slots from one loud slot.
+   */
+  function beatDepthDb(data: Float32Array): number {
+    // 0.2 s to 0.9 s, which needs a render longer than `renderOsc`'s 0.6 s default — the
+    // first version sampled past the end of the buffer and read the trailing zeros as a
+    // trough, reporting 163 dB of "beating" on a single steady oscillator.
+    //
+    // The span is set by the beat, not by taste: 25 cents at A3 is about 3.2 Hz, so one
+    // full cycle is 0.31 s and this holds two of them. A window shorter than one cycle
+    // can land entirely inside a crest and see nothing move.
+    const points = Array.from({ length: 35 }, (_unused, i) => {
+      const start = Math.floor((0.2 + i * 0.02) * SR);
+      return rms(data, start, start + Math.floor(0.02 * SR));
+    });
+    return 20 * Math.log10(Math.max(...points) / Math.max(Math.min(...points), 1e-9));
+  }
+
+  /** Long enough for `beatDepthDb` to see two full beats. */
+  const BEAT_SECONDS = 1.2;
+
+  it('two slots detuned against each other beat; one slot cannot', async () => {
+    // The reason three slots exist. 25 cents at A3 is a difference of about 3.2 Hz, so a
+    // 0.6 s window holds two full beats — audible as movement, not as a chorus effect
+    // bolted on afterwards.
+    const [single, pair] = await Promise.all([
+      renderOsc(() => {}, BEAT_SECONDS),
+      renderOsc(withSlot({ detune: 25 }), BEAT_SECONDS),
+    ]);
+
+    expect(rms(pair)).toBeGreaterThan(0.01);
+    // One slot is a steady tone: whatever its level, it does not swing.
+    // Measured: 0.68 dB for one slot against 5.84 dB for two, an 8.6x separation. The
+    // pair's figure is not larger because a sawtooth's harmonics beat at DIFFERENT rates —
+    // harmonic n at n times the difference frequency — so they never all cancel at once.
+    // Two sines would null almost completely; two saws swell and thin, which is the sound
+    // being asked for.
+    expect(beatDepthDb(single)).toBeLessThan(2);
+    expect(beatDepthDb(pair)).toBeGreaterThan(4);
+    expect(beatDepthDb(pair)).toBeGreaterThan(beatDepthDb(single) * 4);
+  });
+
+  it('a slot at level 0 contributes nothing, and disabling one is the same as silencing it', async () => {
+    // Two ways to say "not this slot", which must agree. If they did not, `enabled` would
+    // be a second opinion about level rather than a mute.
+    const [alone, silent, disabled] = await Promise.all([
+      renderOsc(() => {}, BEAT_SECONDS),
+      renderOsc(withSlot({ detune: 25, level: 0 }), BEAT_SECONDS),
+      renderOsc(withSlot({ detune: 25, enabled: false }), BEAT_SECONDS),
+    ]);
+
+    expect(rms(silent)).toBeCloseTo(rms(alone), 3);
+    expect(rms(disabled)).toBeCloseTo(rms(alone), 3);
+    expect(beatDepthDb(disabled)).toBeLessThan(3);
+  });
+
+  it('slot level mixes rather than switching — half is between nothing and all', async () => {
+    // Monotonic, and the negative half of the gate above: a `level` that only distinguished
+    // zero from non-zero would pass every assertion there.
+    const [off, half, full] = await Promise.all([
+      renderOsc(withSlot({ detune: 25, level: 0 }), BEAT_SECONDS),
+      renderOsc(withSlot({ detune: 25, level: 0.5 }), BEAT_SECONDS),
+      renderOsc(withSlot({ detune: 25, level: 1 }), BEAT_SECONDS),
+    ]);
+
+    expect(beatDepthDb(half)).toBeGreaterThan(beatDepthDb(off));
+    expect(beatDepthDb(full)).toBeGreaterThan(beatDepthDb(half));
+  });
+
+  it('the octave switch moves a slot by exactly an octave', async () => {
+    // A3 is 220 Hz. Slot 0 muted so the pitch estimate reads the second slot alone —
+    // measuring a sum of two pitches would measure the beat, not the transposition.
+    const down = await renderOsc((patch) => {
+      withSlot({ octave: -1 })(patch);
+      patch.voice.oscillators[0]!.enabled = false;
+    });
+    const up = await renderOsc((patch) => {
+      withSlot({ octave: 1 })(patch);
+      patch.voice.oscillators[0]!.enabled = false;
+    });
+
+    // Generous windows: this asks whether the octave reached the oscillator at all.
+    expect(estimatePitch(down, SR, 0.3)).toBeGreaterThan(95);
+    expect(estimatePitch(down, SR, 0.3)).toBeLessThan(125);
+    expect(estimatePitch(up, SR, 0.3)).toBeGreaterThan(400);
+    expect(estimatePitch(up, SR, 0.3)).toBeLessThan(480);
+  });
+
+  it('costs one oscillator per slot per voice, and no more', async () => {
+    // The cost model, measured rather than assumed — the same discipline the shared-phase
+    // LFO departure was settled with. Three slots across eight sounding voices is 24
+    // oscillator objects; a construction that built MAX_OSCILLATORS regardless of how many
+    // the patch declared would read 24 for a one-slot patch too.
+    let single = 0;
+    let triple = 0;
+    await Tone.Offline(
+      () => {
+        const one = new ToneRuntime();
+        one.applyPatch(patchWith(() => {}));
+        for (let i = 0; i < 8; i += 1) one.noteOn({ voiceId: i, note: 'C3', velocity: 0.7, portamento: 0 });
+        single = one.oscillatorCount;
+
+        const three = new ToneRuntime();
+        three.applyPatch(
+          patchWith((patch) => {
+            withSlot({ detune: 10 })(patch);
+            withSlot({ detune: -10 })(patch);
+          }),
+        );
+        for (let i = 0; i < 8; i += 1) three.noteOn({ voiceId: i, note: 'C3', velocity: 0.7, portamento: 0 });
+        triple = three.oscillatorCount;
+      },
+      0.2,
+      1,
+      SR,
+    );
+
+    expect(single).toBe(8);
+    expect(triple).toBe(24);
+  });
 
   it('maps the type string, not just the four basic shapes', () => {
     const optionsFor = (mutate: (patch: SynthPreset) => void) =>
@@ -2014,13 +2162,15 @@ describe('ToneRuntime — modulation routing', () => {
 
     expect(voiceCount).toBe(8);
     expect(lfoCount).toBe(1);
-    // 1 LFO + 1 depth scaler + 8 voices x (synth + gain + panner + velocity signal)
+    // 1 LFO + 1 depth scaler + 8 voices x 7 fixed + 8 oscillator slots x 4
     // + master/analyser/meter.
     //
-    // The two counts scale differently on purpose. Per-voice nodes are unavoidable — each
-    // voice needs its own gain, pan and velocity. What must stay flat is the LFO side: one
-    // generator and one scaler serve the whole pool however many voices sound.
-    expect(nodeCount).toBe(1 + 1 + 8 * 4 + 3);
+    // The counts scale differently on purpose. Per-voice nodes are unavoidable — each
+    // voice needs its own filter, envelopes, gain, pan and velocity. What must stay flat
+    // is the LFO side: one generator and one scaler serve the whole pool however many
+    // voices sound. The slot side is the one that MULTIPLIES, which is why it is counted
+    // separately and measured in its own gate rather than folded in here.
+    expect(nodeCount).toBe(1 + 1 + 8 * 7 + 8 * 4 + 3);
   });
 
   it('reports a declared destination it cannot yet wire, rather than dropping it', async () => {

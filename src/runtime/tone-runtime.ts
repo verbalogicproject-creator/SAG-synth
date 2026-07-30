@@ -1242,9 +1242,32 @@ export class ToneRuntime implements Runtime {
     return this.lfos.size;
   }
 
-  /** Every Tone node this runtime owns. Used to measure the cost model, not by the app. */
+  /**
+   * How many oscillators are running. The number the three-slot bump is about.
+   *
+   * It tracks slots x sounding voices, so it is the one count that grows multiplicatively
+   * — unlike `lfoCount`, which the shared-phase construction made flat. Worth measuring
+   * rather than assuming: at declared maxima this is 3 slots x 8 voices = 24 oscillator
+   * objects, each of which is up to 8 more internally when unison is on.
+   */
+  get oscillatorCount(): number {
+    let total = 0;
+    for (const nodes of this.voices.values()) total += nodes.slots.length;
+    return total;
+  }
+
+  /**
+   * Every Tone node this runtime owns. Used to measure the cost model, not by the app.
+   *
+   * Seven fixed nodes per voice — filter, filter envelope, amp envelope, frequency,
+   * gain, panner, velocity — plus four per oscillator slot. It was `voices * 4` while a
+   * voice was a MonoSynth, which counted the MonoSynth as one node and was already a
+   * simplification; now the slots are the point, so they are counted.
+   */
   get nodeCount(): number {
-    return this.lfos.size + this.scalers.length + this.voices.size * 4 + 3;
+    return (
+      this.lfos.size + this.scalers.length + this.voices.size * 7 + this.oscillatorCount * 4 + 3
+    );
   }
 }
 

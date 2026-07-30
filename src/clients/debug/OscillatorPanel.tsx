@@ -29,7 +29,12 @@ export interface OscillatorPanelProps {
   unsupported: readonly string[];
 }
 
-const LABELS: Partial<Record<string, string>> = {
+/**
+ * Exported so the panel gate can check that every declared key has a control WITHOUT
+ * restating the wording. A test carrying its own copy of these would pass while the panel
+ * drew nothing, which is the drift the whole generated-from-specs rule exists to stop.
+ */
+export const SLOT_LABELS: Partial<Record<string, string>> = {
   enabled: 'on',
   type: 'shape',
   octave: 'octave',
@@ -119,7 +124,7 @@ export function OscillatorPanel({ state, onChange, onCommand, unsupported }: Osc
                 <ParamControl
                   key={path}
                   path={path}
-                  label={LABELS[key] ?? key}
+                  label={SLOT_LABELS[key] ?? key}
                   spec={PARAM_SPECS[path]}
                   value={getParam(state, path)}
                   onChange={onChange}

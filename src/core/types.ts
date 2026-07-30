@@ -206,7 +206,7 @@ const _slotsMatchCap: _SlotsMatchCap = true;
 void _slotsMatchCap;
 
 // ---------------------------------------------------------------------------
-// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.8)
+// Modulation routing — implements KIND-synth_mod_route (framework tag v0.0.9)
 // ---------------------------------------------------------------------------
 //
 // An LFO used to carry its own destination in a four-value `LfoTarget` union. That
