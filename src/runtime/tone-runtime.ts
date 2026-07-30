@@ -13,19 +13,30 @@
  * play and during journal replay. This class is told which voice sounds and which dies;
  * it never chooses.
  *
- * SCOPE. `applyPatch` currently reads `oscillator.type`, `envelope`, `filter` and
- * `filterEnvelope`. Still to come, each with its own audio gate: oscillator unison
- * (`count`/`spread`/`width`), `velocity.*`, `lfos`, and the effects chain.
+ * SCOPE. As of Stage 3 this reads **every one of the 97 declared parameter addresses**:
+ * the voice (oscillator, both envelopes, filter, velocity, amplitude, pan), modulation
+ * routing, the effects chain, the five-band EQ, and the master stage. What remains
+ * unimplemented is song PLAYBACK — tracks, tempo, the step grid — which needs
+ * `Tone.Transport` and is v0.3.0.
  *
- * Two kinds of honesty about what is missing, deliberately kept separate: adapter
- * methods this version cannot service are recorded at call time by `notImplemented`,
- * while contract parameters it does not read are listed statically in `UNMAPPED_PARAMS`.
- * The debug surface shows both, so nothing that does nothing looks like it works.
+ * The signal path, in order:
+ *
+ *   voice(MonoSynth -> Gain -> Panner) -> fxInput
+ *     -> distortion -> chorus -> delay -> reverb -> eq x5
+ *     -> master(Volume) -> limiter -> safety clip -> destination
+ *
+ * Two kinds of honesty about what is missing, deliberately kept separate: adapter methods
+ * this version cannot service are recorded at call time by `notImplemented`, while
+ * contract parameters it does not read are listed statically in `UNMAPPED_PARAMS` — now
+ * empty. The debug surface shows both, so nothing that does nothing looks like it works.
  */
 
 import * as Tone from 'tone';
+import { defaultMasterConfig } from '../core/state';
+import { EQ_BAND_FREQUENCIES } from '../core/types';
 import type {
   Beats,
+  EffectsConfig,
   FilterRolloff,
   FilterType,
   ModDestination,
@@ -45,15 +56,31 @@ import type {
 } from '../core/runtime-contract';
 
 /**
- * Provisional master trim for Stage 1.
+ * Q for every EQ band.
  *
- * `defaultMasterConfig().volume` is -6 dB, but eight voices at velocity 1 measured a
- * peak of **1.0122** through that — real clipping, because Web Audio hard-clips at ±1.
- * Stage 3 replaces this with the patch's own master volume behind a limiter (open
- * question Q1). Until then the runtime buys headroom statically, rather than shipping a
- * gate that was relaxed to accommodate distortion.
+ * The bands sit roughly two octaves apart, so ~1.0 (a little over one octave of
+ * bandwidth) gives negligible interaction between neighbours even under full boost. It is
+ * not load-bearing for transparency: a peaking filter at 0 dB gain is an identity filter
+ * at any Q, so a flat EQ is exactly flat regardless of what this is set to.
  */
-const STAGE1_MASTER_VOLUME_DB = -12;
+const EQ_BAND_Q = 1.0;
+
+/**
+ * The safety clip's transfer curve: everything outside ±1 is folded onto ±1.
+ *
+ * This is the resolution of open question Q1, and the question turned out to be wrong
+ * rather than hard. `Tone.Limiter` measuring a HIGHER peak than no limiter is textbook
+ * behaviour for a feedforward compressor used as a peak-safety device — it has knee,
+ * attack and release, and a transient arriving faster than the attack passes through
+ * before gain reduction engages. Nothing in the Web Audio spec gives
+ * `DynamicsCompressorNode` a `|x| <= 1` guarantee, and no amount of tuning creates one.
+ *
+ * So the limiter does the musical work and this does the guaranteeing. Three points are
+ * enough for a hard clip because `WaveShaper` interpolates linearly between curve
+ * entries: -1 maps to -1, 0 to 0, +1 to +1, and anything beyond the ends saturates. Pure
+ * per-sample lookup — no latency, no state, nothing that costs determinism.
+ */
+const HARD_CLIP_CURVE = new Float32Array([-1, 0, 1]);
 
 /**
  * Minimum spacing between two scheduled events on the SAME voice, in seconds.
@@ -215,12 +242,71 @@ export class ToneRuntime implements Runtime {
   /** Methods called that this stage does not implement, in call order, deduplicated. */
   private readonly unimplemented = new Set<string>();
 
+  /**
+   * The chain, built once and never rewired.
+   *
+   * Every effect exists whether or not the patch enables it, and a disabled one is
+   * bypassed by forcing its wet to 0 rather than by disconnecting it. Reconnecting nodes
+   * mid-performance produces clicks, and a graph whose shape depends on parameter values
+   * is a graph whose behaviour depends on the order the parameters arrived in — which is
+   * exactly what replay must not have.
+   *
+   * Order is `EFFECT_CHAIN_ORDER`, read from core rather than restated here.
+   */
+  private readonly fxInput: Tone.Gain;
+  private readonly distortion: Tone.Distortion;
+  private readonly chorus: Tone.Chorus;
+  private readonly delay: Tone.FeedbackDelay;
+  private readonly reverb: Tone.Freeverb;
+  private readonly eqBands: Tone.Filter[];
+  private readonly limiter: Tone.Limiter;
+  private readonly safetyClip: Tone.WaveShaper;
+
   constructor() {
-    this.master = new Tone.Volume(STAGE1_MASTER_VOLUME_DB).toDestination();
+    this.fxInput = new Tone.Gain(1);
+    this.distortion = new Tone.Distortion({ distortion: 0.2, wet: 0 });
+    // Tone.Chorus is an LFO-modulated delay and does not run until started; an unstarted
+    // one passes audio through unchanged, which reads as "chorus does nothing".
+    this.chorus = new Tone.Chorus({ frequency: 4, delayTime: 2.5, depth: 0.5, wet: 0 }).start();
+    this.delay = new Tone.FeedbackDelay({ delayTime: 0.25, feedback: 0.3, wet: 0 });
+    // Freeverb, not Tone.Reverb: Reverb generates a randomised impulse response at
+    // construction, so no assertion over its output is stable across runs. Freeverb is a
+    // fixed comb/allpass network and is gateable.
+    this.reverb = new Tone.Freeverb({ roomSize: 0.7, dampening: 3000, wet: 0 });
+
+    // Five peaking filters IN SERIES, which is how every graphic EQ is built. Parallel
+    // bands would need gain compensation to avoid comb-filtering where their skirts
+    // overlap. A peaking filter at 0 dB is an identity filter at ANY Q, so a flat EQ is
+    // exactly transparent and Q only starts to matter once a band is moved.
+    this.eqBands = EQ_BAND_FREQUENCIES.map(
+      (frequency) => new Tone.Filter({ type: 'peaking', frequency, Q: EQ_BAND_Q, gain: 0 }),
+    );
+
+    this.master = new Tone.Volume(defaultMasterConfig().volume);
+    this.limiter = new Tone.Limiter(defaultMasterConfig().limiterThreshold);
+    this.safetyClip = new Tone.WaveShaper(HARD_CLIP_CURVE);
+
     this.analyser = new Tone.Analyser('waveform', WAVEFORM_SIZE);
     this.meter = new Tone.Meter();
-    this.master.connect(this.analyser);
-    this.master.connect(this.meter);
+
+    Tone.connectSeries(
+      this.fxInput,
+      this.distortion,
+      this.chorus,
+      this.delay,
+      this.reverb,
+      ...this.eqBands,
+      this.master,
+      this.limiter,
+      this.safetyClip,
+    );
+    this.safetyClip.toDestination();
+
+    // Tapped AFTER the clip, so the telemetry reports what actually leaves rather than
+    // what the mixer wanted. A limiter or a clip that is doing something is precisely the
+    // thing an observer needs to see.
+    this.safetyClip.connect(this.analyser);
+    this.safetyClip.connect(this.meter);
   }
 
   // -------------------------------------------------------------------------
@@ -324,8 +410,50 @@ export class ToneRuntime implements Runtime {
       nodes.gain.gain.value = patch.voice.amplitude;
       nodes.panner.pan.value = patch.voice.pan;
     }
+    this.applyEffects(patch.effects);
     this.syncLfos(patch);
     this.rewireRoutes(patch);
+  }
+
+  /**
+   * Push the effects chain's parameters. The graph never changes shape.
+   *
+   * `enabled` is expressed as wet 0 rather than as a disconnection. An effect that is
+   * switched off still carries a `wet` value in the patch, and the two must not fight: a
+   * disabled reverb with `wet: 0.3` stored has to sound like no reverb, and re-enabling it
+   * has to restore 0.3 without the UI having to remember it. Multiplying gets both.
+   */
+  private applyEffects(effects: EffectsConfig): void {
+    const wetOf = (enabled: boolean, value: number) => (enabled ? value : 0);
+
+    this.distortion.distortion = effects.distortion.amount;
+    this.distortion.wet.value = wetOf(effects.distortion.enabled, effects.distortion.wet);
+
+    this.chorus.frequency.value = effects.chorus.frequency;
+    this.chorus.delayTime = effects.chorus.delayTime;
+    this.chorus.depth = effects.chorus.depth;
+    this.chorus.wet.value = wetOf(effects.chorus.enabled, effects.chorus.wet);
+
+    this.delay.delayTime.value = effects.delay.delayTime;
+    this.delay.feedback.value = effects.delay.feedback;
+    this.delay.wet.value = wetOf(effects.delay.enabled, effects.delay.wet);
+
+    this.reverb.roomSize.value = effects.reverb.roomSize;
+    this.reverb.dampening = effects.reverb.dampening;
+    this.reverb.wet.value = wetOf(effects.reverb.enabled, effects.reverb.wet);
+
+    // The EQ needs no wet control: a peaking filter at 0 dB is an identity filter, so
+    // "disabled" here is genuinely flat rather than an approximation of it.
+    const gains = [
+      effects.eq.band0.gain,
+      effects.eq.band1.gain,
+      effects.eq.band2.gain,
+      effects.eq.band3.gain,
+      effects.eq.band4.gain,
+    ];
+    this.eqBands.forEach((band, index) => {
+      band.gain.value = effects.eq.enabled ? gains[index]! : 0;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -476,7 +604,11 @@ export class ToneRuntime implements Runtime {
     const panner = new Tone.Panner(this.patch === null ? 0 : this.patch.voice.pan);
     synth.connect(gain);
     gain.connect(panner);
-    panner.connect(this.master);
+    // Into the head of the effects chain, NOT into master. Connecting to master here
+    // routes every voice past distortion, chorus, delay, reverb and the EQ, and the
+    // symptom is not silence — it is a chain whose every parameter reads correctly and
+    // changes nothing, which is far harder to see.
+    panner.connect(this.fxInput);
 
     // Built once with the voice, never per note. `Tone.Signal` owns a ConstantSourceNode
     // and starts it on construction — an AudioScheduledSourceNode throws if started
@@ -597,9 +729,22 @@ export class ToneRuntime implements Runtime {
     return [...this.unimplemented];
   }
 
+  /**
+   * PARTIAL, and the partiality is the point.
+   *
+   * The master volume and limiter threshold live on the song rather than the patch, so
+   * this is the only path they can arrive by — and without them the output stage would
+   * run on a hardcoded trim forever. Everything else a song carries (tracks, tempo, the
+   * step grid, scheduled parts) needs `Tone.Transport`, which v0.1.x does not drive.
+   *
+   * So it applies what it can and keeps reporting the rest, rather than doing neither. A
+   * caller checking `getUnimplemented()` still learns that song PLAYBACK is missing; what
+   * changes is that the mixer is no longer missing with it.
+   */
   applySong(song: Song): void {
-    void song;
-    this.notImplemented('applySong');
+    this.master.volume.value = song.master.volume;
+    this.limiter.threshold.value = song.master.limiterThreshold;
+    this.notImplemented('applySong.transport');
   }
 
   readonly transport: TransportControl = {
@@ -757,34 +902,24 @@ export const SHARED_LFO_PHASE_DEPARTURE = {
  * top-level `detune` default of 0. It typechecked and left the pitch exactly where it was.
  */
 export const UNMAPPED_PARAMS: readonly string[] = [
-  // Stage 2c closed the oscillator group. All four are read now, but `count`/`spread`
-  // and `width` are only MEANINGFUL on certain types — Tone's grammar makes unison and
-  // the pulse family mutually exclusive. That is a property of the patch, not of the
-  // runtime, so it is reported per-patch by `unsupportedOscillatorFeatures` through
-  // `getUnimplemented()` rather than listed here as a blanket gap.
-
-  // Stage 3 — the effects chain and master. `master.volume` is overridden by
-  // STAGE1_MASTER_VOLUME_DB for headroom until the limiter design lands.
-  'effects.distortion.amount',
-  'effects.distortion.wet',
-  'effects.chorus.frequency',
-  'effects.chorus.delayTime',
-  'effects.chorus.depth',
-  'effects.chorus.wet',
-  'effects.delay.delayTime',
-  'effects.delay.feedback',
-  'effects.delay.wet',
-  'effects.reverb.roomSize',
-  'effects.reverb.dampening',
-  'effects.reverb.wet',
-  'effects.eq.enabled',
-  'effects.eq.band0.gain',
-  'effects.eq.band1.gain',
-  'effects.eq.band2.gain',
-  'effects.eq.band3.gain',
-  'effects.eq.band4.gain',
-  'master.volume',
-  'master.limiterThreshold',
+  // EMPTY, and this time it means it.
+  //
+  // It read empty once before for the wrong reason: it had only ever tracked a single
+  // decoy, and deleting that parameter at schema_version 2 made an untracked two dozen
+  // look like zero. Three tests now guard both directions — every entry must be a real
+  // address, and nothing the runtime demonstrably reads may be listed.
+  //
+  // What closed the rest: Stage 2c mapped the oscillator group, Stage 2d the velocity
+  // response, and Stage 3 the effects chain and master stage. All 97 declared addresses
+  // now reach the audio graph.
+  //
+  // Two kinds of gap remain, and neither belongs in a static list because both depend on
+  // the patch rather than on the build:
+  //   - combinations a shape cannot honour (`count` on a pulse oscillator, `width` on
+  //     anything but pulse) — reported by `unsupportedOscillatorFeatures`
+  //   - modulation routes to destinations with no per-voice target yet — reported by
+  //     `rewireRoutes`
+  // Both surface through `getUnimplemented()`, per patch, at the moment they matter.
 ];
 
 /**

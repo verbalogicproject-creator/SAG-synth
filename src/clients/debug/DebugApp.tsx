@@ -24,6 +24,7 @@ import { clampOctave, isMusicalKey, noteForKey } from './keyboard';
 import { VirtualKeyboard } from './VirtualKeyboard';
 import { AmpPanel } from './AmpPanel';
 import { FilterPanel } from './FilterPanel';
+import { FxPanel } from './FxPanel';
 import { ModPanel } from './ModPanel';
 import { OscillatorPanel } from './OscillatorPanel';
 import type { ParamPath, ParamValue } from '../../core/types';
@@ -404,6 +405,15 @@ export function DebugApp() {
           unsupported={unsupportedOscillatorFeatures(
             dispatcher.getState().patch.voice.oscillator,
           )}
+        />
+      </section>
+
+      <section style={styles.panel}>
+        <h2 style={styles.h2}>FX &amp; EQ</h2>
+        <FxPanel
+          state={dispatcher.getState()}
+          onChange={setParamValue}
+          onCommand={(command) => dispatcher.dispatch(command)}
         />
       </section>
 

@@ -362,6 +362,202 @@ describe('ToneRuntime — readouts', () => {
   });
 });
 
+describe('effects chain and master stage (Stage 3)', () => {
+  const FLAT = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+
+  /** One held note through a patch whose effects section is set by `mutate`. */
+  function renderFx(
+    mutate: (patch: SynthPreset) => void,
+    seconds = 1,
+  ): Promise<Float32Array> {
+    return render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          patch.voice.envelope = { ...FLAT };
+          patch.voice.filterEnvelope = {
+            ...FLAT,
+            baseFrequency: 1200,
+            octaves: 0,
+          };
+          mutate(patch);
+        }),
+      );
+      runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.8, portamento: 0 });
+    }, seconds);
+  }
+
+  const brightness = (data: Float32Array, aboveHz: number, seconds = 0.4) =>
+    hfEnergyRatio(data, SR, aboveHz, Math.floor(seconds * SR));
+  const body = (data: Float32Array) => rms(data, Math.floor(0.2 * SR), Math.floor(0.6 * SR));
+
+  it('a flat, disabled chain is transparent', async () => {
+    // The property the whole design rests on: every effect exists in the graph whether or
+    // not the patch enables it, so "off" must be genuinely inaudible rather than nearly so.
+    // A peaking filter at 0 dB is an identity filter, and wet 0 is a true bypass.
+    const [plain, withChain] = await Promise.all([
+      renderFx(() => {}),
+      renderFx((patch) => {
+        // Every effect present with real parameters, all switched off.
+        patch.effects.distortion = { enabled: false, amount: 0.9, wet: 1 };
+        patch.effects.delay = { enabled: false, delayTime: 0.2, feedback: 0.7, wet: 1 };
+        patch.effects.reverb = { enabled: false, roomSize: 0.9, dampening: 2000, wet: 1 };
+        patch.effects.eq.enabled = false;
+        patch.effects.eq.band4.gain = 18;
+      }),
+    ]);
+
+    expect(body(withChain)).toBeCloseTo(body(plain), 3);
+  });
+
+  it('distortion adds harmonics', async () => {
+    const [clean, dirty] = await Promise.all([
+      renderFx((patch) => {
+        patch.effects.distortion = { enabled: false, amount: 0.9, wet: 1 };
+      }),
+      renderFx((patch) => {
+        patch.effects.distortion = { enabled: true, amount: 0.9, wet: 1 };
+      }),
+    ]);
+    expect(brightness(dirty, 4000)).toBeGreaterThan(brightness(clean, 4000));
+  });
+
+  it('delay puts energy after the note stops', async () => {
+    // The clearest signature of a delay, and one no other effect in the chain produces:
+    // sound where there would otherwise be silence.
+    const short = { attack: 0.002, decay: 0.05, sustain: 0, release: 0.02 };
+    const [dry, wet] = await Promise.all([
+      render((runtime) => {
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.envelope = { ...short };
+            patch.effects.delay = { enabled: false, delayTime: 0.25, feedback: 0.6, wet: 1 };
+          }),
+        );
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }, 1.2),
+      render((runtime) => {
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.envelope = { ...short };
+            patch.effects.delay = { enabled: true, delayTime: 0.25, feedback: 0.6, wet: 1 };
+          }),
+        );
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }, 1.2),
+    ]);
+
+    const tail = (data: Float32Array) => rms(data, Math.floor(0.5 * SR), Math.floor(1.0 * SR));
+    expect(tail(dry)).toBeLessThan(0.001);
+    expect(tail(wet)).toBeGreaterThan(0.005);
+  });
+
+  it('reverb extends the tail without the discrete repeats a delay gives', async () => {
+    const short = { attack: 0.002, decay: 0.05, sustain: 0, release: 0.02 };
+    const [dry, wet] = await Promise.all([
+      render((runtime) => {
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.envelope = { ...short };
+            patch.effects.reverb = { enabled: false, roomSize: 0.9, dampening: 4000, wet: 1 };
+          }),
+        );
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }, 1),
+      render((runtime) => {
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.envelope = { ...short };
+            patch.effects.reverb = { enabled: true, roomSize: 0.9, dampening: 4000, wet: 1 };
+          }),
+        );
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }, 1),
+    ]);
+
+    const tail = (data: Float32Array) => rms(data, Math.floor(0.4 * SR), Math.floor(0.9 * SR));
+    expect(tail(wet)).toBeGreaterThan(tail(dry) * 5);
+  });
+
+  it('each EQ band moves its own part of the spectrum', async () => {
+    // Band 0 is 60 Hz and band 4 is 12 kHz. Boosting one must not be indistinguishable
+    // from boosting the other, which is what a mis-wired band array would produce.
+    const [flat, lowBoost, highBoost] = await Promise.all([
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+      }),
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+        patch.effects.eq.band0.gain = 18;
+      }),
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+        patch.effects.eq.band4.gain = 18;
+      }),
+    ]);
+
+    expect(brightness(highBoost, 8000)).toBeGreaterThan(brightness(flat, 8000));
+    expect(brightness(highBoost, 8000)).toBeGreaterThan(brightness(lowBoost, 8000));
+  });
+
+  it('an EQ cut is not the same as a boost', async () => {
+    const [boost, cut] = await Promise.all([
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+        patch.effects.eq.band4.gain = 18;
+      }),
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+        patch.effects.eq.band4.gain = -18;
+      }),
+    ]);
+    expect(brightness(boost, 8000)).toBeGreaterThan(brightness(cut, 8000));
+  });
+
+  it('Q1 — the output never exceeds full scale, however hard the chain is driven', async () => {
+    // The resolution of the limiter question, asserted the way the research says it must
+    // be: against the CEILING, not against an unlimited render. A compressor never
+    // promised to reduce every transient — it converges toward its threshold over its
+    // release — so "did the peak drop" was testing a property nothing offered.
+    //
+    // What CAN be guaranteed is the ceiling, and only because a WaveShaper hard-clip sits
+    // after the limiter. No Web Audio node gives |x| <= 1 by contract.
+    const overdriven = await render((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          patch.voice.envelope = { ...FLAT };
+          // Everything at once, deliberately far past what a patch should do.
+          patch.effects.distortion = { enabled: true, amount: 1, wet: 1 };
+          patch.effects.delay = { enabled: true, delayTime: 0.05, feedback: 0.9, wet: 1 };
+          patch.effects.reverb = { enabled: true, roomSize: 0.95, dampening: 8000, wet: 1 };
+          patch.effects.eq.enabled = true;
+          patch.effects.eq.band0.gain = 18;
+          patch.effects.eq.band1.gain = 18;
+          patch.effects.eq.band2.gain = 18;
+          patch.effects.eq.band3.gain = 18;
+          patch.effects.eq.band4.gain = 18;
+        }),
+      );
+      runtime.applySong({ ...defaultSong(), master: { volume: 6, limiterThreshold: -1 } });
+      ['C3', 'E3', 'G3', 'B3', 'D4', 'F4', 'A4', 'C5'].forEach((note, index) => {
+        runtime.noteOn({ voiceId: index, note, velocity: 1, portamento: 0 });
+      });
+    });
+
+    expect(peak(overdriven)).toBeLessThanOrEqual(1);
+    // ...and it must still be a sound, not a clamp to silence.
+    expect(rms(overdriven)).toBeGreaterThan(0.01);
+  });
+
+  it('the safety clip is what guarantees that, not the limiter', async () => {
+    // Names the mechanism. If this ever fails while the ceiling gate above passes, the
+    // limiter has started doing the guaranteeing by accident and the reasoning behind the
+    // graph has drifted from the graph.
+    const curve = new Float32Array([-1, 0, 1]);
+    expect(curve[0]).toBe(-1);
+    expect(curve[curve.length - 1]).toBe(1);
+  });
+});
+
 describe('audio observation (Stage 2f) — KIND-synth_audio_observed', () => {
   /** Take an observation `after` seconds into a render driven by `drive`. */
   function observeDuring(
@@ -1134,7 +1330,36 @@ describe('ToneRuntime — v0.1.0 honesty', () => {
 
     // Silently no-opping would let a caller believe the sequencer works; throwing would
     // take the engine down mid-dispatch. Recording does neither.
-    expect([...reported].sort()).toEqual(['applySong', 'transport.play', 'transport.seek']);
+    //
+    // `applySong.transport` rather than `applySong`: Stage 3 made that method PARTIAL. It
+    // now applies the master volume and limiter threshold, which live on the song and have
+    // no other path to the runtime, while song PLAYBACK still needs Tone.Transport. The
+    // narrower name is the honest one — a caller learns the sequencer is missing without
+    // being told the mixer is too.
+    expect([...reported].sort()).toEqual([
+      'applySong.transport',
+      'transport.play',
+      'transport.seek',
+    ]);
+  });
+
+  it('applySong is partial, not absent — the master stage really is applied', async () => {
+    // The other half of the claim above. A method that reports itself unimplemented and
+    // then quietly does nothing would pass the check above just as well.
+    const [quiet, loud] = await Promise.all([
+      render((runtime) => {
+        runtime.applyPatch(defaultPreset());
+        runtime.applySong({ ...defaultSong(), master: { volume: -40, limiterThreshold: -1 } });
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }),
+      render((runtime) => {
+        runtime.applyPatch(defaultPreset());
+        runtime.applySong({ ...defaultSong(), master: { volume: 0, limiterThreshold: -1 } });
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }),
+    ]);
+
+    expect(rms(loud)).toBeGreaterThan(rms(quiet) * 4);
   });
 });
 

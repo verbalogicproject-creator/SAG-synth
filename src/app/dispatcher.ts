@@ -137,8 +137,14 @@ export class Dispatcher {
      *
      * Not journalled, because nothing happened: no command was dispatched and no state
      * changed. It is the runtime being brought up to the state that already exists.
+     *
+     * The song goes with it, for the identical reason and against the identical bug. The
+     * master volume and limiter threshold live on the SONG rather than the patch, so
+     * without this line the output stage would run on whatever the backend defaulted to
+     * until the first song edit — which for most sessions is never.
      */
     this.runtime.applyPatch(this.history.present.patch);
+    this.runtime.applySong(this.history.present.song);
   }
 
   // -------------------------------------------------------------------------
