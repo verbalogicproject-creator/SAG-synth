@@ -67,6 +67,28 @@ const rows =
 const started = rows[0].observed_at;
 const spanSeconds = (newest.observed_at - started) / 1000;
 const instances = [...new Set(rows.map((row) => row.instance_id))];
+
+/**
+ * Instances alive AT THE SAME TIME — which is the leak. A distinct-id count is not.
+ *
+ * The first version reported LEAKED whenever the window held more than one id, and over a
+ * working day of ordinary reloads that is every session: 29 ids in seven hours, all
+ * sequential, all fine. A verdict that fires on every long session is one nobody reads,
+ * and on 2026-07-30 a genuine three-way overlap sat underneath exactly that noise while
+ * the tab was silent and the fault was looked for in the engine instead.
+ *
+ * Two instances overlap when one reports both before and after the other's first row. The
+ * span is used rather than the raw rows because an engine that goes quiet still reports.
+ */
+const spans = new Map();
+for (const row of rows) {
+  const span = spans.get(row.instance_id);
+  if (span === undefined) spans.set(row.instance_id, { id: row.instance_id, from: row.observed_at, to: row.observed_at });
+  else span.to = row.observed_at;
+}
+const overlapping = [...spans.values()].filter((span) =>
+  [...spans.values()].some((other) => other.id !== span.id && other.from < span.to && span.from < other.to),
+);
 const sounded = rows.filter((row) => row.peak > SIGNAL_FLOOR);
 const states = [...new Set(rows.map((row) => row.context_state))];
 const gaps = [...new Set(rows.flatMap((row) => row.unimplemented ?? []))];
@@ -85,8 +107,9 @@ line('last seen', ageSeconds < 5 ? 'just now' : `${ageSeconds}s ago`);
 line('context state', states.join(', '));
 line(
   'engine instances',
-  instances.length === 1 ? instances[0] : `${instances.length} — ${instances.join(', ')}`,
+  instances.length === 1 ? instances[0] : `${instances.length} over the window (sequential is normal)`,
 );
+line('...overlapping', overlapping.length > 1 ? `${overlapping.length} — ${overlapping.map((s) => s.id).join(', ')}` : 'none');
 line('voices (max)', Math.max(...rows.map((row) => row.voices)));
 line('observations w/ signal', `${sounded.length} of ${rows.length}`);
 line('peak (max)', sounded.length > 0 ? loudest.peak.toFixed(4) : '—');
@@ -108,10 +131,13 @@ if (!states.includes('running') && sounded.length === 0) {
   console.log('SUSPENDED — the AudioContext never ran in this window, so nothing could');
   console.log('sound whatever the engine did. Needs a qualifying user gesture');
   console.log('(pointerup, not pointerdown).');
-} else if (instances.length > 1) {
-  console.log(`LEAKED — ${instances.length} engine instances alive in this window. This is the`);
-  console.log('hot-reload leak: each reload built a graph and the old ones kept summing.');
-  console.log('Reload the tab. If it persists, import.meta.hot.dispose is not firing.');
+} else if (overlapping.length > 1) {
+  console.log(`LEAKED — ${overlapping.length} engine instances reporting AT THE SAME TIME:`);
+  console.log(`${overlapping.map((span) => span.id).join(', ')}.`);
+  console.log('Each hot update built a graph and the old ones kept summing into one');
+  console.log('destination. That is what silences a long-running tab. Reload it — a hard');
+  console.log('reload, not a hot update — and if it comes back, the globalThis handle in');
+  console.log('DebugApp is not reaping its predecessor.');
 } else if (newest.destination_muted === true) {
   console.log('MUTED AT THE OUTPUT — the engine is fine and the output stage is muted.');
 } else if (sounded.length > 0) {

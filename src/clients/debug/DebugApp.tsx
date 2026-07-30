@@ -30,13 +30,29 @@ import { OscillatorPanel } from './OscillatorPanel';
 import type { ParamPath, ParamValue } from '../../core/types';
 
 /**
- * Module-scope singleton, built on first use.
+ * The engine handle, and it lives on `globalThis` rather than in this module.
  *
  * Not `useState(() => …)`: StrictMode invokes that initializer twice in development,
- * which would build two audio graphs and leave one orphaned, silently doubling the
- * voice count and the CPU cost.
+ * which would build two audio graphs and leave one orphaned.
+ *
+ * And not a plain module variable either, which is the subtler half. A module variable
+ * dies with its module: when Vite hot-updates anything this file imports, it evaluates a
+ * NEW copy of this module in which `engine` is `null`, and that copy dutifully builds a
+ * second audio graph while the first is still connected to the destination. The
+ * `hot.dispose` hook below is meant to prevent exactly that and only fires for the copy
+ * that registered it — so an update arriving through a different boundary leaves the old
+ * graph alive with nothing holding a reference to it.
+ *
+ * That is not a hypothesis. On 2026-07-30 the observation log recorded three engine ids
+ * reporting in the same minute from one page, and the tab had gone silent — the symptom
+ * this whole indirection exists to prevent, arriving anyway through the gap.
+ *
+ * A key on `globalThis` outlives module re-evaluation, so a fresh copy can find its
+ * predecessor and tear it down. One graph per page, whichever module copy is asking.
  */
-let engine: {
+const ENGINE_KEY = '__sagSynthDebugEngine__';
+
+type EngineHandle = {
   runtime: ToneRuntime;
   dispatcher: Dispatcher;
   journal: MemorySagJournal;
@@ -50,21 +66,43 @@ let engine: {
    * synth that has gone quiet.
    */
   instanceId: string;
-} | null = null;
+};
 
-function getEngine(): NonNullable<typeof engine> {
-  if (engine === null) {
-    const runtime = new ToneRuntime();
-    const journal = new MemorySagJournal();
-    engine = {
-      runtime,
-      journal,
-      observer: new HttpSagObserver(),
-      instanceId: crypto.randomUUID().slice(0, 8),
-      dispatcher: createEngine({ runtime, overrides: { journal } }),
-    };
-  }
-  return engine;
+type EngineSlot = typeof globalThis & { [ENGINE_KEY]?: EngineHandle | null };
+
+function slot(): EngineSlot {
+  return globalThis as EngineSlot;
+}
+
+function disposeEngine(): void {
+  const live = slot()[ENGINE_KEY];
+  if (live == null) return;
+  live.dispatcher.dispose();
+  live.observer.dispose();
+  slot()[ENGINE_KEY] = null;
+}
+
+// Reap the predecessor at module-evaluation time, which is the moment a hot update
+// produces a second copy of this file. Running it here rather than only in `hot.dispose`
+// covers the case that hook cannot: an update propagating through some other boundary,
+// where the copy that registered the hook is not the copy being replaced.
+if (import.meta.hot) disposeEngine();
+
+function getEngine(): EngineHandle {
+  const existing = slot()[ENGINE_KEY];
+  if (existing != null) return existing;
+
+  const runtime = new ToneRuntime();
+  const journal = new MemorySagJournal();
+  const built: EngineHandle = {
+    runtime,
+    journal,
+    observer: new HttpSagObserver(),
+    instanceId: crypto.randomUUID().slice(0, 8),
+    dispatcher: createEngine({ runtime, overrides: { journal } }),
+  };
+  slot()[ENGINE_KEY] = built;
+  return built;
 }
 
 /**
@@ -81,11 +119,7 @@ function getEngine(): NonNullable<typeof engine> {
  * of looking for the fault inside the engine, where it was never going to be.
  */
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    engine?.dispatcher.dispose();
-    engine?.observer.dispose();
-    engine = null;
-  });
+  import.meta.hot.dispose(disposeEngine);
 }
 
 /**
