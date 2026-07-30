@@ -35,6 +35,7 @@ import type {
   Unit,
 } from '../core/types';
 import { PARAM_SPECS } from '../core/schemas';
+import type { SynthAudioObservedEvent } from '../core/sag/events';
 import type { VoiceId } from '../core/state';
 import type {
   Runtime,
@@ -611,6 +612,49 @@ export class ToneRuntime implements Runtime {
   // -------------------------------------------------------------------------
   // Readouts — observation only, never a source of truth
   // -------------------------------------------------------------------------
+
+  /**
+   * One measurement of what the master bus is actually carrying — KIND-synth_audio_observed.
+   *
+   * Returns the KIND's slots minus the two the runtime is not allowed to invent:
+   * `instance_id` and `observed_at`. Both are injected by the caller, for the same reason
+   * the dispatcher injects ids and timestamps — a layer that reads its own clock cannot be
+   * driven deterministically by anything above it.
+   *
+   * Peak and RMS are computed here rather than by the caller because the analyser window
+   * is the runtime's own; handing out a Float32Array and asking the app layer to reduce it
+   * would put audio-shaped data in a layer that has no business holding any.
+   */
+  observeAudio(): Omit<SynthAudioObservedEvent, 'instance_id' | 'observed_at'> {
+    const wave = this.getWaveform();
+    let peak = 0;
+    let sumSquares = 0;
+    for (let i = 0; i < wave.length; i += 1) {
+      const sample = wave[i]!;
+      const magnitude = Math.abs(sample);
+      if (magnitude > peak) peak = magnitude;
+      sumSquares += sample * sample;
+    }
+
+    return {
+      context_state: this.getContextState(),
+      // Already floored at SILENCE_FLOOR_DB and collapsed to -Infinity — F76 is satisfied
+      // at the source rather than left to every consumer to defend against.
+      level_db: this.getLevel(),
+      peak,
+      rms: wave.length === 0 ? 0 : Math.sqrt(sumSquares / wave.length),
+      voices: this.voices.size,
+      sample_rate: this.getSampleRate(),
+      unimplemented: this.getUnimplemented(),
+      // One stage further down than everything above, and the reason is F79: a muted
+      // output and a dead engine produce the same reading at the master node, while
+      // having opposite causes. This is the last thing a page can see — Web Audio cannot
+      // report whether a node is still connected to the destination, and the hardware is
+      // invisible from here.
+      destination_muted: Tone.getDestination().mute,
+      destination_volume_db: Tone.getDestination().volume.value,
+    };
+  }
 
   getWaveform(): Float32Array {
     const values = this.analyser.getValue();

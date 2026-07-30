@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ToneRuntime, UNMAPPED_PARAMS, unsupportedOscillatorFeatures } from '../../runtime';
 import { createEngine } from '../../app/create-engine';
+import { HttpSagObserver } from '../../app/http-observer';
 import { MemorySagJournal } from '../../core/sag/events';
 import { DEFAULT_PRESET_ID } from '../../core/state';
 import type { Dispatcher } from '../../app/dispatcher';
@@ -34,14 +35,33 @@ import type { ParamPath, ParamValue } from '../../core/types';
  * which would build two audio graphs and leave one orphaned, silently doubling the
  * voice count and the CPU cost.
  */
-let engine: { runtime: ToneRuntime; dispatcher: Dispatcher; journal: MemorySagJournal } | null =
-  null;
+let engine: {
+  runtime: ToneRuntime;
+  dispatcher: Dispatcher;
+  journal: MemorySagJournal;
+  observer: HttpSagObserver;
+  /**
+   * Identity of THIS engine instance, not the session.
+   *
+   * The point of it is the failure described under `import.meta.hot` below: when several
+   * graphs are alive at once, every one emits observations under its own id, so the leak
+   * shows up as two ids interleaved in the log rather than having to be deduced from a
+   * synth that has gone quiet.
+   */
+  instanceId: string;
+} | null = null;
 
 function getEngine(): NonNullable<typeof engine> {
   if (engine === null) {
     const runtime = new ToneRuntime();
     const journal = new MemorySagJournal();
-    engine = { runtime, journal, dispatcher: createEngine({ runtime, overrides: { journal } }) };
+    engine = {
+      runtime,
+      journal,
+      observer: new HttpSagObserver(),
+      instanceId: crypto.randomUUID().slice(0, 8),
+      dispatcher: createEngine({ runtime, overrides: { journal } }),
+    };
   }
   return engine;
 }
@@ -62,6 +82,7 @@ function getEngine(): NonNullable<typeof engine> {
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     engine?.dispatcher.dispose();
+    engine?.observer.dispose();
     engine = null;
   });
 }
@@ -85,7 +106,7 @@ interface Snapshot {
 }
 
 export function DebugApp() {
-  const { runtime, dispatcher, journal } = getEngine();
+  const { runtime, dispatcher, journal, observer, instanceId } = getEngine();
   /**
    * The AudioContext's own state, polled — never a boolean we set ourselves.
    *
@@ -200,6 +221,29 @@ export function DebugApp() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [runtime]);
+
+  /**
+   * Ship a measurement of the master bus to the dev server, twice a second.
+   *
+   * Separate from the meter loop above on purpose. That one runs on `requestAnimationFrame`
+   * because it drives a display and should stop when the tab is hidden; this one runs on a
+   * timer because a synth that goes quiet when backgrounded is exactly the thing worth
+   * recording, and rAF would fall silent at the same moment as the evidence.
+   *
+   * 500 ms is chosen against what it must catch — a note's decay, a graph that stopped, a
+   * second engine appearing. Fast enough to see any of those, slow enough that the buffer
+   * holds a hundred seconds of history at its ceiling.
+   */
+  useEffect(() => {
+    const id = setInterval(() => {
+      observer.observe({
+        ...runtime.observeAudio(),
+        instance_id: instanceId,
+        observed_at: Date.now(),
+      });
+    }, 500);
+    return () => clearInterval(id);
+  }, [runtime, observer, instanceId]);
 
   /**
    * Resume the context on any qualifying gesture, for as long as it is not running.

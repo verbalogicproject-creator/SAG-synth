@@ -25,6 +25,7 @@ import {
 import { rms, peak, estimatePitch, hfEnergyRatio } from '../test-harness/audio-assertions';
 import { defaultPreset, defaultSong } from '../core/state';
 import { PARAM_PATHS } from '../core/schemas';
+import { SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS } from '../core/sag/events';
 import { createEngine } from '../app/create-engine';
 import type { SynthCommand } from '../core/commands';
 import type { SynthPreset } from '../core/types';
@@ -358,6 +359,137 @@ describe('ToneRuntime — readouts', () => {
     // when unlock() resolved was wrong twice over — resume() resolves whether or not
     // the browser honoured it, and Android re-suspends on backgrounding.
     expect(['suspended', 'running', 'closed']).toContain(state);
+  });
+});
+
+describe('audio observation (Stage 2f) — KIND-synth_audio_observed', () => {
+  /** Take an observation `after` seconds into a render driven by `drive`. */
+  function observeDuring(
+    drive: (runtime: ToneRuntime) => void,
+  ): Promise<ReturnType<ToneRuntime['observeAudio']>> {
+    let observation: ReturnType<ToneRuntime['observeAudio']> | undefined;
+    return Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        drive(runtime);
+        // Read at the END of the offline callback. The analyser fills from the rendered
+        // graph, so an observation taken before anything is scheduled sees nothing
+        // whatever the patch does.
+        observation = runtime.observeAudio();
+      },
+      0.3,
+      1,
+      SR,
+    ).then(() => observation!);
+  }
+
+  it('F75 — reports the pool it can see', async () => {
+    const [silent, sounding] = await Promise.all([
+      observeDuring((runtime) => {
+        runtime.applyPatch(defaultPreset());
+      }),
+      observeDuring((runtime) => {
+        runtime.applyPatch(defaultPreset());
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+        runtime.noteOn({ voiceId: 1, note: 'E4', velocity: 0.9, portamento: 0 });
+      }),
+    ]);
+
+    // The distinguishing signal that survives an offline render: voices built. Level and
+    // peak are read from a live analyser, which does not fill during a synchronous offline
+    // callback, so asserting on them here would be asserting on the harness.
+    expect(silent.voices).toBe(0);
+    expect(sounding.voices).toBe(2);
+  });
+
+  it('F76 — level is -Infinity or above the floor, never a denormal', async () => {
+    const observation = await observeDuring((runtime) => {
+      runtime.applyPatch(defaultPreset());
+    });
+
+    // Tone.Meter has been seen returning -2105.3 dBFS from a denormal, which
+    // Number.isFinite passes straight through. Every consumer would otherwise have to
+    // defend against it, so it is collapsed at the source.
+    expect(
+      observation.level_db === Number.NEGATIVE_INFINITY || observation.level_db > -100,
+    ).toBe(true);
+  });
+
+  it('carries every required slot the KIND declares', async () => {
+    const observation = await observeDuring((runtime) => {
+      runtime.applyPatch(defaultPreset());
+      runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.8, portamento: 0 });
+    });
+
+    // instance_id and observed_at are injected by the caller — the runtime never reads a
+    // clock and never invents an identity, the same discipline the dispatcher follows.
+    const complete = { ...observation, instance_id: 'test', observed_at: 1 };
+    for (const slot of SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS) {
+      expect(complete, `required slot "${slot}" is missing`).toHaveProperty(slot);
+    }
+  });
+
+  it('reports the unimplemented list, so a gap travels with the measurement', async () => {
+    const observation = await observeDuring((runtime) => {
+      runtime.applyPatch(
+        patchWith((patch) => {
+          patch.voice.oscillator.type = 'noise';
+        }),
+      );
+    });
+
+    // Reading "the synth is quiet" alongside "noise is unmapped" is one step; reading the
+    // level and then going to look for why is several.
+    expect(observation.unimplemented).toContain('oscillator.noise');
+  });
+
+  it('F79 — a muted output is distinguishable from a silent engine', async () => {
+    // These two states are identical at the master node and have opposite causes: one is
+    // broken code, the other is working code nobody can hear. Reading the output stage is
+    // what separates them.
+    const [normal, muted] = await Promise.all([
+      observeDuring((runtime) => {
+        runtime.applyPatch(defaultPreset());
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+      }),
+      observeDuring((runtime) => {
+        runtime.applyPatch(defaultPreset());
+        runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+        Tone.getDestination().mute = true;
+      }),
+    ]);
+
+    expect(normal.destination_muted).toBe(false);
+    expect(muted.destination_muted).toBe(true);
+    // The engine reads identically healthy in both — which is the whole point. Nothing
+    // upstream of the output stage can tell you the difference.
+    expect(muted.voices).toBe(normal.voices);
+  });
+
+  it('F77 — two engines alive at once are distinguishable', async () => {
+    // The leak this whole channel exists for. Two graphs on one context is exactly what a
+    // hot reload produced thirty times over, and it was diagnosed only by opening a fresh
+    // tab. Distinct observations from distinct instances make it readable instead.
+    let first: ReturnType<ToneRuntime['observeAudio']> | undefined;
+    let second: ReturnType<ToneRuntime['observeAudio']> | undefined;
+    await Tone.Offline(
+      () => {
+        const a = new ToneRuntime();
+        const b = new ToneRuntime();
+        a.applyPatch(defaultPreset());
+        b.applyPatch(defaultPreset());
+        a.noteOn({ voiceId: 0, note: 'C4', velocity: 0.9, portamento: 0 });
+        first = a.observeAudio();
+        second = b.observeAudio();
+      },
+      0.2,
+      1,
+      SR,
+    );
+
+    // Same context, different pools — which is precisely the state a leak leaves behind.
+    expect(first!.voices).toBe(1);
+    expect(second!.voices).toBe(0);
   });
 });
 

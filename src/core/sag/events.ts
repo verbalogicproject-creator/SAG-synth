@@ -138,6 +138,101 @@ export interface SagJournal {
   markAcked(seq: number): void;
 }
 
+// ---------------------------------------------------------------------------
+// Audio observation — implements KIND-synth_audio_observed (framework tag v0.0.4)
+// ---------------------------------------------------------------------------
+//
+// A DELIBERATELY SEPARATE STREAM from the command journal, for reasons the KIND's §5
+// spells out and this comment must not let anyone forget: `synth_command_applied` is
+// replay-critical — gapless by contract (F60), rejections still consuming a seq (F61),
+// replay reconstructing state exactly (F59). Observations are periodic rather than caused,
+// lossy-tolerant, and describe the world instead of changing it. Putting them in the same
+// journal would fill the structure whose whole value is replayability with rows that
+// cannot be replayed, and make a dropped sample indistinguishable from a sequence gap.
+
+export const SYNTH_AUDIO_OBSERVED_KIND = 'synth.audio_observed';
+
+/** Slot-for-slot from KIND-synth_audio_observed §1. Order is the KIND's order. */
+export const SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS = [
+  'instance_id',
+  'observed_at',
+  'context_state',
+  'level_db',
+  'peak',
+  'rms',
+  'voices',
+] as const;
+
+/** Slot-for-slot from KIND-synth_audio_observed §2. */
+export const SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS = [
+  'session_id',
+  'sample_rate',
+  'unimplemented',
+  'destination_muted',
+  'destination_volume_db',
+  'note',
+] as const;
+
+/**
+ * Snake_case on purpose, like `SynthCommandAppliedEvent`: these field names ARE the KIND's
+ * slots, so the two cannot drift without a contract test noticing.
+ */
+export interface SynthAudioObservedEvent {
+  /**
+   * Identity of the ENGINE INSTANCE, not the session.
+   *
+   * Two live ids at once is the hot-reload leak that cost five debugging rounds, visible
+   * directly rather than deduced.
+   */
+  instance_id: string;
+  /** Epoch ms, supplied by the caller — the runtime never reads a clock. */
+  observed_at: number;
+  /** 'running' | 'suspended' | 'closed'. The only truth about whether audio CAN sound. */
+  context_state: string;
+  /** Master bus dBFS. `-Infinity` when silent, never a denormal-derived huge negative. */
+  level_db: number;
+  peak: number;
+  rms: number;
+  /** Tone voices currently built in the pool. */
+  voices: number;
+
+  session_id?: string;
+  sample_rate?: number;
+  /** What the runtime was asked for and could not service, at observation time. */
+  unimplemented?: readonly string[];
+  /**
+   * The OUTPUT stage, downstream of everything measured above (F79).
+   *
+   * Without these, a muted output and a dead engine are the same row — and they have
+   * opposite causes: one is broken code, the other is working code nobody can hear.
+   * This is as far down the chain as a page can see; Web Audio offers no way to ask
+   * whether a node is still connected to the destination, and the hardware is invisible.
+   */
+  destination_muted?: boolean;
+  destination_volume_db?: number;
+  /** Free-text marker for human-driven diagnosis, e.g. "after unlock tap". */
+  note?: string;
+}
+
+/**
+ * Where observations go. Same shape as `SagTransport` and deliberately not the same
+ * interface — sharing one would invite sharing the journal too.
+ *
+ * F78: an implementation must never throw into the audio path, block a note, or grow
+ * without bound. Telemetry that can take down the instrument it measures is worse than no
+ * telemetry, so every implementation swallows its own failures.
+ */
+export interface SagObserver {
+  observe(event: SynthAudioObservedEvent): void;
+}
+
+/** What ships outside development: records nothing, connects to nothing, costs nothing. */
+export class NullSagObserver implements SagObserver {
+  observe(event: SynthAudioObservedEvent): void {
+    void event;
+  }
+}
+
 /** Delivery seam. "Emitted" means durably appended locally, never "received by a backend". */
 export interface SagTransport {
   /** Resolves with the highest seq the far end accepted. */
