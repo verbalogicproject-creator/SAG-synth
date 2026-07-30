@@ -129,9 +129,15 @@ export function defaultVoiceConfig(): VoiceConfig {
     filterEnvelope: {
       attack: 0.02,
       decay: 0.3,
-      sustain: 0.2,
+      // Measured, not taste: at baseFrequency 300 with sustain 0.2 the filter settles at
+      // 300 x 2^0.6 ~= 455Hz, which left the factory patch with ZERO energy above 1kHz
+      // and half the loudness of a bare Tone MonoSynth. Phone speakers roll off hard
+      // below ~500Hz, so the shipped default was effectively inaudible on the device
+      // this is developed on. 800Hz settling to 800 x 2^1.8 ~= 2.8kHz keeps the sweep
+      // dramatic while staying in a range a small speaker can reproduce.
+      sustain: 0.6,
       release: 0.5,
-      baseFrequency: 300,
+      baseFrequency: 800,
       octaves: 3,
     },
     lfos: [],

@@ -309,7 +309,25 @@ export const SongSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export type ParamSpec =
-  | { kind: 'number'; min: number; max: number; unit?: string; integer?: boolean }
+  | {
+      kind: 'number';
+      min: number;
+      max: number;
+      unit?: string;
+      integer?: boolean;
+      /**
+       * When present, the ONLY legal values — the range becomes documentation rather
+       * than the constraint.
+       *
+       * `voice.filter.rolloff` is the case that forced this. Its TypeScript type is the
+       * union `-12 | -24 | -48 | -96`, but declaring it as a range meant `setParam` with
+       * `-50` validated cleanly: the type system called it impossible while the runtime
+       * called it fine. Anything reaching the engine from outside TypeScript — the v0.2
+       * SDK, imported JSON, a slider — could then hand the audio graph a value it has no
+       * behaviour for.
+       */
+      choices?: readonly number[];
+    }
   | { kind: 'boolean' }
   | { kind: 'enum'; values: readonly string[] }
   | { kind: 'frequency' };
@@ -361,7 +379,16 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.filter.type': { kind: 'enum', values: FILTER_TYPES },
   'voice.filter.frequency': num(20, 20000, 'Hz'),
   'voice.filter.Q': num(0, 30),
-  'voice.filter.rolloff': num(-96, -12, 'dB/oct', true),
+  // Four legal slopes, not a range. FILTER_ROLLOFFS already existed; the spec simply
+  // was not using it, so `setParam('voice.filter.rolloff', -50)` validated cleanly.
+  'voice.filter.rolloff': {
+    kind: 'number',
+    min: -96,
+    max: -12,
+    unit: 'dB/oct',
+    integer: true,
+    choices: FILTER_ROLLOFFS,
+  },
 
   'voice.filterEnvelope.attack': num(0, 20, 's'),
   'voice.filterEnvelope.decay': num(0, 20, 's'),
@@ -433,6 +460,13 @@ export function validateParamValue(path: ParamPath, value: ParamValue): ParamVal
       }
       if (value < spec.min || value > spec.max) {
         return { ok: false, error: `${path} out of range [${spec.min}, ${spec.max}], received ${value}` };
+      }
+      // Checked after the range so the error names the nearer problem first.
+      if (spec.choices !== undefined && !spec.choices.includes(value)) {
+        return {
+          ok: false,
+          error: `${path} expects one of [${spec.choices.join(', ')}], received ${value}`,
+        };
       }
       return { ok: true };
     }

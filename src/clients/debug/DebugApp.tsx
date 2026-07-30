@@ -17,9 +17,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ToneRuntime, UNMAPPED_PARAMS } from '../../runtime';
 import { createEngine } from '../../app/create-engine';
 import { MemorySagJournal } from '../../core/sag/events';
+import { DEFAULT_PRESET_ID } from '../../core/state';
 import type { Dispatcher } from '../../app/dispatcher';
 import { clampOctave, isMusicalKey, noteForKey } from './keyboard';
 import { VirtualKeyboard } from './VirtualKeyboard';
+import { FilterPanel } from './FilterPanel';
+import type { ParamPath, ParamValue } from '../../core/types';
 
 /**
  * Module-scope singleton, built on first use.
@@ -39,6 +42,36 @@ function getEngine(): NonNullable<typeof engine> {
   }
   return engine;
 }
+
+/**
+ * Tear the audio graph down before a hot update replaces this module.
+ *
+ * Without this, every HMR reload resets `engine` to null and builds a fresh
+ * ToneRuntime — a new master Volume, Analyser and Meter, all still wired to the
+ * destination — while the previous graph stays alive and summing. An editing session
+ * with thirty saves ends with thirty live analysers and thirty orphaned voice pools on
+ * one AudioContext.
+ *
+ * Not hypothetical tidiness: that accumulation is what silenced a long-running tab on
+ * 2026-07-30, and it was identified only by opening a fresh one — after several rounds
+ * of looking for the fault inside the engine, where it was never going to be.
+ */
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    engine?.dispatcher.dispose();
+    engine = null;
+  });
+}
+
+/**
+ * A real file served over HTTP, not a Blob built in JS.
+ *
+ * The first version generated a WAV into an object URL. That put my own encoder between
+ * the question and the answer — the player reported `0:00 / 0:00`, meaning it never got
+ * a duration, which is indistinguishable from a device that cannot play. A static file
+ * the dev server hands over as `audio/wav` removes that variable entirely.
+ */
+const BEEP_URL = '/beep.wav';
 
 interface Snapshot {
   revision: number;
@@ -64,6 +97,7 @@ export function DebugApp() {
   const [octave, setOctave] = useState(3);
   const [level, setLevel] = useState(Number.NEGATIVE_INFINITY);
   const [peak, setPeak] = useState(Number.NEGATIVE_INFINITY);
+  const [unlockError, setUnlockError] = useState('');
   const [snapshot, setSnapshot] = useState<Snapshot>({
     revision: 0,
     voices: 0,
@@ -88,8 +122,17 @@ export function DebugApp() {
   useEffect(() => dispatcher.subscribe(refresh), [dispatcher, refresh]);
 
   const unlock = useCallback(async () => {
-    await dispatcher.unlock();
-    setContextState(runtime.getContextState());
+    // Report what actually happened. `Tone.start()` resolving is not evidence the
+    // browser honoured it, and a rejection here was previously swallowed entirely — so
+    // a refused resume looked exactly like a working one.
+    try {
+      await dispatcher.unlock();
+      const state = runtime.getContextState();
+      setContextState(state);
+      setUnlockError(state === 'running' ? '' : `resume() returned but state is "${state}"`);
+    } catch (error) {
+      setUnlockError(error instanceof Error ? error.message : String(error));
+    }
   }, [dispatcher, runtime]);
 
   const noteOn = useCallback(
@@ -102,6 +145,18 @@ export function DebugApp() {
   const noteOff = useCallback(
     (note: string) => {
       dispatcher.dispatch({ type: 'noteOff', note });
+    },
+    [dispatcher],
+  );
+
+  /**
+   * A knob turn is a document edit, so unlike a note it advances `revision` and lands on
+   * the undo stack. Nothing here reaches the audio graph — the dispatcher's runtime sync
+   * notices the patch reference changed and re-applies it.
+   */
+  const setParamValue = useCallback(
+    (path: ParamPath, value: ParamValue) => {
+      dispatcher.dispatch({ type: 'setParam', path, value });
     },
     [dispatcher],
   );
@@ -213,14 +268,29 @@ export function DebugApp() {
         journal. Disposable by design.
       </p>
 
-      {/* Driven by the context's own state, so it comes BACK if Android re-suspends
-          after backgrounding. Hiding this on a flag we set ourselves is what made the
-          synth unrecoverably silent. */}
-      {contextState !== 'running' && (
-        <button type="button" onClick={() => void unlock()} style={styles.unlock}>
-          ▶ Tap to enable audio — context is {contextState}
-        </button>
-      )}
+      {/*
+        ALWAYS rendered, never conditional.
+
+        Two earlier versions both got this wrong. The first hid it behind an `unlocked`
+        flag we set ourselves, which left no way back when the browser declined to
+        resume. The second showed it only while the context was not 'running' — better,
+        but it still vanishes exactly when someone wants to confirm audio is armed or
+        force a re-arm, and a control that disappears reads as a broken page rather than
+        a healthy one. It now always shows, and always says which state it is in.
+      */}
+      <button
+        type="button"
+        onClick={() => void unlock()}
+        style={{
+          ...styles.unlock,
+          borderColor: contextState === 'running' ? '#6ad48a' : '#e0a030',
+          opacity: contextState === 'running' ? 0.7 : 1,
+        }}
+      >
+        {contextState === 'running'
+          ? '♪ audio running — tap to re-arm'
+          : `▶ Tap to enable audio — context is ${contextState}`}
+      </button>
 
       <section style={styles.panel}>
         <div style={styles.octaveRow}>
@@ -249,6 +319,40 @@ export function DebugApp() {
         <p style={styles.dim}>
           Multi-touch works — hold two or three keys for a chord. Slide across keys to
           glissando.
+        </p>
+      </section>
+
+      <section style={styles.panel}>
+        <h2 style={styles.h2}>Filter</h2>
+        <FilterPanel state={dispatcher.getState()} onChange={setParamValue} />
+        <div style={styles.diagRow}>
+          <button
+            type="button"
+            style={styles.diagButton}
+            onClick={() => dispatcher.dispatch({ type: 'undo' })}
+          >
+            ↶ undo
+          </button>
+          <button
+            type="button"
+            style={styles.diagButton}
+            onClick={() => dispatcher.dispatch({ type: 'redo' })}
+          >
+            ↷ redo
+          </button>
+          {/* A cutoff slider can be dragged to 20Hz, which is silence with no obvious
+              way home — undo only walks back one edit at a time. */}
+          <button
+            type="button"
+            style={styles.diagButton}
+            onClick={() => dispatcher.dispatch({ type: 'loadPreset', presetId: DEFAULT_PRESET_ID })}
+          >
+            ⟲ reset patch
+          </button>
+        </div>
+        <p style={styles.dim}>
+          Every knob turn is a journalled command — watch revision climb, and undo walks
+          it back through the same journal a replay would.
         </p>
       </section>
 
@@ -308,11 +412,22 @@ export function DebugApp() {
           </button>
         </div>
         <p style={styles.dim}>
-          The test tone skips the voice pool, the patch and the master chain entirely — a
-          plain 440Hz oscillator straight to the output. If you hear it but not the keys,
-          the fault is in our signal path. If you hear neither, it is the page or the
-          device.
+          The test tone skips the voice pool, the patch and the master chain — but still
+          goes through Web Audio. The player below does not: it is a plain WAV in an
+          &lt;audio&gt; element, which has different autoplay rules and different routing.
         </p>
+
+        <p style={{ ...styles.dim, marginTop: '1rem' }}>
+          <strong>Plays here but not above → Web Audio is blocked. Silent here too →
+          the device is not producing sound at all</strong> (media volume, audio focus, or
+          a muted tab). While this is playing, Android&apos;s volume rocker controls MEDIA
+          volume rather than the ringer — worth a press either way.
+        </p>
+        <audio src={BEEP_URL} controls preload="auto" style={styles.audio} />
+
+        {unlockError !== '' && (
+          <p style={{ ...styles.dim, color: 'crimson' }}>unlock reported: {unlockError}</p>
+        )}
       </section>
 
       <section style={styles.panel}>
@@ -391,6 +506,7 @@ const styles = {
   },
   octaveLabel: { fontSize: '1rem', fontWeight: 700 },
   diagRow: { display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' },
+  audio: { width: '100%', marginTop: '0.5rem' },
   diagButton: {
     fontSize: '0.9rem',
     padding: '0.7rem 1rem',

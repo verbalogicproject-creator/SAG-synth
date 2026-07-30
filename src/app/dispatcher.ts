@@ -124,6 +124,21 @@ export class Dispatcher {
     this.runtime = deps.runtime;
     this.journal = deps.journal ?? new MemorySagJournal();
     this.transport = deps.transport ?? new NullSagTransport();
+
+    /**
+     * Push the initial patch immediately.
+     *
+     * This class's invariant is that the runtime reflects `EngineState`, and at
+     * construction it does not: `syncRuntime` only fires when a reference CHANGES, so
+     * without this the audio graph keeps whatever defaults its backend was built with
+     * until the first patch edit. That was a real, measured bug — voices ran on Tone's
+     * own MonoSynth defaults, and the very first `setParam` swapped the instrument out
+     * from under the player, changing the sound for a reason no one could see.
+     *
+     * Not journalled, because nothing happened: no command was dispatched and no state
+     * changed. It is the runtime being brought up to the state that already exists.
+     */
+    this.runtime.applyPatch(this.history.present.patch);
   }
 
   // -------------------------------------------------------------------------

@@ -9,9 +9,9 @@
     "filterEnvelope": {
       "attack": 0.02,
       "decay": 0.3,
-      "sustain": 0.2,
+      "sustain": 0.6,
       "release": 0.5,
-      "baseFrequency": 300,
+      "baseFrequency": 800,
       "octaves": 3
     },
     "lfos": [],

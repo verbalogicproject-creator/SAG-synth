@@ -17,4 +17,5 @@ export * from './reduce';
 export * from './history';
 export * from './runtime-contract';
 export * from './ports';
+export * from './params';
 export * from './sag/events';

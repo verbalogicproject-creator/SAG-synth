@@ -259,8 +259,18 @@ describe('panic and seek', () => {
 });
 
 describe('runtime sync', () => {
+  it('pushes the initial patch at construction, so the graph is never stale', () => {
+    // Without this the runtime keeps its backend's own defaults until the first edit,
+    // and that first setParam silently swaps the whole instrument. Measured on device:
+    // Tone's default MonoSynth against our factory patch differed by half the loudness
+    // and ALL of the energy above 1kHz.
+    const { runtime } = fixtures();
+    expect(calls(runtime, 'applyPatch')).toEqual([initialEngineState().patch.id]);
+  });
+
   it('pushes the patch only when the patch actually changed', () => {
     const { dispatcher, runtime } = fixtures();
+    runtime.calls.length = 0; // discard the construction-time push
     dispatcher.dispatch(setParam('voice.filter.frequency', 850));
     dispatcher.dispatch({ type: 'setTempo', bpm: 96 }); // song, not patch
 
