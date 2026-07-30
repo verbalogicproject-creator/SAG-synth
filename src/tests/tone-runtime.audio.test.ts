@@ -478,6 +478,64 @@ describe('effects chain and master stage (Stage 3)', () => {
     expect(tail(wet)).toBeGreaterThan(tail(dry) * 5);
   });
 
+  it('every band does something — including the ones a phone cannot reproduce', async () => {
+    // The gate the "EQ doesn't work" report needed and did not have. The check below
+    // compares band0 against band4 above 8 kHz, which proves they are DIFFERENT without
+    // ever proving band0 is alive: a dead low band passes it comfortably.
+    //
+    // Measured overall level instead, because that is the one thing every band moves
+    // regardless of where it sits. band0 at 60 Hz changed rms 0.154 -> 0.251 while showing
+    // no change at all in a high-frequency ratio — the metric was wrong, not the band.
+    // The filter is opened wide here, and that detail IS the finding. With the default
+    // cutoff around 1.2 kHz the 12 kHz band measured SLIGHTLY QUIETER at +18 dB than flat:
+    // an EQ can only boost content that exists, and a filtered patch has none up there.
+    // That is the honest explanation for a top band that seems dead, and it is a property
+    // of the signal rather than a defect in the band.
+    const open = (patch: SynthPreset) => {
+      patch.voice.filterEnvelope = { ...FLAT, baseFrequency: 16000, octaves: 0 };
+      patch.effects.eq.enabled = true;
+    };
+
+    const flat = await renderFx(open);
+
+    for (const band of ['band0', 'band1', 'band2', 'band3', 'band4'] as const) {
+      const boosted = await renderFx((patch) => {
+        open(patch);
+        patch.effects.eq[band].gain = 18;
+      });
+      expect(body(boosted), `${band} at +18 dB changed nothing`).toBeGreaterThan(body(flat) * 1.02);
+    }
+  });
+
+  it('an enabled but flat EQ is transparent — which is why it can look broken', async () => {
+    // Not a bug, and the reason a user reports the EQ as dead: ticking the box changes
+    // NOTHING until a band moves, unlike every other effect in the chain, which all ship
+    // with a non-zero wet and announce themselves the moment they are switched on.
+    const [off, onFlat] = await Promise.all([
+      renderFx((patch) => {
+        patch.effects.eq.enabled = false;
+      }),
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+      }),
+    ]);
+    expect(body(onFlat)).toBeCloseTo(body(off), 3);
+  });
+
+  it('a disabled EQ ignores its stored band gains', async () => {
+    const [disabled, enabled] = await Promise.all([
+      renderFx((patch) => {
+        patch.effects.eq.enabled = false;
+        patch.effects.eq.band1.gain = 18;
+      }),
+      renderFx((patch) => {
+        patch.effects.eq.enabled = true;
+        patch.effects.eq.band1.gain = 18;
+      }),
+    ]);
+    expect(body(enabled)).toBeGreaterThan(body(disabled) * 1.5);
+  });
+
   it('each EQ band moves its own part of the spectrum', async () => {
     // Band 0 is 60 Hz and band 4 is 12 kHz. Boosting one must not be indistinguishable
     // from boosting the other, which is what a mis-wired band array would produce.

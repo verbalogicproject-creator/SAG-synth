@@ -45,6 +45,12 @@ const LABELS: Partial<Record<string, string>> = {
 const fxSection = SIGNAL_CHAIN.find((s) => s.id === 'effects');
 const eqSection = SIGNAL_CHAIN.find((s) => s.id === 'eq');
 
+/** True when every band sits at 0 dB, i.e. the EQ is on and deliberately transparent. */
+function bandsAtZero(state: EngineState): boolean {
+  const eq = state.patch.effects.eq;
+  return [eq.band0, eq.band1, eq.band2, eq.band3, eq.band4].every((band) => band.gain === 0);
+}
+
 /** Hz label for a band gain path, read from the declared centres rather than retyped. */
 function bandLabel(path: ParamPath): string {
   const match = /^effects\.eq\.band(\d)\.gain$/.exec(path);
@@ -128,6 +134,24 @@ export function FxPanel({ state, onChange, onCommand }: FxPanelProps) {
               onChange={onChange}
             />
           ))}
+        {/*
+          Three things make a working EQ look broken, and all three were reported as
+          "EQ doesn't work" before this note existed. None is a defect; every one is
+          invisible without being said.
+        */}
+        {effects.eq.enabled && bandsAtZero(state) && (
+          <p style={dim}>
+            Enabled and flat, so it is doing nothing — correctly. Unlike the effects above
+            it has no wet control to announce itself; move a band.
+          </p>
+        )}
+        <p style={dim}>
+          An EQ can only boost what is there. With the cutoff low, the 4k and 12k bands have
+          almost no content to lift — measured slightly QUIETER at +18 dB on a patch filtered
+          at 1.2 kHz. Open the filter first. And on a phone speaker 60 Hz and 12 kHz are
+          largely outside what the hardware reproduces at all; 250 Hz–4 kHz is where this
+          device can hear you working.
+        </p>
       </div>
 
       <p style={dim}>
