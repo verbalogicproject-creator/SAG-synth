@@ -14,13 +14,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ToneRuntime, UNMAPPED_PARAMS, unsupportedOscillatorFeatures } from '../../runtime';
-import { createEngine } from '../../app/create-engine';
-import { connectHotCommandBridge } from '../../app/hot-command-bridge';
-import { HttpSagObserver } from '../../app/http-observer';
-import { MemorySagJournal } from '../../core/sag/events';
+import { UNMAPPED_PARAMS, unsupportedOscillatorFeatures } from '../../runtime';
 import { DEFAULT_PRESET_ID } from '../../core/state';
-import type { Dispatcher } from '../../app/dispatcher';
+import { getEngine } from '../engine';
 import { clampOctave, isMusicalKey, noteForKey } from './keyboard';
 import { VirtualKeyboard } from './VirtualKeyboard';
 import { AmpPanel } from './AmpPanel';
@@ -30,102 +26,6 @@ import { ModPanel } from './ModPanel';
 import { OscillatorPanel } from './OscillatorPanel';
 import type { ParamPath, ParamValue } from '../../core/types';
 
-/**
- * The engine handle, and it lives on `globalThis` rather than in this module.
- *
- * Not `useState(() => …)`: StrictMode invokes that initializer twice in development,
- * which would build two audio graphs and leave one orphaned.
- *
- * And not a plain module variable either, which is the subtler half. A module variable
- * dies with its module: when Vite hot-updates anything this file imports, it evaluates a
- * NEW copy of this module in which `engine` is `null`, and that copy dutifully builds a
- * second audio graph while the first is still connected to the destination. The
- * `hot.dispose` hook below is meant to prevent exactly that and only fires for the copy
- * that registered it — so an update arriving through a different boundary leaves the old
- * graph alive with nothing holding a reference to it.
- *
- * That is not a hypothesis. On 2026-07-30 the observation log recorded three engine ids
- * reporting in the same minute from one page, and the tab had gone silent — the symptom
- * this whole indirection exists to prevent, arriving anyway through the gap.
- *
- * A key on `globalThis` outlives module re-evaluation, so a fresh copy can find its
- * predecessor and tear it down. One graph per page, whichever module copy is asking.
- */
-const ENGINE_KEY = '__sagSynthDebugEngine__';
-
-type EngineHandle = {
-  runtime: ToneRuntime;
-  dispatcher: Dispatcher;
-  journal: MemorySagJournal;
-  observer: HttpSagObserver;
-  /**
-   * Identity of THIS engine instance, not the session.
-   *
-   * The point of it is the failure described under `import.meta.hot` below: when several
-   * graphs are alive at once, every one emits observations under its own id, so the leak
-   * shows up as two ids interleaved in the log rather than having to be deduced from a
-   * synth that has gone quiet.
-   */
-  instanceId: string;
-};
-
-type EngineSlot = typeof globalThis & { [ENGINE_KEY]?: EngineHandle | null };
-
-function slot(): EngineSlot {
-  return globalThis as EngineSlot;
-}
-
-function disposeEngine(): void {
-  const live = slot()[ENGINE_KEY];
-  if (live == null) return;
-  live.dispatcher.dispose();
-  live.observer.dispose();
-  slot()[ENGINE_KEY] = null;
-}
-
-// Reap the predecessor at module-evaluation time, which is the moment a hot update
-// produces a second copy of this file. Running it here rather than only in `hot.dispose`
-// covers the case that hook cannot: an update propagating through some other boundary,
-// where the copy that registered the hook is not the copy being replaced.
-if (import.meta.hot) disposeEngine();
-
-function getEngine(): EngineHandle {
-  const existing = slot()[ENGINE_KEY];
-  if (existing != null) return existing;
-
-  const runtime = new ToneRuntime();
-  const journal = new MemorySagJournal();
-  const built: EngineHandle = {
-    runtime,
-    journal,
-    observer: new HttpSagObserver(),
-    instanceId: crypto.randomUUID().slice(0, 8),
-    dispatcher: createEngine({ runtime, overrides: { journal } }),
-  };
-  slot()[ENGINE_KEY] = built;
-  return built;
-}
-
-/**
- * Tear the audio graph down before a hot update replaces this module.
- *
- * Without this, every HMR reload resets `engine` to null and builds a fresh
- * ToneRuntime — a new master Volume, Analyser and Meter, all still wired to the
- * destination — while the previous graph stays alive and summing. An editing session
- * with thirty saves ends with thirty live analysers and thirty orphaned voice pools on
- * one AudioContext.
- *
- * Not hypothetical tidiness: that accumulation is what silenced a long-running tab on
- * 2026-07-30, and it was identified only by opening a fresh one — after several rounds
- * of looking for the fault inside the engine, where it was never going to be.
- */
-if (import.meta.hot) {
-  import.meta.hot.dispose(disposeEngine);
-
-  // Let the dev server play this engine. `'agent'` rather than `'ui'` so the journal
-  // records who moved the knob, which is the distinction CommandSource exists for.
-  connectHotCommandBridge(import.meta.hot, (command) => getEngine().dispatcher.dispatch(command, 'agent'));
-}
 
 /**
  * A real file served over HTTP, not a Blob built in JS.
