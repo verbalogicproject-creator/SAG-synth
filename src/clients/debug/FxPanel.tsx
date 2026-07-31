@@ -13,12 +13,18 @@
  */
 
 import { SIGNAL_CHAIN } from '../../core/groups';
-import { EFFECT_CHAIN_ORDER, EQ_BAND_FREQUENCIES, type EffectId } from '../../core/types';
+import {
+  EFFECT_CHAIN_ORDER,
+  EQ_BAND_FACTORY_LIFT_DB,
+  EQ_BAND_FREQUENCIES,
+  type EffectId,
+} from '../../core/types';
 import { PARAM_SPECS } from '../../core/schemas';
 import { getParam } from '../../core/params';
 import type { EngineState } from '../../core/state';
 import type { ParamPath, ParamValue } from '../../core/types';
 import type { SynthCommand } from '../../core/commands';
+import { labelWithin } from '../../core/controls';
 import { ParamControl } from './ParamControl';
 
 export interface FxPanelProps {
@@ -26,21 +32,6 @@ export interface FxPanelProps {
   onChange: (path: ParamPath, value: ParamValue) => void;
   onCommand: (command: SynthCommand) => void;
 }
-
-const LABELS: Partial<Record<string, string>> = {
-  'effects.distortion.amount': 'drive',
-  'effects.distortion.wet': 'mix',
-  'effects.chorus.frequency': 'rate',
-  'effects.chorus.delayTime': 'delay',
-  'effects.chorus.depth': 'depth',
-  'effects.chorus.wet': 'mix',
-  'effects.delay.delayTime': 'time',
-  'effects.delay.feedback': 'feedback',
-  'effects.delay.wet': 'mix',
-  'effects.reverb.roomSize': 'size',
-  'effects.reverb.dampening': 'damping',
-  'effects.reverb.wet': 'mix',
-};
 
 const fxSection = SIGNAL_CHAIN.find((s) => s.id === 'effects');
 const eqSection = SIGNAL_CHAIN.find((s) => s.id === 'eq');
@@ -59,25 +50,20 @@ function bandLabel(path: ParamPath): string {
   return hz >= 1000 ? `${hz / 1000}k` : `${hz}`;
 }
 
+
 /**
- * What +18 dB on each band actually does to the FACTORY patch, measured.
+ * What +18 dB on this band does to the factory patch, read from the declared measurement.
  *
- * Not decoration. "The EQ doesn't work" was reported twice, and both times every band was
- * functioning exactly as designed — the factory cutoff settles near 2.8 kHz, so the top
- * band has nothing to lift and the bottom one is below what a phone reproduces. A player
- * cannot tell "this control is broken" from "this control has nothing to act on", and
- * without the numbers neither could I.
- *
- * Pinned by a gate on the factory patch, so a brighter default shows up as a failing test
- * rather than as a note that quietly became false.
+ * The numbers and the sentence explaining them live in core and are pinned by
+ * `eq-reality.audio.test.ts`. They sat here until 2026-07-31 under a comment claiming a
+ * gate that did not exist, and one of the five had already drifted.
  */
-const BAND_REALITY: Record<string, string> = {
-  'effects.eq.band0.gain': '+10 dB',
-  'effects.eq.band1.gain': '+7 dB',
-  'effects.eq.band2.gain': '+5 dB',
-  'effects.eq.band3.gain': '+4 dB',
-  'effects.eq.band4.gain': '+2 dB',
-};
+function bandLift(path: ParamPath): string {
+  const match = /^effects\.eq\.band(\d)\.gain$/.exec(path);
+  if (match === null) return '';
+  const lift = EQ_BAND_FACTORY_LIFT_DB[Number(match[1])];
+  return lift === undefined ? '' : `+${lift} dB`;
+}
 
 const group: React.CSSProperties = {
   border: '1px solid #333',
@@ -120,7 +106,7 @@ export function FxPanel({ state, onChange, onCommand }: FxPanelProps) {
               <ParamControl
                 key={path}
                 path={path}
-                label={LABELS[path] ?? path.split('.').pop() ?? path}
+                label={labelWithin(path, paths)}
                 spec={PARAM_SPECS[path]}
                 value={getParam(state, path)}
                 onChange={onChange}
@@ -148,7 +134,7 @@ export function FxPanel({ state, onChange, onCommand }: FxPanelProps) {
             <ParamControl
               key={path}
               path={path}
-              label={`${bandLabel(path)} Hz — ${BAND_REALITY[path] ?? ''}`}
+              label={`${bandLabel(path)} Hz — ${bandLift(path)}`}
               spec={PARAM_SPECS[path]}
               value={getParam(state, path)}
               onChange={onChange}

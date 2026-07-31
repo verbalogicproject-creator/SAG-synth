@@ -537,6 +537,28 @@ export interface ReverbConfig {
  */
 export const EQ_BAND_FREQUENCIES = [250, 530, 1120, 2360, 5000] as const;
 
+/**
+ * What +18 dB on each band actually does to the FACTORY patch, in dB of overall level.
+ * Measured, not derived — the numbers depend on what the default patch puts in each band.
+ *
+ * Not decoration. "The EQ doesn't work" was reported twice, and both times every band was
+ * behaving exactly as designed: the factory cutoff settles near 2.8 kHz, so the top band
+ * has little to lift and the bottom sits below what a phone reproduces. A player cannot
+ * tell "this control is broken" from "this control has nothing to act on", and without
+ * these numbers neither could I.
+ *
+ * Lived in `FxPanel.tsx` until 2026-07-31 under a comment claiming it was "pinned by a
+ * gate on the factory patch, so a brighter default shows up as a failing test rather than
+ * as a note that quietly became false". No such gate existed — nothing referenced the
+ * table but the panel drawing it — and the note had already quietly become false: band 3
+ * was displayed as +4 dB against a real +3.45. Exactly the failure its own comment
+ * described, undetected because the sentence asserting the check read like the check.
+ *
+ * `eq-reality.audio.test.ts` now measures all five against a render, so a brighter default
+ * really does fail the suite.
+ */
+export const EQ_BAND_FACTORY_LIFT_DB = [10.5, 7.2, 4.8, 3.5, 2.2] as const;
+
 export type EqBandIndex = 0 | 1 | 2 | 3 | 4;
 
 /** One band. An object rather than a bare number so `frequency`/`Q` can be added later

@@ -58,6 +58,7 @@
   "/root/projects2/SAG-synth/src/tests/diagnose.audio.test.ts",
   "/root/projects2/SAG-synth/src/tests/dispatcher.test.ts",
   "/root/projects2/SAG-synth/src/tests/eq-live.audio.test.ts",
+  "/root/projects2/SAG-synth/src/tests/eq-reality.audio.test.ts",
   "/root/projects2/SAG-synth/src/tests/eqmeasure.audio.test.ts",
   "/root/projects2/SAG-synth/src/tests/fx-panel.browser.test.ts",
   "/root/projects2/SAG-synth/src/tests/groups.test.ts",

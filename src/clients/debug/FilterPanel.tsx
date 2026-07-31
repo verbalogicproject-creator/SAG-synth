@@ -21,6 +21,7 @@ import { PARAM_SPECS } from '../../core/schemas';
 import { getParam } from '../../core/params';
 import type { EngineState } from '../../core/state';
 import type { ParamPath, ParamValue } from '../../core/types';
+import { labelWithin } from '../../core/controls';
 import { ParamControl } from './ParamControl';
 
 export interface FilterPanelProps {
@@ -31,27 +32,31 @@ export interface FilterPanelProps {
 /**
  * Ordered as a hardware filter section reads, not as the schema happens to be shaped:
  * the shaping controls first, then the contour that moves them.
+ *
+ * Order only. The names come from `CONTROLS` — this file used to carry its own and had
+ * already drifted from the one in `ModPanel` for the same address, which is what the
+ * registry exists to stop.
  */
-const CONTROLS: readonly { path: ParamPath; label: string }[] = [
-  { path: 'voice.filter.type', label: 'type' },
-  { path: 'voice.filterEnvelope.baseFrequency', label: 'cutoff' },
-  { path: 'voice.filter.Q', label: 'resonance' },
-  { path: 'voice.filter.rolloff', label: 'slope' },
-  { path: 'voice.filterEnvelope.octaves', label: 'env amount' },
-  { path: 'voice.filterEnvelope.attack', label: 'env attack' },
-  { path: 'voice.filterEnvelope.decay', label: 'env decay' },
-  { path: 'voice.filterEnvelope.sustain', label: 'env sustain' },
-  { path: 'voice.filterEnvelope.release', label: 'env release' },
+const ORDER: readonly ParamPath[] = [
+  'voice.filter.type',
+  'voice.filterEnvelope.baseFrequency',
+  'voice.filter.Q',
+  'voice.filter.rolloff',
+  'voice.filterEnvelope.octaves',
+  'voice.filterEnvelope.attack',
+  'voice.filterEnvelope.decay',
+  'voice.filterEnvelope.sustain',
+  'voice.filterEnvelope.release',
 ];
 
 export function FilterPanel({ state, onChange }: FilterPanelProps) {
   return (
     <>
-      {CONTROLS.map(({ path, label }) => (
+      {ORDER.map((path) => (
         <ParamControl
           key={path}
           path={path}
-          label={label}
+          label={labelWithin(path, ORDER)}
           spec={PARAM_SPECS[path]}
           value={getParam(state, path)}
           onChange={onChange}

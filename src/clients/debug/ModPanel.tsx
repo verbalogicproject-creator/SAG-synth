@@ -288,9 +288,11 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
       <p style={dim}>
         {WIRED_DESTINATIONS.length} of {MODULATION_DESTINATIONS.length} declared destinations
         are wired. The other {PENDING_COUNT} — oscillator width and spread, and every
-        effects and EQ band — validate and replay correctly but make no sound until the
-        unison mapping and the effects chain land. The runtime names each one it was asked
-        for and could not deliver, under Known gaps.
+        effects and EQ band — accept a route that validates and replays and then moves
+        nothing. Note what this does <em>not</em> mean: those parameters work. The delay
+        mix knob changes the sound; what is missing is the scaler that would let an LFO
+        turn it for you. The runtime names each route it was asked for and could not
+        deliver, under Known gaps.
       </p>
     </>
   );

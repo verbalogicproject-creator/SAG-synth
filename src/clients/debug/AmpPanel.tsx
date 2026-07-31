@@ -16,6 +16,7 @@ import { PARAM_SPECS } from '../../core/schemas';
 import { getParam } from '../../core/params';
 import type { EngineState } from '../../core/state';
 import type { ParamPath, ParamValue } from '../../core/types';
+import { labelWithin } from '../../core/controls';
 import { ParamControl } from './ParamControl';
 
 export interface AmpPanelProps {
@@ -24,16 +25,6 @@ export interface AmpPanelProps {
   velocity: number;
   onVelocityChange: (velocity: number) => void;
 }
-
-const LABELS: Partial<Record<string, string>> = {
-  'voice.envelope.attack': 'attack',
-  'voice.envelope.decay': 'decay',
-  'voice.envelope.sustain': 'sustain',
-  'voice.envelope.release': 'release',
-  'voice.amplitude': 'level',
-  'voice.velocity.toAmplitude': 'vel → level',
-  'voice.velocity.toFilterOctaves': 'vel → filter',
-};
 
 const section = SIGNAL_CHAIN.find((s) => s.id === 'amplifier');
 
@@ -70,7 +61,7 @@ export function AmpPanel({ state, onChange, velocity, onVelocityChange }: AmpPan
         <ParamControl
           key={path}
           path={path}
-          label={LABELS[path] ?? path.split('.').pop() ?? path}
+          label={labelWithin(path, section?.paths ?? [])}
           spec={PARAM_SPECS[path]}
           value={getParam(state, path)}
           onChange={onChange}

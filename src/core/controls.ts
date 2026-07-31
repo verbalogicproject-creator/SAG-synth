@@ -299,6 +299,28 @@ export function fullNameOf(control: ParamControl): string {
 }
 
 /**
+ * The shortest name that stays unambiguous inside one rendered group.
+ *
+ * A panel supplies its own context, so a filter panel writes "cutoff" rather than "filter
+ * cutoff" and a delay card writes "mix". But four effects on one screen all have a "mix",
+ * and three envelopes have an "attack" — so the choice cannot be made per control, only
+ * against the set actually being drawn.
+ *
+ * This is why the three debug panels each grew a private label table: each had to make
+ * this decision and had nowhere to make it. Two of them then diverged from each other on
+ * the same address. Deciding it here means a panel picks a rendering, not a vocabulary.
+ */
+export function labelWithin(path: ParamPath, within: readonly ParamPath[]): string {
+  const control = byPath.get(path);
+  if (control === undefined) return path;
+
+  const ambiguous = within.some(
+    (other) => other !== path && byPath.get(other)?.label === control.label,
+  );
+  return ambiguous ? fullNameOf(control) : control.label;
+}
+
+/**
  * Resolve anything a human or an agent might say into one control.
  *
  * Accepts an id, a `ParamPath`, a full name, or a bare label when that label happens to be

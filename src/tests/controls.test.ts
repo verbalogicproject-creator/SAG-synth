@@ -20,6 +20,7 @@ import {
   controlById,
   controlForPath,
   fullNameOf,
+  labelWithin,
   resolveControl,
 } from '../core/controls';
 import { NAV_TABS, tabPaths } from '../core/groups';
@@ -138,6 +139,33 @@ describe('every control has a name a player would use', () => {
     expect(resolveControl('filter env attack')?.path).toBe('voice.filterEnvelope.attack');
   });
 
+  it('shortens a name only as far as the drawn set allows', () => {
+    // What the three debug panels were each deciding privately, and what two of them
+    // decided differently for the same address.
+    const filterPanel = [
+      'voice.filterEnvelope.baseFrequency',
+      'voice.filter.Q',
+      'voice.filterEnvelope.attack',
+    ] as const;
+    // Nothing else on that panel is called "attack", so the bare label is unambiguous.
+    expect(labelWithin('voice.filterEnvelope.attack', filterPanel)).toBe('attack');
+    expect(labelWithin('voice.filterEnvelope.baseFrequency', filterPanel)).toBe('cutoff');
+
+    // Put both envelopes in one set and it has to qualify — and qualify BOTH, not
+    // whichever happened to come second.
+    const bothEnvelopes = ['voice.envelope.attack', 'voice.filterEnvelope.attack'] as const;
+    expect(labelWithin('voice.envelope.attack', bothEnvelopes)).toBe('amp env attack');
+    expect(labelWithin('voice.filterEnvelope.attack', bothEnvelopes)).toBe('filter env attack');
+
+    // The FX case: one effect card has a unique "mix"; the whole tab does not.
+    expect(labelWithin('effects.delay.wet', ['effects.delay.wet', 'effects.delay.feedback'])).toBe(
+      'mix',
+    );
+    expect(labelWithin('effects.delay.wet', ['effects.delay.wet', 'effects.chorus.wet'])).toBe(
+      'delay mix',
+    );
+  });
+
   it('says nothing about an address that does not exist', () => {
     expect(resolveControl('ctl-999')).toBeUndefined();
     expect(resolveControl('warp drive')).toBeUndefined();
@@ -182,6 +210,46 @@ describe('the widget follows the contract rather than a preference', () => {
     expect(controlForPath('master.volume')?.widget).toBe('slider');
     // And the cutoff is not a slider — it is the knob the whole panel is built around.
     expect(controlForPath('voice.filterEnvelope.baseFrequency')?.widget).toBe('knob');
+  });
+});
+
+describe('no client keeps its own copy of the vocabulary', () => {
+  // Read through Vite rather than node:fs — this repo does not carry @types/node, and a
+  // gate is not worth a dependency.
+  const sources = import.meta.glob('../clients/**/*.{ts,tsx}', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>;
+
+  it('finds client files to check, so the gate cannot pass by reading nothing', () => {
+    // A glob that silently matches zero files is a green test that checks nothing, which
+    // is the failure mode of every grep-shaped gate.
+    expect(Object.keys(sources).length).toBeGreaterThan(5);
+  });
+
+  it('never maps an address to a name outside core', () => {
+    // The regression this closes. Three debug panels each grew a private label table
+    // because each had to choose a name and had nowhere to record the choice; two of them
+    // then disagreed about `voice.filterEnvelope.baseFrequency`. Catching the CLASS
+    // matters more than catching those three: the fourth panel is the one nobody diffs.
+    const patterns = [
+      // 'voice.filter.Q': 'resonance'
+      /'(?:voice|effects|master)\.[\w.]+'\s*:\s*'/,
+      // { path: 'voice.filter.Q', label: 'resonance' }
+      /path:\s*'(?:voice|effects|master)\.[\w.]+'\s*,\s*label:\s*'/,
+    ];
+
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(sources)) {
+      for (const line of source.split('\n')) {
+        if (patterns.some((pattern) => pattern.test(line))) {
+          offenders.push(`${file}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(offenders, 'a client is naming an address instead of asking CONTROLS').toEqual([]);
   });
 });
 
