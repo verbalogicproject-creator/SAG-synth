@@ -158,7 +158,9 @@ export const CONTROLS: readonly ParamControl[] = [
   // EQ. Bands are numbered, not named by frequency: the centres live in
   // `EQ_BAND_FREQUENCIES` and a label that spelled "250 Hz" would drift the day that
   // array moves. The panel renders the frequency from the array.
-  c('ctl-032', 'effects.eq.enabled', 'eq', 'eq'),
+  // "on", not "eq" — the scope already says eq, and "eq eq" is what reading the emitted
+  // surface out loud caught. Matches every other enable toggle: "osc a on", "lfo 1 on".
+  c('ctl-032', 'effects.eq.enabled', 'eq', 'on'),
   c('ctl-033', 'effects.eq.band0.gain', 'eq', 'band 1', 'slider'),
   c('ctl-034', 'effects.eq.band1.gain', 'eq', 'band 2', 'slider'),
   c('ctl-035', 'effects.eq.band2.gain', 'eq', 'band 3', 'slider'),

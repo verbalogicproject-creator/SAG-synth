@@ -1,0 +1,2472 @@
+{
+  "schemaVersion": 4,
+  "counts": {
+    "controls": 119,
+    "destinations": 31,
+    "wired": 13,
+    "unwired": 18
+  },
+  "controls": [
+    {
+      "id": "ctl-000",
+      "path": "voice.envelope.attack",
+      "name": "amp env attack",
+      "scope": "amp env",
+      "label": "attack",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-001",
+      "path": "voice.envelope.decay",
+      "name": "amp env decay",
+      "scope": "amp env",
+      "label": "decay",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-002",
+      "path": "voice.envelope.sustain",
+      "name": "amp env sustain",
+      "scope": "amp env",
+      "label": "sustain",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "ctl-003",
+      "path": "voice.envelope.release",
+      "name": "amp env release",
+      "scope": "amp env",
+      "label": "release",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-004",
+      "path": "voice.filter.type",
+      "name": "filter type",
+      "scope": "filter",
+      "label": "type",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "filter"
+      },
+      "kind": "enum",
+      "choices": [
+        "lowpass",
+        "highpass",
+        "bandpass",
+        "notch",
+        "lowshelf",
+        "highshelf",
+        "allpass",
+        "peaking"
+      ]
+    },
+    {
+      "id": "ctl-005",
+      "path": "voice.filter.Q",
+      "name": "filter resonance",
+      "scope": "filter",
+      "label": "resonance",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        30
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-006",
+      "path": "voice.filter.rolloff",
+      "name": "filter slope",
+      "scope": "filter",
+      "label": "slope",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        -96,
+        -12
+      ],
+      "unit": "dB/oct",
+      "choices": [
+        -12,
+        -24,
+        -48,
+        -96
+      ]
+    },
+    {
+      "id": "ctl-007",
+      "path": "voice.filterEnvelope.attack",
+      "name": "filter env attack",
+      "scope": "filter env",
+      "label": "attack",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-008",
+      "path": "voice.filterEnvelope.decay",
+      "name": "filter env decay",
+      "scope": "filter env",
+      "label": "decay",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-009",
+      "path": "voice.filterEnvelope.sustain",
+      "name": "filter env sustain",
+      "scope": "filter env",
+      "label": "sustain",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "ctl-010",
+      "path": "voice.filterEnvelope.release",
+      "name": "filter env release",
+      "scope": "filter env",
+      "label": "release",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-011",
+      "path": "voice.filterEnvelope.baseFrequency",
+      "name": "filter cutoff",
+      "scope": "filter",
+      "label": "cutoff",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        20,
+        20000
+      ],
+      "unit": "Hz",
+      "modulation": {
+        "curve": "octaves",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-012",
+      "path": "voice.filterEnvelope.octaves",
+      "name": "filter env amount",
+      "scope": "filter",
+      "label": "env amount",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "filter"
+      },
+      "kind": "number",
+      "range": [
+        -8,
+        8
+      ],
+      "unit": "oct"
+    },
+    {
+      "id": "ctl-013",
+      "path": "voice.polyphony",
+      "name": "voicing voices",
+      "scope": "voicing",
+      "label": "voices",
+      "widget": "knob",
+      "location": {
+        "kind": "settings"
+      },
+      "kind": "number",
+      "range": [
+        1,
+        32
+      ],
+      "unit": "voices"
+    },
+    {
+      "id": "ctl-014",
+      "path": "voice.portamento",
+      "name": "voicing glide",
+      "scope": "voicing",
+      "label": "glide",
+      "widget": "knob",
+      "location": {
+        "kind": "settings"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        5
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-015",
+      "path": "voice.stealPolicy",
+      "name": "voicing note steal",
+      "scope": "voicing",
+      "label": "note steal",
+      "widget": "glyphs",
+      "location": {
+        "kind": "settings"
+      },
+      "kind": "enum",
+      "choices": [
+        "oldest"
+      ]
+    },
+    {
+      "id": "ctl-016",
+      "path": "voice.velocity.toAmplitude",
+      "name": "velocity to volume",
+      "scope": "velocity",
+      "label": "to volume",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "ctl-017",
+      "path": "voice.velocity.toFilterOctaves",
+      "name": "velocity to cutoff",
+      "scope": "velocity",
+      "label": "to cutoff",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        8
+      ],
+      "unit": "oct"
+    },
+    {
+      "id": "ctl-018",
+      "path": "voice.amplitude",
+      "name": "voice level",
+      "scope": "voice",
+      "label": "level",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "adsr",
+        "group": "amp"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "duckDb",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-019",
+      "path": "voice.pan",
+      "name": "voice pan",
+      "scope": "voice",
+      "label": "pan",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-020",
+      "path": "effects.distortion.amount",
+      "name": "distortion drive",
+      "scope": "distortion",
+      "label": "drive",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-021",
+      "path": "effects.distortion.wet",
+      "name": "distortion mix",
+      "scope": "distortion",
+      "label": "mix",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-022",
+      "path": "effects.chorus.frequency",
+      "name": "chorus rate",
+      "scope": "chorus",
+      "label": "rate",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "Hz"
+    },
+    {
+      "id": "ctl-023",
+      "path": "effects.chorus.delayTime",
+      "name": "chorus delay",
+      "scope": "chorus",
+      "label": "delay",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        20
+      ],
+      "unit": "ms"
+    },
+    {
+      "id": "ctl-024",
+      "path": "effects.chorus.depth",
+      "name": "chorus depth",
+      "scope": "chorus",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-025",
+      "path": "effects.chorus.wet",
+      "name": "chorus mix",
+      "scope": "chorus",
+      "label": "mix",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-026",
+      "path": "effects.delay.delayTime",
+      "name": "delay time",
+      "scope": "delay",
+      "label": "time",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        2
+      ],
+      "unit": "s"
+    },
+    {
+      "id": "ctl-027",
+      "path": "effects.delay.feedback",
+      "name": "delay feedback",
+      "scope": "delay",
+      "label": "feedback",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        0.95
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-028",
+      "path": "effects.delay.wet",
+      "name": "delay mix",
+      "scope": "delay",
+      "label": "mix",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-029",
+      "path": "effects.reverb.roomSize",
+      "name": "reverb size",
+      "scope": "reverb",
+      "label": "size",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "ctl-030",
+      "path": "effects.reverb.dampening",
+      "name": "reverb damping",
+      "scope": "reverb",
+      "label": "damping",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        20,
+        20000
+      ],
+      "unit": "Hz"
+    },
+    {
+      "id": "ctl-031",
+      "path": "effects.reverb.wet",
+      "name": "reverb mix",
+      "scope": "reverb",
+      "label": "mix",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-032",
+      "path": "effects.eq.enabled",
+      "name": "eq on",
+      "scope": "eq",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "eq"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-033",
+      "path": "effects.eq.band0.gain",
+      "name": "eq band 1",
+      "scope": "eq",
+      "label": "band 1",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "eq"
+      },
+      "kind": "number",
+      "range": [
+        -18,
+        18
+      ],
+      "unit": "dB",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-034",
+      "path": "effects.eq.band1.gain",
+      "name": "eq band 2",
+      "scope": "eq",
+      "label": "band 2",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "eq"
+      },
+      "kind": "number",
+      "range": [
+        -18,
+        18
+      ],
+      "unit": "dB",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-035",
+      "path": "effects.eq.band2.gain",
+      "name": "eq band 3",
+      "scope": "eq",
+      "label": "band 3",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "eq"
+      },
+      "kind": "number",
+      "range": [
+        -18,
+        18
+      ],
+      "unit": "dB",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-036",
+      "path": "effects.eq.band3.gain",
+      "name": "eq band 4",
+      "scope": "eq",
+      "label": "band 4",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "eq"
+      },
+      "kind": "number",
+      "range": [
+        -18,
+        18
+      ],
+      "unit": "dB",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-037",
+      "path": "effects.eq.band4.gain",
+      "name": "eq band 5",
+      "scope": "eq",
+      "label": "band 5",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "eq"
+      },
+      "kind": "number",
+      "range": [
+        -18,
+        18
+      ],
+      "unit": "dB",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": false,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-038",
+      "path": "master.volume",
+      "name": "master volume",
+      "scope": "master",
+      "label": "volume",
+      "widget": "slider",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        -60,
+        6
+      ],
+      "unit": "dB"
+    },
+    {
+      "id": "ctl-039",
+      "path": "master.limiterThreshold",
+      "name": "master limiter",
+      "scope": "master",
+      "label": "limiter",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "fx",
+        "group": "fx"
+      },
+      "kind": "number",
+      "range": [
+        -40,
+        0
+      ],
+      "unit": "dB"
+    },
+    {
+      "id": "ctl-040",
+      "path": "voice.oscillators.0.enabled",
+      "name": "osc a on",
+      "scope": "osc a",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-041",
+      "path": "voice.oscillators.0.type",
+      "name": "osc a wave",
+      "scope": "osc a",
+      "label": "wave",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square",
+        "pulse",
+        "pwm",
+        "noise"
+      ]
+    },
+    {
+      "id": "ctl-042",
+      "path": "voice.oscillators.0.octave",
+      "name": "osc a octave",
+      "scope": "osc a",
+      "label": "octave",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -2,
+        2
+      ],
+      "unit": "oct",
+      "choices": [
+        -2,
+        -1,
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "id": "ctl-043",
+      "path": "voice.oscillators.0.detune",
+      "name": "osc a detune",
+      "scope": "osc a",
+      "label": "detune",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1200,
+        1200
+      ],
+      "unit": "cents",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-044",
+      "path": "voice.oscillators.0.count",
+      "name": "osc a unison",
+      "scope": "osc a",
+      "label": "unison",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        1,
+        8
+      ],
+      "unit": "voices"
+    },
+    {
+      "id": "ctl-045",
+      "path": "voice.oscillators.0.spread",
+      "name": "osc a spread",
+      "scope": "osc a",
+      "label": "spread",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        200
+      ],
+      "unit": "cents",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-046",
+      "path": "voice.oscillators.0.width",
+      "name": "osc a width",
+      "scope": "osc a",
+      "label": "width",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-047",
+      "path": "voice.oscillators.0.level",
+      "name": "osc a level",
+      "scope": "osc a",
+      "label": "level",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-048",
+      "path": "voice.oscillators.0.pan",
+      "name": "osc a pan",
+      "scope": "osc a",
+      "label": "pan",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-049",
+      "path": "voice.oscillators.1.enabled",
+      "name": "osc b on",
+      "scope": "osc b",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-050",
+      "path": "voice.oscillators.1.type",
+      "name": "osc b wave",
+      "scope": "osc b",
+      "label": "wave",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square",
+        "pulse",
+        "pwm",
+        "noise"
+      ]
+    },
+    {
+      "id": "ctl-051",
+      "path": "voice.oscillators.1.octave",
+      "name": "osc b octave",
+      "scope": "osc b",
+      "label": "octave",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -2,
+        2
+      ],
+      "unit": "oct",
+      "choices": [
+        -2,
+        -1,
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "id": "ctl-052",
+      "path": "voice.oscillators.1.detune",
+      "name": "osc b detune",
+      "scope": "osc b",
+      "label": "detune",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1200,
+        1200
+      ],
+      "unit": "cents",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-053",
+      "path": "voice.oscillators.1.count",
+      "name": "osc b unison",
+      "scope": "osc b",
+      "label": "unison",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        1,
+        8
+      ],
+      "unit": "voices"
+    },
+    {
+      "id": "ctl-054",
+      "path": "voice.oscillators.1.spread",
+      "name": "osc b spread",
+      "scope": "osc b",
+      "label": "spread",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        200
+      ],
+      "unit": "cents",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-055",
+      "path": "voice.oscillators.1.width",
+      "name": "osc b width",
+      "scope": "osc b",
+      "label": "width",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-056",
+      "path": "voice.oscillators.1.level",
+      "name": "osc b level",
+      "scope": "osc b",
+      "label": "level",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-057",
+      "path": "voice.oscillators.1.pan",
+      "name": "osc b pan",
+      "scope": "osc b",
+      "label": "pan",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-058",
+      "path": "voice.oscillators.2.enabled",
+      "name": "osc c on",
+      "scope": "osc c",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-059",
+      "path": "voice.oscillators.2.type",
+      "name": "osc c wave",
+      "scope": "osc c",
+      "label": "wave",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square",
+        "pulse",
+        "pwm",
+        "noise"
+      ]
+    },
+    {
+      "id": "ctl-060",
+      "path": "voice.oscillators.2.octave",
+      "name": "osc c octave",
+      "scope": "osc c",
+      "label": "octave",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -2,
+        2
+      ],
+      "unit": "oct",
+      "choices": [
+        -2,
+        -1,
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "id": "ctl-061",
+      "path": "voice.oscillators.2.detune",
+      "name": "osc c detune",
+      "scope": "osc c",
+      "label": "detune",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1200,
+        1200
+      ],
+      "unit": "cents",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-062",
+      "path": "voice.oscillators.2.count",
+      "name": "osc c unison",
+      "scope": "osc c",
+      "label": "unison",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        1,
+        8
+      ],
+      "unit": "voices"
+    },
+    {
+      "id": "ctl-063",
+      "path": "voice.oscillators.2.spread",
+      "name": "osc c spread",
+      "scope": "osc c",
+      "label": "spread",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        200
+      ],
+      "unit": "cents",
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-064",
+      "path": "voice.oscillators.2.width",
+      "name": "osc c width",
+      "scope": "osc c",
+      "label": "width",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": false
+      }
+    },
+    {
+      "id": "ctl-065",
+      "path": "voice.oscillators.2.level",
+      "name": "osc c level",
+      "scope": "osc c",
+      "label": "level",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        0,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-066",
+      "path": "voice.oscillators.2.pan",
+      "name": "osc c pan",
+      "scope": "osc c",
+      "label": "pan",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "osc",
+        "group": "slots"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ],
+      "modulation": {
+        "curve": "linear",
+        "perVoice": true,
+        "wired": true
+      }
+    },
+    {
+      "id": "ctl-067",
+      "path": "voice.lfos.0.enabled",
+      "name": "lfo 1 on",
+      "scope": "lfo 1",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-068",
+      "path": "voice.lfos.0.type",
+      "name": "lfo 1 shape",
+      "scope": "lfo 1",
+      "label": "shape",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square"
+      ]
+    },
+    {
+      "id": "ctl-069",
+      "path": "voice.lfos.0.frequency",
+      "name": "lfo 1 rate",
+      "scope": "lfo 1",
+      "label": "rate",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "frequency"
+    },
+    {
+      "id": "ctl-070",
+      "path": "voice.lfos.0.sync",
+      "name": "lfo 1 sync",
+      "scope": "lfo 1",
+      "label": "sync",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-071",
+      "path": "voice.lfos.0.retrigger",
+      "name": "lfo 1 retrigger",
+      "scope": "lfo 1",
+      "label": "retrigger",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-072",
+      "path": "voice.lfos.1.enabled",
+      "name": "lfo 2 on",
+      "scope": "lfo 2",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-073",
+      "path": "voice.lfos.1.type",
+      "name": "lfo 2 shape",
+      "scope": "lfo 2",
+      "label": "shape",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square"
+      ]
+    },
+    {
+      "id": "ctl-074",
+      "path": "voice.lfos.1.frequency",
+      "name": "lfo 2 rate",
+      "scope": "lfo 2",
+      "label": "rate",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "frequency"
+    },
+    {
+      "id": "ctl-075",
+      "path": "voice.lfos.1.sync",
+      "name": "lfo 2 sync",
+      "scope": "lfo 2",
+      "label": "sync",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-076",
+      "path": "voice.lfos.1.retrigger",
+      "name": "lfo 2 retrigger",
+      "scope": "lfo 2",
+      "label": "retrigger",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-077",
+      "path": "voice.lfos.2.enabled",
+      "name": "lfo 3 on",
+      "scope": "lfo 3",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-078",
+      "path": "voice.lfos.2.type",
+      "name": "lfo 3 shape",
+      "scope": "lfo 3",
+      "label": "shape",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square"
+      ]
+    },
+    {
+      "id": "ctl-079",
+      "path": "voice.lfos.2.frequency",
+      "name": "lfo 3 rate",
+      "scope": "lfo 3",
+      "label": "rate",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "frequency"
+    },
+    {
+      "id": "ctl-080",
+      "path": "voice.lfos.2.sync",
+      "name": "lfo 3 sync",
+      "scope": "lfo 3",
+      "label": "sync",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-081",
+      "path": "voice.lfos.2.retrigger",
+      "name": "lfo 3 retrigger",
+      "scope": "lfo 3",
+      "label": "retrigger",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-082",
+      "path": "voice.lfos.3.enabled",
+      "name": "lfo 4 on",
+      "scope": "lfo 4",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-083",
+      "path": "voice.lfos.3.type",
+      "name": "lfo 4 shape",
+      "scope": "lfo 4",
+      "label": "shape",
+      "widget": "glyphs",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "enum",
+      "choices": [
+        "sine",
+        "triangle",
+        "sawtooth",
+        "square"
+      ]
+    },
+    {
+      "id": "ctl-084",
+      "path": "voice.lfos.3.frequency",
+      "name": "lfo 4 rate",
+      "scope": "lfo 4",
+      "label": "rate",
+      "widget": "knob",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "frequency"
+    },
+    {
+      "id": "ctl-085",
+      "path": "voice.lfos.3.sync",
+      "name": "lfo 4 sync",
+      "scope": "lfo 4",
+      "label": "sync",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-086",
+      "path": "voice.lfos.3.retrigger",
+      "name": "lfo 4 retrigger",
+      "scope": "lfo 4",
+      "label": "retrigger",
+      "widget": "toggle",
+      "location": {
+        "kind": "tab",
+        "tab": "filter",
+        "group": "lfo"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-087",
+      "path": "voice.modRoutes.0.enabled",
+      "name": "route 1 on",
+      "scope": "route 1",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-088",
+      "path": "voice.modRoutes.0.source",
+      "name": "route 1 source",
+      "scope": "route 1",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-089",
+      "path": "voice.modRoutes.0.destination",
+      "name": "route 1 destination",
+      "scope": "route 1",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-090",
+      "path": "voice.modRoutes.0.depth",
+      "name": "route 1 depth",
+      "scope": "route 1",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-091",
+      "path": "voice.modRoutes.1.enabled",
+      "name": "route 2 on",
+      "scope": "route 2",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-092",
+      "path": "voice.modRoutes.1.source",
+      "name": "route 2 source",
+      "scope": "route 2",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-093",
+      "path": "voice.modRoutes.1.destination",
+      "name": "route 2 destination",
+      "scope": "route 2",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-094",
+      "path": "voice.modRoutes.1.depth",
+      "name": "route 2 depth",
+      "scope": "route 2",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-095",
+      "path": "voice.modRoutes.2.enabled",
+      "name": "route 3 on",
+      "scope": "route 3",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-096",
+      "path": "voice.modRoutes.2.source",
+      "name": "route 3 source",
+      "scope": "route 3",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-097",
+      "path": "voice.modRoutes.2.destination",
+      "name": "route 3 destination",
+      "scope": "route 3",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-098",
+      "path": "voice.modRoutes.2.depth",
+      "name": "route 3 depth",
+      "scope": "route 3",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-099",
+      "path": "voice.modRoutes.3.enabled",
+      "name": "route 4 on",
+      "scope": "route 4",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-100",
+      "path": "voice.modRoutes.3.source",
+      "name": "route 4 source",
+      "scope": "route 4",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-101",
+      "path": "voice.modRoutes.3.destination",
+      "name": "route 4 destination",
+      "scope": "route 4",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-102",
+      "path": "voice.modRoutes.3.depth",
+      "name": "route 4 depth",
+      "scope": "route 4",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-103",
+      "path": "voice.modRoutes.4.enabled",
+      "name": "route 5 on",
+      "scope": "route 5",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-104",
+      "path": "voice.modRoutes.4.source",
+      "name": "route 5 source",
+      "scope": "route 5",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-105",
+      "path": "voice.modRoutes.4.destination",
+      "name": "route 5 destination",
+      "scope": "route 5",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-106",
+      "path": "voice.modRoutes.4.depth",
+      "name": "route 5 depth",
+      "scope": "route 5",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-107",
+      "path": "voice.modRoutes.5.enabled",
+      "name": "route 6 on",
+      "scope": "route 6",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-108",
+      "path": "voice.modRoutes.5.source",
+      "name": "route 6 source",
+      "scope": "route 6",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-109",
+      "path": "voice.modRoutes.5.destination",
+      "name": "route 6 destination",
+      "scope": "route 6",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-110",
+      "path": "voice.modRoutes.5.depth",
+      "name": "route 6 depth",
+      "scope": "route 6",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-111",
+      "path": "voice.modRoutes.6.enabled",
+      "name": "route 7 on",
+      "scope": "route 7",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-112",
+      "path": "voice.modRoutes.6.source",
+      "name": "route 7 source",
+      "scope": "route 7",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-113",
+      "path": "voice.modRoutes.6.destination",
+      "name": "route 7 destination",
+      "scope": "route 7",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-114",
+      "path": "voice.modRoutes.6.depth",
+      "name": "route 7 depth",
+      "scope": "route 7",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    },
+    {
+      "id": "ctl-115",
+      "path": "voice.modRoutes.7.enabled",
+      "name": "route 8 on",
+      "scope": "route 8",
+      "label": "on",
+      "widget": "toggle",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "boolean"
+    },
+    {
+      "id": "ctl-116",
+      "path": "voice.modRoutes.7.source",
+      "name": "route 8 source",
+      "scope": "route 8",
+      "label": "source",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "lfo.0",
+        "lfo.1",
+        "lfo.2",
+        "lfo.3",
+        "velocity"
+      ]
+    },
+    {
+      "id": "ctl-117",
+      "path": "voice.modRoutes.7.destination",
+      "name": "route 8 destination",
+      "scope": "route 8",
+      "label": "destination",
+      "widget": "glyphs",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "enum",
+      "choices": [
+        "voice.filterEnvelope.baseFrequency",
+        "voice.filter.Q",
+        "voice.amplitude",
+        "voice.pan",
+        "voice.oscillators.0.detune",
+        "voice.oscillators.0.width",
+        "voice.oscillators.0.spread",
+        "voice.oscillators.0.level",
+        "voice.oscillators.0.pan",
+        "voice.oscillators.1.detune",
+        "voice.oscillators.1.width",
+        "voice.oscillators.1.spread",
+        "voice.oscillators.1.level",
+        "voice.oscillators.1.pan",
+        "voice.oscillators.2.detune",
+        "voice.oscillators.2.width",
+        "voice.oscillators.2.spread",
+        "voice.oscillators.2.level",
+        "voice.oscillators.2.pan",
+        "effects.distortion.amount",
+        "effects.distortion.wet",
+        "effects.chorus.depth",
+        "effects.chorus.wet",
+        "effects.delay.feedback",
+        "effects.delay.wet",
+        "effects.reverb.wet",
+        "effects.eq.band0.gain",
+        "effects.eq.band1.gain",
+        "effects.eq.band2.gain",
+        "effects.eq.band3.gain",
+        "effects.eq.band4.gain"
+      ]
+    },
+    {
+      "id": "ctl-118",
+      "path": "voice.modRoutes.7.depth",
+      "name": "route 8 depth",
+      "scope": "route 8",
+      "label": "depth",
+      "widget": "knob",
+      "location": {
+        "kind": "bay"
+      },
+      "kind": "number",
+      "range": [
+        -1,
+        1
+      ]
+    }
+  ]
+}
