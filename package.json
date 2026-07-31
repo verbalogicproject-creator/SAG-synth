@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "observe": "node scripts/sag-observe.mjs",
-    "command": "node scripts/sag-command.mjs"
+    "command": "node scripts/sag-command.mjs",
+    "geometry": "node scripts/sag-geometry.mjs"
   },
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
