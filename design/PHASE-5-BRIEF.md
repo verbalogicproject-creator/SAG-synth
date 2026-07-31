@@ -92,17 +92,67 @@ have to keep holding across nesting.
 
 ---
 
-## CPU is a contract input here, not an afterthought
+## CPU is a contract input here — measured, 2026-07-31
 
-Three Freeverbs, three chorus lines and fifteen EQ bands is the naive reading of
-"per-channel chains", and this instrument is built on and for a phone. FL's model is
-desktop. The slot model helps — a track with no reverb slot builds no reverb — but the
-cap chosen in question 2 sets the worst case, and the worst case is what a patch can ask
-for.
+`src/tests/mixer-cost.audio.test.ts`, run on the device under PRoot. `Tone.Offline`
+renders as fast as it can, so these are **wall-time / audio-time ratios, not live CPU**.
+They are a sound relative measure and a hard upper bound: a configuration that cannot
+beat 1.0x offline has no chance live, where it also shares a thread with the UI and must
+leave scheduling headroom.
 
-**A CPU probe belongs before 5.0, not after 5.1.** Render N parallel effect chains
-offline and measure; the number decides the caps. Writing the KIND first and discovering
-the phone cannot play it is the expensive order.
+```
+dry (no effects)         34 ms   0.017x realtime
+distortion only          26 ms   0.013x realtime
+chorus only             145 ms   0.072x realtime
+delay only               43 ms   0.022x realtime
+freeverb only           375 ms   0.187x realtime
+eq only (5 bands)        91 ms   0.046x realtime
+1 full chain            495 ms   0.247x realtime
+2 full chains           997 ms   0.499x realtime
+3 full chains          1473 ms   0.736x realtime
+4 full chains          1929 ms   0.964x realtime
+6 full chains          3097 ms   1.548x realtime
+8 full chains          4354 ms   2.177x realtime
+```
+
+### What the numbers say
+
+**Reverb is the whole problem.** Net of the dry baseline, one full chain costs 0.230x and
+`Freeverb` alone accounts for 0.170x of it — **74% of a chain's cost is one node.** Chorus
+is 0.055x, EQ 0.029x, delay 0.005x, and distortion is inside the noise floor (it measured
+*below* dry). A chain with everything except reverb costs about 0.060x — **roughly a
+quarter the price.**
+
+**Scaling is flat.** ~0.24x per additional chain, no economies. Four full chains render at
+0.964x offline: that is already unplayable live, and it is only four.
+
+### Three things this decides
+
+1. **The slot model is not a nicety, it is the affordability argument.** Replicating
+   today's fixed chain per track costs 0.23x each and dies at three tracks. A model where
+   a track builds only the slots it declares makes a reverb-less track nearly free. This
+   settles question 1 in favour of the discriminated union — a homogeneous slot carrying
+   every effect's parameters could still build lazily, but only a typed slot lets a patch
+   *say* "this track has no reverb," and the saying is what the runtime needs.
+
+2. **Buses are load-bearing, not a feature.** One shared reverb bus that four tracks send
+   to costs 0.170x once instead of 0.680x four times. FL's send architecture exists for
+   exactly this reason, and the measurement reproduces it. Any cap in question 2 should be
+   generous on tracks and slots and stingy on *reverb instances specifically*.
+
+3. **`Tone.Freeverb` deserves a second look.** It is a JS-implemented comb/allpass network;
+   `Tone.Reverb` is a native `ConvolverNode`. Freeverb was chosen at 0.1.x precisely
+   because `Tone.Reverb`'s randomised impulse response cannot be gated deterministically —
+   a good reason that now carries a measured price. Worth re-opening as: can a *fixed*
+   impulse be generated once and fed to a convolver, keeping the gate and the native speed?
+   **Not a Phase 5 blocker. Logged, not decided.**
+
+### The cap this suggests
+
+Not final — 5.0 decides it — but the measurement points at roughly **4–6 tracks, ~4 slots
+each, with reverb only affordable on one or two shared buses.** The honest framing is that
+the cap is not "how many tracks" but "how many reverbs," and the contract should make that
+visible rather than let a patch discover it by stuttering.
 
 ---
 
