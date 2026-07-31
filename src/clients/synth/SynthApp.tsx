@@ -42,6 +42,17 @@ export function SynthApp() {
 
   const [state, setState] = useState(() => dispatcher.getState());
   const [contextState, setContextState] = useState(() => runtime.getContextState());
+  /**
+   * Why the unlock did not take, when it did not.
+   *
+   * `Tone.start()` resolving is not evidence the browser honoured it, and a rejection here
+   * was swallowed entirely in the first version of this file — so a refused resume looked
+   * exactly like a working one, which is the same silent-failure the debug wall was taught
+   * to report and this surface then had to learn again.
+   */
+  const [unlockError, setUnlockError] = useState('');
+  /** Output level in dB, polled. The only honest answer to "is it making a sound". */
+  const [level, setLevel] = useState(Number.NEGATIVE_INFINITY);
   const [octave, setOctave] = useState(3);
 
   /**
@@ -93,13 +104,22 @@ export function SynthApp() {
   // resolves whether or not the browser honoured it, and Android re-suspends whenever the
   // tab is backgrounded. A flag would say "running" with no way back.
   useEffect(() => {
-    const timer = setInterval(() => setContextState(runtime.getContextState()), 500);
+    const timer = setInterval(() => {
+      setContextState(runtime.getContextState());
+      setLevel(runtime.getLevel());
+    }, 250);
     return () => clearInterval(timer);
   }, [runtime]);
 
   const unlock = useCallback(async () => {
-    await dispatcher.unlock();
-    setContextState(runtime.getContextState());
+    try {
+      await dispatcher.unlock();
+      const state = runtime.getContextState();
+      setContextState(state);
+      setUnlockError(state === 'running' ? '' : `resume() returned but the context is "${state}"`);
+    } catch (error) {
+      setUnlockError(error instanceof Error ? error.message : String(error));
+    }
   }, [dispatcher, runtime]);
 
   const onChange = useCallback(
@@ -130,6 +150,9 @@ export function SynthApp() {
       <header style={styles.header}>
         <span style={styles.logo}>SAG</span>
         <span style={styles.patch}>{state.patch.name}</span>
+        <span style={styles.level} aria-label="output level">
+          {running ? (Number.isFinite(level) ? `${level.toFixed(0)} dB` : '−∞') : '—'}
+        </span>
         <button
           type="button"
           onClick={() => setBayOpen(true)}
@@ -142,11 +165,30 @@ export function SynthApp() {
           type="button"
           onClick={unlock}
           style={{ ...styles.unlock, opacity: running ? 0.35 : 1 }}
-          aria-label={running ? 'audio running' : 'start audio'}
+          // Not "start audio" — the banner owns that job now, and two controls answering
+          // to one name is ambiguous for a screen reader and for a test.
+          aria-label="audio status" 
         >
           {running ? '● live' : '▶ start'}
         </button>
       </header>
+
+      {!running && (
+        /*
+         * A banner, not a corner button. Android suspends the context whenever the tab is
+         * backgrounded, so this state is reached constantly and silently — and a synth
+         * that makes no sound for a reason it never states is the exact failure this
+         * project keeps shipping, arriving through the one path no gate can see.
+         */
+        <button type="button" onClick={unlock} style={styles.banner} aria-label="start audio">
+          <strong>▶ tap to start audio</strong>
+          <span style={styles.bannerNote}>
+            {unlockError === ''
+              ? `the audio context is ${contextState} — Android suspends it whenever the tab loses focus`
+              : unlockError}
+          </span>
+        </button>
+      )}
 
       <main style={styles.main}>
         <SynthPanels state={state} onChange={onChange} onCommand={onCommand} />
@@ -247,6 +289,30 @@ const styles = {
     color: COLOR.accent,
   },
   patch: { flex: 1, fontSize: '0.75rem', color: COLOR.textDim },
+  level: {
+    fontFamily: FONT.mono,
+    fontSize: '0.7rem',
+    color: COLOR.accentText,
+    minWidth: '3.2rem',
+    textAlign: 'right',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  banner: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.2rem',
+    width: '100%',
+    padding: '0.7rem',
+    background: COLOR.accentDim,
+    color: COLOR.accentText,
+    border: 'none',
+    borderBottom: `1px solid ${COLOR.accent}`,
+    fontFamily: FONT.display,
+    fontSize: '0.85rem',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  bannerNote: { fontSize: '0.65rem', opacity: 0.85 },
   bay: {
     minHeight: TOUCH_MIN,
     padding: '0 0.7rem',

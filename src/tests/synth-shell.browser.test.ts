@@ -66,6 +66,26 @@ describe('the shell is the only thing that does not scroll', () => {
   });
 });
 
+describe('silence explains itself', () => {
+  it('says the context is suspended instead of just being quiet', async () => {
+    // The failure this surface reintroduced and the debug wall had already learned:
+    // `Tone.start()` resolving is not evidence the browser honoured it, and a refused
+    // resume looked exactly like a working one. A synth that makes no sound for a reason
+    // it never states is the decoy pattern arriving through the one path no gate sees.
+    await mount();
+
+    const banner = container.querySelector('[aria-label="start audio"]');
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain('tap to start audio');
+    expect(banner?.textContent).toContain('suspended');
+  });
+
+  it('reports the output level, which is the only honest answer to is it sounding', async () => {
+    await mount();
+    expect(container.querySelector('[aria-label="output level"]')).not.toBeNull();
+  });
+});
+
 describe('the keyboard folds away', () => {
   it('hides the keys and keeps the row that sets up a note', async () => {
     // Velocity and octave stay: they are what you set BEFORE playing, and hunting for
