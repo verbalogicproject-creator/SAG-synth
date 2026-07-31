@@ -64,6 +64,14 @@ export function SynthApp() {
   const [bayOpen, setBayOpen] = useState(false);
 
   /**
+   * The keyboard folds away, because on a phone it is a third of the screen.
+   *
+   * Only the keys hide — the velocity and octave row stays, since those are what you set
+   * before playing and hunting for them is worse than the space they cost.
+   */
+  const [keysOpen, setKeysOpen] = useState(true);
+
+  /**
    * Held notes come from the dispatcher's TRANSIENT state, not from `EngineState`.
    *
    * A sounding note is not a document edit — it advances no revision and belongs nowhere
@@ -187,13 +195,24 @@ export function SynthApp() {
           <button type="button" onClick={() => setOctave((o) => Math.min(7, o + 1))} style={styles.octave}>
             +
           </button>
+          <button
+            type="button"
+            onClick={() => setKeysOpen((open) => !open)}
+            style={styles.octave}
+            aria-label={keysOpen ? 'hide the keyboard' : 'show the keyboard'}
+            aria-expanded={keysOpen}
+          >
+            {keysOpen ? '⌄' : '⌃'}
+          </button>
         </label>
-        <VirtualKeyboard
-          octave={octave}
-          held={held}
-          onNoteOn={noteOn}
-          onNoteOff={noteOff}
-        />
+        {keysOpen && (
+          <VirtualKeyboard
+            octave={octave}
+            held={held}
+            onNoteOn={noteOn}
+            onNoteOff={noteOff}
+          />
+        )}
       </footer>
     </div>
   );
@@ -203,7 +222,12 @@ const styles = {
   app: {
     display: 'flex',
     flexDirection: 'column',
-    minHeight: '100dvh',
+    // height, NOT minHeight. With a minimum the app grows to fit a tall tab, the BODY
+    // becomes the scroller, and the footer scrolls away with everything else — which is
+    // exactly the keyboard drifting off the bottom of the FX tab. Fixed height plus
+    // `overflow: hidden` makes `main` the only thing that can scroll.
+    height: '100dvh',
+    overflow: 'hidden',
     background: COLOR.surface,
     color: COLOR.text,
     fontFamily: FONT.display,

@@ -11,41 +11,10 @@
  * exact shape of every decoy this project has shipped.
  */
 
+import { glyphFor } from './glyphs';
 import { COLOR, FONT, TOUCH_MIN } from '../tokens';
 import { sagAttributes, type ControlProps } from './types';
 
-/**
- * Read as pictures where a picture reads faster than a word, and as words otherwise.
- * Filter types and slopes stay lettered and numbered because that is how they are labelled
- * on every instrument and a novel glyph would be worse than the convention.
- */
-const GLYPHS: Record<string, string> = {
-  sine: '∿',
-  triangle: '△',
-  sawtooth: '◺',
-  square: '⊓',
-  pulse: '∏',
-  pwm: '⊐',
-  noise: '▨',
-
-  lowpass: 'LP',
-  highpass: 'HP',
-  bandpass: 'BP',
-  notch: 'NO',
-  lowshelf: 'LS',
-  highshelf: 'HS',
-  allpass: 'AP',
-  peaking: 'PK',
-
-  '-12': '12',
-  '-24': '24',
-  '-48': '48',
-  '-96': '96',
-};
-
-function glyphFor(option: string | number): string {
-  return GLYPHS[String(option)] ?? String(option);
-}
 
 export function GlyphButtons({
   id,

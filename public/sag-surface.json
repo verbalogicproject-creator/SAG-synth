@@ -88,7 +88,7 @@
       "name": "filter type",
       "scope": "filter",
       "label": "type",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -312,7 +312,7 @@
       "name": "voicing note steal",
       "scope": "voicing",
       "label": "note steal",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "settings"
       },
@@ -851,7 +851,7 @@
       "name": "osc a wave",
       "scope": "osc a",
       "label": "wave",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "osc",
@@ -1050,7 +1050,7 @@
       "name": "osc b wave",
       "scope": "osc b",
       "label": "wave",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "osc",
@@ -1249,7 +1249,7 @@
       "name": "osc c wave",
       "scope": "osc c",
       "label": "wave",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "osc",
@@ -1448,7 +1448,7 @@
       "name": "lfo 1 shape",
       "scope": "lfo 1",
       "label": "shape",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1524,7 +1524,7 @@
       "name": "lfo 2 shape",
       "scope": "lfo 2",
       "label": "shape",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1600,7 +1600,7 @@
       "name": "lfo 3 shape",
       "scope": "lfo 3",
       "label": "shape",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1676,7 +1676,7 @@
       "name": "lfo 4 shape",
       "scope": "lfo 4",
       "label": "shape",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1750,7 +1750,7 @@
       "name": "route 1 source",
       "scope": "route 1",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -1842,7 +1842,7 @@
       "name": "route 2 source",
       "scope": "route 2",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -1934,7 +1934,7 @@
       "name": "route 3 source",
       "scope": "route 3",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2026,7 +2026,7 @@
       "name": "route 4 source",
       "scope": "route 4",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2118,7 +2118,7 @@
       "name": "route 5 source",
       "scope": "route 5",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2210,7 +2210,7 @@
       "name": "route 6 source",
       "scope": "route 6",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2302,7 +2302,7 @@
       "name": "route 7 source",
       "scope": "route 7",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2394,7 +2394,7 @@
       "name": "route 8 source",
       "scope": "route 8",
       "label": "source",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },

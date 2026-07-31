@@ -5,14 +5,20 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  /* dvh, not vh: on Android `100vh` is the viewport WITHOUT the browser chrome, so a
+     full-height layout is always taller than the screen and the page scrolls by the
+     height of the URL bar. That is the difference between a keyboard fixed to the bottom
+     and one that drifts off it. */
+  min-height: 100dvh;
   background: #0d0d10;
   color: #e8e8ea;
 }
 
-main {
-  padding: 2rem;
-}
+/* No bare element selectors here. `main { padding: 2rem }` used to live at this spot and
+   was pure harm: DebugApp sets its own padding inline, which wins, so the rule did nothing
+   for the surface it was written for — and everything to the instrument's scroll
+   container, which is also a `<main>` and had no inline padding to defend itself. A shared
+   stylesheet that names an element names every surface, including ones not written yet. */
 
 /* Touch is the primary input on this project. Android's double-tap-to-zoom imposes a
    ~300ms delay before a tap registers, which reads as latency on every single note;

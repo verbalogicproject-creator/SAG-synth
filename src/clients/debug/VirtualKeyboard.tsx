@@ -83,6 +83,10 @@ export function VirtualKeyboard({ octave, held, onNoteOn, onNoteOff }: VirtualKe
           <button
             key={`w${index}`}
             type="button"
+            // The note this key sends, on the DOM. Same reason every control carries
+            // `data-sag-path`: a surface an agent can read is a surface a test can read.
+            data-note={note}
+            aria-label={note}
             onPointerDown={(event) => press(event, note)}
             onPointerEnter={(event) => slide(event, note)}
             onContextMenu={(event) => event.preventDefault()}
@@ -104,6 +108,8 @@ export function VirtualKeyboard({ octave, held, onNoteOn, onNoteOff }: VirtualKe
           <button
             key={`b${index}`}
             type="button"
+            data-note={note}
+            aria-label={note}
             onPointerDown={(event) => press(event, note)}
             onPointerEnter={(event) => slide(event, note)}
             onContextMenu={(event) => event.preventDefault()}

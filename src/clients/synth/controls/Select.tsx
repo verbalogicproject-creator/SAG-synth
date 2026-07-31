@@ -1,9 +1,10 @@
 /**
- * src/clients/synth/controls/Select.tsx — an enum too long to draw whole.
+ * src/clients/synth/controls/Select.tsx — every enum, as a list.
  *
- * Only one address needs it: a route's `destination`, which holds all 31 modulation
- * targets. Everything else in the instrument is eight values or fewer and reads better as
- * buttons, which is why the widget is chosen by cardinality rather than by hand.
+ * Buttons lost this on the device. Seven wave shapes or eight filter types each eat a full
+ * row of a phone screen that holds about nine, and a route's destination holds all 31 —
+ * that one was never a button row at all, it was a list wearing one. The glyph rides along
+ * in the option text, so the picture is not the thing being traded away, only the space.
  *
  * **It labels addresses the way everything else does.** When an option resolves through
  * `controlForPath` — which is exactly the case here, since a destination IS a parameter
@@ -21,13 +22,16 @@
 import { controlForPath, fullNameOf } from '../../../core/controls';
 import { sectionFor } from '../../../core/groups';
 import { isDestinationWired, type ModDestination, type ParamPath } from '../../../core/types';
+import { optionLabel } from './glyphs';
 import { COLOR, FONT, TOUCH_MIN } from '../tokens';
 import { sagAttributes, type ControlProps } from './types';
 
 /** The name for one option, in the vocabulary the rest of the surface uses. */
 function describeOption(option: string): string {
   const control = controlForPath(option as ParamPath);
-  if (control === undefined) return option;
+  // Not an address — a wave, a filter type, an LFO shape. The glyph comes with it, because
+  // a list has room for the picture AND the word.
+  if (control === undefined) return optionLabel(option);
 
   const name = fullNameOf(control);
   return isDestinationWired(option as ModDestination) ? name : `${name} — not wired`;

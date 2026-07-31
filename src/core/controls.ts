@@ -62,14 +62,6 @@ export interface ParamControl {
 }
 
 /**
- * The most values that still read as a row of buttons on a phone. Eight is the largest
- * enum the instrument has apart from the destination list, so this draws the line exactly
- * where the surface already sits — a ninth filter type would be a real design question
- * rather than a silent reflow.
- */
-const GLYPH_ROW_LIMIT = 8;
-
-/**
  * The default widget, derived from the contract rather than asserted.
  *
  * A number carrying `choices` is not a range — `voice.filter.rolloff` has four legal
@@ -85,11 +77,14 @@ function defaultWidget(spec: ParamSpec): Widget {
     case 'boolean':
       return 'toggle';
     case 'enum':
-      // Cardinality, not preference. Every enum in the instrument holds eight values or
-      // fewer and reads well as a row of buttons — except a route's `destination`, which
-      // holds all 31 modulation targets. Thirty-one buttons is not a glyph row, it is a
-      // list wearing one, so the threshold decides rather than an override per control.
-      return spec.values.length > GLYPH_ROW_LIMIT ? 'select' : 'glyphs';
+      // A list, not a button row. Dogfooding on a phone settled this: seven wave shapes
+      // and eight filter types each eat a full row of a screen that has about nine, and a
+      // route's destination holds all 31. The dropdown carries the glyph in its option
+      // text, so nothing is lost but the space.
+      //
+      // `choices` numbers stay as buttons below — four short slopes read as a row and
+      // have nowhere better to go.
+      return 'select';
     case 'number':
       return spec.choices === undefined ? 'knob' : 'glyphs';
     case 'frequency':
