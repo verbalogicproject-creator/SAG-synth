@@ -23,6 +23,8 @@ import { VirtualKeyboard } from '../debug/VirtualKeyboard';
 import type { ParamPath, ParamValue } from '../../core/types';
 import type { SynthCommand } from '../../core/commands';
 import { SynthPanels } from './SynthPanels';
+import { RouteList } from './RouteList';
+import { surfaceContext } from './controlProps';
 import { COLOR, FONT, TOUCH_MIN } from './tokens';
 
 /**
@@ -51,6 +53,15 @@ export function SynthApp() {
    * note actually carried, which is what replay needs.
    */
   const [velocity, setVelocity] = useState(0.8);
+
+  /**
+   * Routing is an overlay, not a fifth tab.
+   *
+   * A route is a relationship between two addresses, so it has to be reachable from every
+   * control that has one — which a place in the tab bar cannot be. `BAY_SECTION` in
+   * `groups.ts` says the same thing in the declaration.
+   */
+  const [bayOpen, setBayOpen] = useState(false);
 
   /**
    * Held notes come from the dispatcher's TRANSIENT state, not from `EngineState`.
@@ -113,6 +124,14 @@ export function SynthApp() {
         <span style={styles.patch}>{state.patch.name}</span>
         <button
           type="button"
+          onClick={() => setBayOpen(true)}
+          style={styles.bay}
+          aria-label="open the routing bay"
+        >
+          ROUTING
+        </button>
+        <button
+          type="button"
           onClick={unlock}
           style={{ ...styles.unlock, opacity: running ? 0.35 : 1 }}
           aria-label={running ? 'audio running' : 'start audio'}
@@ -124,6 +143,28 @@ export function SynthApp() {
       <main style={styles.main}>
         <SynthPanels state={state} onChange={onChange} onCommand={onCommand} />
       </main>
+
+      {bayOpen && (
+        <div style={styles.overlay} role="dialog" aria-modal="true" aria-label="routing">
+          <header style={styles.overlayHead}>
+            <h2 style={styles.overlayTitle}>ROUTING</h2>
+            <button
+              type="button"
+              onClick={() => setBayOpen(false)}
+              style={styles.close}
+              aria-label="close the routing bay"
+            >
+              ✕
+            </button>
+          </header>
+          <div style={styles.overlayBody}>
+            <RouteList
+              context={surfaceContext(state, onChange)}
+              onCommand={onCommand}
+            />
+          </div>
+        </div>
+      )}
 
       <footer style={styles.footer}>
         <label style={styles.velocity}>
@@ -182,6 +223,51 @@ const styles = {
     color: COLOR.accent,
   },
   patch: { flex: 1, fontSize: '0.75rem', color: COLOR.textDim },
+  bay: {
+    minHeight: TOUCH_MIN,
+    padding: '0 0.7rem',
+    background: 'transparent',
+    color: COLOR.textDim,
+    border: `1px solid ${COLOR.border}`,
+    borderRadius: 4,
+    fontFamily: FONT.display,
+    fontSize: '0.65rem',
+    letterSpacing: '0.1em',
+    cursor: 'pointer',
+  },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 10,
+    display: 'flex',
+    flexDirection: 'column',
+    background: COLOR.surface,
+  },
+  overlayHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.5rem 0.7rem',
+    background: COLOR.surfaceLowest,
+    borderBottom: `1px solid ${COLOR.border}`,
+  },
+  overlayTitle: {
+    margin: 0,
+    fontFamily: FONT.display,
+    fontSize: '0.8rem',
+    letterSpacing: '0.16em',
+    color: COLOR.accentText,
+  },
+  close: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    background: 'transparent',
+    color: COLOR.text,
+    border: `1px solid ${COLOR.border}`,
+    borderRadius: 4,
+    cursor: 'pointer',
+  },
+  overlayBody: { flex: 1, overflowY: 'auto', padding: '0.7rem 0.6rem 2rem' },
   unlock: {
     minHeight: TOUCH_MIN,
     padding: '0 0.9rem',

@@ -1769,7 +1769,7 @@
       "name": "route 1 destination",
       "scope": "route 1",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -1861,7 +1861,7 @@
       "name": "route 2 destination",
       "scope": "route 2",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -1953,7 +1953,7 @@
       "name": "route 3 destination",
       "scope": "route 3",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2045,7 +2045,7 @@
       "name": "route 4 destination",
       "scope": "route 4",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2137,7 +2137,7 @@
       "name": "route 5 destination",
       "scope": "route 5",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2229,7 +2229,7 @@
       "name": "route 6 destination",
       "scope": "route 6",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2321,7 +2321,7 @@
       "name": "route 7 destination",
       "scope": "route 7",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },
@@ -2413,7 +2413,7 @@
       "name": "route 8 destination",
       "scope": "route 8",
       "label": "destination",
-      "widget": "glyphs",
+      "widget": "select",
       "location": {
         "kind": "bay"
       },

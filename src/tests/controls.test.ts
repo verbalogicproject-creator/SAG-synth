@@ -182,7 +182,11 @@ describe('the widget follows the contract rather than a preference', () => {
           expect(control.widget, `${control.id} is a boolean`).toBe('toggle');
           break;
         case 'enum':
-          expect(control.widget, `${control.id} is an enum`).toBe('glyphs');
+          // Buttons up to eight values, a list beyond. The only address past the line is
+          // a route's destination, at 31 — and thirty-one buttons is not a glyph row.
+          expect(control.widget, `${control.id} is an enum of ${spec.values.length}`).toBe(
+            spec.values.length > 8 ? 'select' : 'glyphs',
+          );
           break;
         case 'number':
           // A number with `choices` is a short list wearing a range, and a knob there can

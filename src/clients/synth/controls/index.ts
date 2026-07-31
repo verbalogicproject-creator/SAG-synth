@@ -14,12 +14,13 @@ import { EnvelopeCurve } from './EnvelopeCurve';
 import { GlyphButtons } from './GlyphButtons';
 import { Knob } from './Knob';
 import { RateControl } from './RateControl';
+import { Select } from './Select';
 import { ModRing } from './ModRing';
 import { Slider } from './Slider';
 import { Toggle } from './Toggle';
 import type { ControlProps } from './types';
 
-export { EnvelopeCurve, GlyphButtons, Knob, ModRing, RateControl, Slider, Toggle };
+export { EnvelopeCurve, GlyphButtons, Knob, ModRing, RateControl, Select, Slider, Toggle };
 export { sagAttributes } from './types';
 export type { ControlProps, ControlState, ModulationReach } from './types';
 
@@ -37,6 +38,8 @@ export function renderControl(props: ControlProps) {
       return createElement(Toggle, props);
     case 'rate':
       return createElement(RateControl, props);
+    case 'select':
+      return createElement(Select, props);
     default:
       // An id with no registry entry is a bug in the caller, not a control to improvise.
       // Silently drawing something would be the decoy this whole layer exists to prevent.
