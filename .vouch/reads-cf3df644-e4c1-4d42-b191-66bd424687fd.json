@@ -67,6 +67,7 @@
   "/root/projects2/SAG-synth/src/tests/params.test.ts",
   "/root/projects2/SAG-synth/src/tests/persistence.browser.test.ts",
   "/root/projects2/SAG-synth/src/tests/reduce.test.ts",
+  "/root/projects2/SAG-synth/src/tests/route-wiring.audio.test.ts",
   "/root/projects2/SAG-synth/src/tests/schemas.test.ts",
   "/root/projects2/SAG-synth/src/tests/tone-runtime.audio.test.ts",
   "/root/projects2/SAG-synth/synth-research/00_implementation_alignment.md",

@@ -92,6 +92,31 @@ describe('ModPanel — the route-overflow indicator on screen', () => {
     );
   });
 
+  it('counts the wired destinations the way the engine wires them', async () => {
+    // This panel spent a version claiming SEVEN of 31 destinations were wired while the
+    // runtime wired thirteen — a hand-written list left behind when oscillators became a
+    // three-slot family. The count is now derived, and `route-wiring.audio.test.ts` proves
+    // each flag against a render; this asserts the corrected number actually reaches the
+    // screen, because the arithmetic being right where nobody reads it is what went wrong
+    // the first time.
+    const text = await renderPanel(stateWith([]));
+
+    expect(text).toContain('13 of 31 declared destinations');
+    expect(text).toContain('The other 18');
+    expect(text).not.toContain('7 of 31');
+  });
+
+  it('names a destination the way every other surface names it', async () => {
+    // One vocabulary. The dropdown reads from CONTROLS, so the address a route points at
+    // is called the same thing here, on the filter tab and in a journal explanation.
+    // A route has to exist for the destination picker to be drawn at all.
+    const text = await renderPanel(stateWith([panRoute('a', 0.4)]));
+
+    expect(text).toContain('filter cutoff');
+    // And the slot destinations that were missing entirely are offered now.
+    expect(text).toContain('osc c level');
+  });
+
   it('shows what a depth means at its destination, not just the raw −1..1', async () => {
     // The other half of the Stage 3.5 surface, and the reason the curve had to land first.
     // `±` became `+` at schema_version 4: the panel now shows which way the route pushes,

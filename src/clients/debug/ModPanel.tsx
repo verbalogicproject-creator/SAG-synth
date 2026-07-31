@@ -16,7 +16,15 @@
  * exactly as the SDK would do it.
  */
 
-import { MODULATION_DESTINATIONS, type ModDestination, type ParamPath, type ParamValue } from '../../core/types';
+import {
+  MODULATION_DESTINATIONS,
+  UNWIRED_MOD_DESTINATIONS,
+  WIRED_MOD_DESTINATIONS,
+  type ModDestination,
+  type ParamPath,
+  type ParamValue,
+} from '../../core/types';
+import { controlForPath, fullNameOf } from '../../core/controls';
 import { PARAM_SPECS } from '../../core/schemas';
 import { describeDepth, getParam } from '../../core/params';
 import { describeLoad, modulationLoad } from '../../core/modulation';
@@ -44,17 +52,27 @@ const SOURCES: readonly { value: 'lfo.0' | 'lfo.1' | 'lfo.2' | 'lfo.3' | 'veloci
   { value: 'velocity', label: 'velocity' },
 ];
 
-const WIRED_DESTINATIONS: readonly { path: ModDestination; label: string }[] = [
-  { path: 'voice.filterEnvelope.baseFrequency', label: 'cutoff — filter sweep' },
-  { path: 'voice.filter.Q', label: 'resonance' },
-  { path: 'voice.oscillators.0.detune', label: 'slot 0 pitch — vibrato' },
-  { path: 'voice.oscillators.0.level', label: 'slot 0 level' },
-  { path: 'voice.oscillators.0.pan', label: 'slot 0 pan' },
-  { path: 'voice.amplitude', label: 'level — tremolo' },
-  { path: 'voice.pan', label: 'pan — autopan' },
-];
+/**
+ * Read from core, not held here.
+ *
+ * This list used to be written out by hand, and on 2026-07-31 it was found to be naming
+ * SEVEN wired destinations while the runtime wired THIRTEEN. It was correct when it was
+ * written — there was one oscillator then — and v0.1.16 made oscillators a three-slot
+ * family without anyone thinking to come back. Slots 1 and 2 spent a version drawn as dead
+ * while modulating audio perfectly well: the inverse of a decoy, from the same cause.
+ *
+ * `MODULATION_DESTINATIONS.wired` now carries the fact, and `route-wiring.audio.test.ts`
+ * proves every one of the thirty-one flags against a real stereo render in both
+ * directions. Labels come from `CONTROLS`, so the dropdown and every other surface call
+ * the same address the same thing.
+ */
+const WIRED_DESTINATIONS: readonly { path: ModDestination; label: string }[] =
+  WIRED_MOD_DESTINATIONS.map((path) => {
+    const control = controlForPath(path);
+    return { path, label: control === undefined ? path : fullNameOf(control) };
+  });
 
-const PENDING_COUNT = MODULATION_DESTINATIONS.length - WIRED_DESTINATIONS.length;
+const PENDING_COUNT = UNWIRED_MOD_DESTINATIONS.length;
 
 const row: React.CSSProperties = {
   display: 'flex',

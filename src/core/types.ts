@@ -318,31 +318,82 @@ const OSCILLATOR_DESTINATION_KEYS = ['detune', 'width', 'spread', 'level', 'pan'
  * generates from its OWN key list. Getting the two lists out of step is still possible,
  * which is what the gate is for.
  */
+/**
+ * The per-slot keys the runtime actually connects a scaler to. `width` and `spread` are
+ * declared destinations with no node behind them — see `wired` on the table below.
+ */
+const WIRED_OSCILLATOR_KEYS: readonly string[] = ['detune', 'level', 'pan'];
+
 const OSCILLATOR_DESTINATIONS = OSCILLATOR_SLOTS.flatMap((slot) =>
   OSCILLATOR_DESTINATION_KEYS.map(
-    (key) => ({ path: `voice.oscillators.${slot}.${key}`, perVoice: true, curve: 'linear' }) as const,
+    (key) =>
+      ({
+        path: `voice.oscillators.${slot}.${key}`,
+        perVoice: true,
+        curve: 'linear',
+        wired: WIRED_OSCILLATOR_KEYS.includes(key),
+      }) as const,
   ),
 );
 
+/**
+ * `wired` — whether a scaler actually reaches an audio node at this address.
+ *
+ * A destination with `wired: false` validates, journals, replays and moves nothing. That
+ * is a legitimate state (the address space was declared ahead of the connections, which
+ * is declare-before-emit working) and a dangerous one to leave implicit: a bay drawing
+ * eighteen dead jacks identically to the thirteen live ones is a wall of decoys.
+ *
+ * Added 2026-07-31 because the fact was already being asserted — by hand, in
+ * `ModPanel.tsx`, in a list that said SEVEN destinations were wired while the runtime
+ * wired thirteen. It was written when there was one oscillator and never revisited when
+ * v0.1.16 made oscillators a three-slot family, so slots 1 and 2 were drawn as dead while
+ * modulating audio perfectly well. The inverse of the usual decoy, from the identical
+ * cause: an engine fact maintained in a component.
+ *
+ * It lives on this table rather than beside it so there is no second list to fall out of
+ * step, and `route-wiring.audio.test.ts` proves each flag against a real render in both
+ * directions. A structural check could only prove this table agrees with itself.
+ */
 export const MODULATION_DESTINATIONS = [
-  { path: 'voice.filterEnvelope.baseFrequency', perVoice: true, curve: 'octaves' },
-  { path: 'voice.filter.Q', perVoice: true, curve: 'linear' },
-  { path: 'voice.amplitude', perVoice: true, curve: 'duckDb' },
-  { path: 'voice.pan', perVoice: true, curve: 'linear' },
+  { path: 'voice.filterEnvelope.baseFrequency', perVoice: true, curve: 'octaves', wired: true },
+  { path: 'voice.filter.Q', perVoice: true, curve: 'linear', wired: true },
+  { path: 'voice.amplitude', perVoice: true, curve: 'duckDb', wired: true },
+  { path: 'voice.pan', perVoice: true, curve: 'linear', wired: true },
   ...OSCILLATOR_DESTINATIONS,
-  { path: 'effects.distortion.amount', perVoice: false, curve: 'linear' },
-  { path: 'effects.distortion.wet', perVoice: false, curve: 'linear' },
-  { path: 'effects.chorus.depth', perVoice: false, curve: 'linear' },
-  { path: 'effects.chorus.wet', perVoice: false, curve: 'linear' },
-  { path: 'effects.delay.feedback', perVoice: false, curve: 'linear' },
-  { path: 'effects.delay.wet', perVoice: false, curve: 'linear' },
-  { path: 'effects.reverb.wet', perVoice: false, curve: 'linear' },
-  { path: 'effects.eq.band0.gain', perVoice: false, curve: 'linear' },
-  { path: 'effects.eq.band1.gain', perVoice: false, curve: 'linear' },
-  { path: 'effects.eq.band2.gain', perVoice: false, curve: 'linear' },
-  { path: 'effects.eq.band3.gain', perVoice: false, curve: 'linear' },
-  { path: 'effects.eq.band4.gain', perVoice: false, curve: 'linear' },
-] as const satisfies readonly { path: string; perVoice: boolean; curve: ModCurve }[];
+  { path: 'effects.distortion.amount', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.distortion.wet', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.chorus.depth', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.chorus.wet', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.delay.feedback', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.delay.wet', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.reverb.wet', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.eq.band0.gain', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.eq.band1.gain', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.eq.band2.gain', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.eq.band3.gain', perVoice: false, curve: 'linear', wired: false },
+  { path: 'effects.eq.band4.gain', perVoice: false, curve: 'linear', wired: false },
+] as const satisfies readonly {
+  path: string;
+  perVoice: boolean;
+  curve: ModCurve;
+  wired: boolean;
+}[];
+
+/** The thirteen that move audio. Derived — never written down a second time. */
+export const WIRED_MOD_DESTINATIONS: readonly ModDestination[] = MODULATION_DESTINATIONS.filter(
+  (destination) => destination.wired,
+).map((destination) => destination.path);
+
+/** The eighteen that do not. A surface that cannot tell these apart is lying by omission. */
+export const UNWIRED_MOD_DESTINATIONS: readonly ModDestination[] = MODULATION_DESTINATIONS.filter(
+  (destination) => !destination.wired,
+).map((destination) => destination.path);
+
+/** Whether a route at this destination reaches audio. The one question a bay must answer. */
+export function isDestinationWired(destination: ModDestination): boolean {
+  return MODULATION_DESTINATIONS.some((d) => d.path === destination && d.wired);
+}
 
 
 /**
