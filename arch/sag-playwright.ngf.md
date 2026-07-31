@@ -107,9 +107,18 @@ already available and needed no harness. What `sag-geometry.mjs` adds is the **w
 application**: the real bundle, the real stylesheet cascade, the real nav, the real
 `AudioContext` unlock path. The distinction is component versus app, not fake versus real.
 
-**It does not replace the ear.** It can drive audio and capture it; it cannot judge it.
-"Is this musical" stays a human question. What changes is that the ear check narrows from
-*correctness plus taste* to taste alone.
+**It does not replace the ear, and replacing it is not the goal.** Eyal's framing, stated
+2026-07-31 and worth recording because it decides what this whole layer is for: SAG-synth is
+an **AI-integrated instrument designed to maximise the player's potential — not a machine
+for making AI music.** So the point of automating correctness is not to move judgement to
+the machine; it is to stop spending the player's attention on whether a knob is wired, so
+all of it goes to whether the sound is right. The harness narrows the human check from
+*correctness plus taste* down to taste — which is the half that was always the person's, and
+the half the step sequencer and everything after it are being built to serve.
+
+That is also why the foundation has to be exact rather than approximately fine. An assistive
+layer reasons about the instrument through these declarations; a surface that lies to the
+substrate produces an assistant that confidently points at the wrong knob.
 
 **It is not free coverage.** The sweep reaches what it is told to reach. It did not open
 the settings screen, so those three controls report as missing. A gate that cannot tell
