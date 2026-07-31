@@ -11,6 +11,7 @@
  * SDK moves the same knob by dispatching the same command.
  */
 
+import { formatValue, fromTrack, toTrack } from '../../core/scale';
 import type { ParamSpec } from '../../core/schemas';
 import type { ParamPath, ParamValue } from '../../core/types';
 
@@ -22,43 +23,8 @@ export interface ParamControlProps {
   onChange: (path: ParamPath, value: ParamValue) => void;
 }
 
-/** Slider resolution for continuous parameters. */
+/** Track positions. The scaling itself lives in core/scale, shared with the kit. */
 const SLIDER_STEPS = 500;
-
-/**
- * Frequencies get a logarithmic slider; everything else is linear.
- *
- * A 20–20000 Hz cutoff on a linear track puts every musically useful position in the
- * bottom tenth of the travel — the control would be unusable exactly where it matters
- * most. Pitch perception is logarithmic, so the track should be too.
- */
-function isLogarithmic(spec: ParamSpec): boolean {
-  return spec.kind === 'number' && spec.unit === 'Hz' && spec.min > 0;
-}
-
-function toSlider(value: number, spec: Extract<ParamSpec, { kind: 'number' }>): number {
-  if (!isLogarithmic(spec)) {
-    return ((value - spec.min) / (spec.max - spec.min)) * SLIDER_STEPS;
-  }
-  const ratio = Math.log(value / spec.min) / Math.log(spec.max / spec.min);
-  return ratio * SLIDER_STEPS;
-}
-
-function fromSlider(position: number, spec: Extract<ParamSpec, { kind: 'number' }>): number {
-  const ratio = position / SLIDER_STEPS;
-  const raw = isLogarithmic(spec)
-    ? spec.min * Math.pow(spec.max / spec.min, ratio)
-    : spec.min + ratio * (spec.max - spec.min);
-  return spec.integer === true ? Math.round(raw) : raw;
-}
-
-function format(value: number, spec: Extract<ParamSpec, { kind: 'number' }>): string {
-  const unit = spec.unit === undefined ? '' : ` ${spec.unit}`;
-  if (spec.integer === true) return `${value}${unit}`;
-  if (spec.unit === 'Hz') return `${value >= 100 ? Math.round(value) : value.toFixed(1)}${unit}`;
-  if (spec.unit === 's') return `${value.toFixed(3)}${unit}`;
-  return `${value.toFixed(2)}${unit}`;
-}
 
 export function ParamControl({ path, label, spec, value, onChange }: ParamControlProps) {
   if (spec.kind === 'boolean') {
@@ -147,15 +113,15 @@ export function ParamControl({ path, label, spec, value, onChange }: ParamContro
     <div style={styles.row}>
       <span style={styles.label}>
         {label}
-        <span style={styles.value}>{format(current, spec)}</span>
+        <span style={styles.value}>{formatValue(current, spec)}</span>
       </span>
       <input
         type="range"
         min={0}
         max={SLIDER_STEPS}
         step={1}
-        value={toSlider(current, spec)}
-        onChange={(event) => onChange(path, fromSlider(Number(event.target.value), spec))}
+        value={toTrack(current, spec) * SLIDER_STEPS}
+        onChange={(event) => onChange(path, fromTrack(Number(event.target.value) / SLIDER_STEPS, spec))}
         style={styles.slider}
       />
     </div>

@@ -169,6 +169,35 @@ export interface FilterEnvelopeConfig extends EnvelopeConfig {
   octaves: number;
 }
 
+/**
+ * The Hz half of an LFO rate, as a range a control can draw.
+ *
+ * `LfoFrequencySchema` has always constrained this — `z.number().positive().max(200)` —
+ * but the constraint lived only in the validator, and `PARAM_SPECS` reported the address
+ * as a bare `{ kind: 'frequency' }` with no bounds at all. A control cannot draw a track
+ * against a range it cannot see, which is how the 119-control render gate found this.
+ *
+ * The same failure as `voice.filter.rolloff` before it gained `choices`: the validator
+ * knew something the surface did not. Declared here so both read one source.
+ *
+ * The floor is 0.01 rather than "positive" because a control needs a number. It is a
+ * SUBSET of what the validator accepts, which is the safe direction — a control that can
+ * reach less than the contract allows is merely conservative, while one that can reach
+ * more produces values the dispatcher rejects.
+ */
+export const LFO_RATE_HZ_MIN = 0.01;
+export const LFO_RATE_HZ_MAX = 200;
+
+/**
+ * Subdivisions a synced LFO could name, for a surface that wants to offer them.
+ *
+ * Every one matches `LfoFrequencySchema`'s pattern. Note that the RUNTIME does not
+ * implement synced rates — `syncLfos` reports `lfo.syncedFrequency` and falls back to
+ * 1 Hz, because a subdivision is only meaningful against a transport v0.1.0 does not
+ * drive. Any surface offering these must say so.
+ */
+export const LFO_SUBDIVISIONS = ['1n', '2n', '4n', '4n.', '8n', '8n.', '16n', '32n'] as const;
+
 export interface LFOConfig {
   id: string;
   enabled: boolean;

@@ -196,7 +196,10 @@ describe('the widget follows the contract rather than a preference', () => {
           }
           break;
         case 'frequency':
-          expect(['knob', 'slider']).toContain(control.widget);
+          // Its own widget, not a knob. The value is a number of hertz OR a transport
+          // subdivision, and a knob cannot express the second — `RateControl` reads the
+          // value's type to decide which it is looking at.
+          expect(control.widget, `${control.id} is a frequency`).toBe('rate');
           break;
       }
     }
@@ -226,6 +229,29 @@ describe('no client keeps its own copy of the vocabulary', () => {
     // A glob that silently matches zero files is a green test that checks nothing, which
     // is the failure mode of every grep-shaped gate.
     expect(Object.keys(sources).length).toBeGreaterThan(5);
+  });
+
+  it('never writes a range, a step or a unit into a component', () => {
+    // Gate 6 from the phase plan. The mockups are full of literal min/max/step attributes
+    // and copying one through is how a control produces values the dispatcher rejects —
+    // the control looks right, moves smoothly and is silently refused.
+    //
+    // The kit is allowed `min={0} max={RESOLUTION}` on a track, because that is a count of
+    // positions and not a claim about the parameter; the values it emits come from
+    // `fromTrack`, which reads the spec. So the pattern targets literals that look like a
+    // PARAMETER's bounds — anything that is not 0, 1 or a named constant.
+    const offenders: string[] = [];
+    for (const [file, source] of Object.entries(sources)) {
+      if (!file.includes('/synth/')) continue;
+      for (const line of source.split('\n')) {
+        const match = /\b(min|max|step)=\{(-?\d+(?:\.\d+)?)\}/.exec(line);
+        if (match === null) continue;
+        if (['0', '1'].includes(match[2]!)) continue;
+        offenders.push(`${file}: ${line.trim()}`);
+      }
+    }
+
+    expect(offenders, 'a control is stating a range instead of reading its spec').toEqual([]);
   });
 
   it('never maps an address to a name outside core', () => {

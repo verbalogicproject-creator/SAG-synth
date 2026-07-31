@@ -746,6 +746,15 @@ export class ToneRuntime implements Runtime {
       // restart the modulation for every sounding note at once — audibly wrong on a held
       // chord. Reported rather than approximated.
       if (config.retrigger) this.notImplemented('lfo.retrigger');
+
+      // `sync` locks the LFO phase to Tone.Transport, which v0.1.0 does not drive — so it
+      // does exactly nothing, exactly like `retrigger` and a synced frequency.
+      //
+      // Unlike those two it was ALSO not reported, which made it the worse case: a toggle
+      // that validates, journals, replays, changes no sound and does not appear under
+      // Known gaps. Four of them, one per LFO. Found on 2026-07-31 by the gate that draws
+      // all 119 controls, while chasing a missing range on the address next to it.
+      if (config.sync) this.notImplemented('lfo.sync');
     });
   }
 

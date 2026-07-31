@@ -1468,7 +1468,7 @@
       "name": "lfo 1 rate",
       "scope": "lfo 1",
       "label": "rate",
-      "widget": "knob",
+      "widget": "rate",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1544,7 +1544,7 @@
       "name": "lfo 2 rate",
       "scope": "lfo 2",
       "label": "rate",
-      "widget": "knob",
+      "widget": "rate",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1620,7 +1620,7 @@
       "name": "lfo 3 rate",
       "scope": "lfo 3",
       "label": "rate",
-      "widget": "knob",
+      "widget": "rate",
       "location": {
         "kind": "tab",
         "tab": "filter",
@@ -1696,7 +1696,7 @@
       "name": "lfo 4 rate",
       "scope": "lfo 4",
       "label": "rate",
-      "widget": "knob",
+      "widget": "rate",
       "location": {
         "kind": "tab",
         "tab": "filter",

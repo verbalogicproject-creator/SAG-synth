@@ -48,7 +48,7 @@ export type ControlId = string;
  * How a control is drawn. A rendering decision, recorded here so panels do not each make
  * it privately — and explicitly NOT part of the identity, because it is revisable.
  */
-export type Widget = 'knob' | 'slider' | 'glyphs' | 'toggle';
+export type Widget = 'knob' | 'slider' | 'glyphs' | 'toggle' | 'rate';
 
 export interface ParamControl {
   id: ControlId;
@@ -81,7 +81,9 @@ function defaultWidget(spec: ParamSpec): Widget {
     case 'number':
       return spec.choices === undefined ? 'knob' : 'glyphs';
     case 'frequency':
-      return 'knob';
+      // Not a knob: the value is a number OR a subdivision string, and a knob has no way
+      // to express the second. `RateControl` reads the value's type to decide.
+      return 'rate';
   }
 }
 

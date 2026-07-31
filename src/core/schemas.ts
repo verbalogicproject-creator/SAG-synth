@@ -11,6 +11,9 @@
 import { z } from 'zod';
 import {
   LIMITS,
+  LFO_RATE_HZ_MAX,
+  LFO_RATE_HZ_MIN,
+  LFO_SUBDIVISIONS,
   MAX_LFOS,
   MAX_OSCILLATORS,
   MAX_ROUTES,
@@ -155,7 +158,7 @@ export const SwingSubdivisionSchema = z.enum(SWING_SUBDIVISIONS);
 
 /** Hz, or a Tone.js subdivision string when the LFO is transport-synced. */
 export const LfoFrequencySchema = z.union([
-  z.number().positive().max(200),
+  z.number().positive().max(LFO_RATE_HZ_MAX),
   z.string().regex(/^\d*(1|2|4|8|16|32|64)n\.?t?$/, 'expected a Tone subdivision like "8n" or "4n."'),
 ]);
 
@@ -433,7 +436,17 @@ export type ParamSpec =
     }
   | { kind: 'boolean' }
   | { kind: 'enum'; values: readonly string[] }
-  | { kind: 'frequency' };
+  /**
+   * Hz, or a transport subdivision. Carries the Hz bounds because a control needs a range
+   * to draw a track against — see LFO_RATE_HZ_MIN in types.ts for why they were missing.
+   */
+  | {
+      kind: 'frequency';
+      min: number;
+      max: number;
+      unit: 'Hz';
+      subdivisions: readonly string[];
+    };
 
 const num = (min: number, max: number, unit?: string, integer?: boolean): ParamSpec =>
   integer === undefined
@@ -491,7 +504,13 @@ const oscParamSpecs = Object.fromEntries(
 const LFO_PARAM_SPECS = {
   enabled: { kind: 'boolean' },
   type: { kind: 'enum', values: LFO_SHAPES },
-  frequency: { kind: 'frequency' },
+  frequency: {
+    kind: 'frequency',
+    min: LFO_RATE_HZ_MIN,
+    max: LFO_RATE_HZ_MAX,
+    unit: 'Hz',
+    subdivisions: LFO_SUBDIVISIONS,
+  },
   sync: { kind: 'boolean' },
   retrigger: { kind: 'boolean' },
 } as const satisfies Record<LfoParamKey, ParamSpec>;

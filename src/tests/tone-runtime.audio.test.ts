@@ -2422,6 +2422,57 @@ describe('ToneRuntime — modulation routing', () => {
     expect(reported).toContain('route.destination.effects.delay.wet');
   });
 
+  it('reports lfo.sync, which for four versions did nothing and said nothing', async () => {
+    // The sixth decoy. `sync` locks an LFO's phase to Tone.Transport, which v0.1.0 does
+    // not drive, so it has never done anything — and unlike `retrigger` and a synced
+    // frequency beside it, it was never reported either. Four toggles, one per LFO, that
+    // validated, journalled, replayed, changed no sound and did not appear under Known
+    // gaps. Found by the gate that draws all 119 controls.
+    let reported: readonly string[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.lfos = [
+              { id: 'l0', enabled: true, type: 'sine', frequency: 5, sync: true, retrigger: false },
+            ];
+          }),
+        );
+        reported = runtime.getUnimplemented();
+      },
+      0.05,
+      1,
+      SR,
+    );
+
+    expect(reported).toContain('lfo.sync');
+  });
+
+  it('stays quiet about sync when the patch never asked for it', async () => {
+    // The other half. A gap reported unconditionally is furniture, and Known gaps is only
+    // readable while everything in it is something this patch actually asked for.
+    let reported: readonly string[] = [];
+    await Tone.Offline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(
+          patchWith((patch) => {
+            patch.voice.lfos = [
+              { id: 'l0', enabled: true, type: 'sine', frequency: 5, sync: false, retrigger: false },
+            ];
+          }),
+        );
+        reported = runtime.getUnimplemented();
+      },
+      0.05,
+      1,
+      SR,
+    );
+
+    expect(reported).not.toContain('lfo.sync');
+  });
+
   it('reports lfo.retrigger rather than approximating it under shared phase', async () => {
     let reported: readonly string[] = [];
     await Tone.Offline(
