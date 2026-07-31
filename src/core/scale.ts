@@ -38,11 +38,25 @@ export function isLogarithmic(spec: ParamSpec): boolean {
 
 /** Where a value sits along its control's travel, 0..1. */
 export function toTrack(value: number, spec: NumberSpec): Unit {
-  const clamped = Math.min(Math.max(value, spec.min), spec.max);
+  return Math.min(Math.max(toTrackUnclamped(value, spec), 0), 1);
+}
+
+/**
+ * The same position, allowed to fall outside 0..1.
+ *
+ * Needed to draw modulation that reaches past the end of a parameter's travel. Clamping
+ * here would hide the overhang, and the overhang is the entire message —
+ * `modulationLoad()` computes it precisely so a surface can show that the routes ask for
+ * more than the parameter has, instead of silently correcting them.
+ */
+export function toTrackUnclamped(value: number, spec: NumberSpec): number {
   if (!isLogarithmic(spec)) {
-    return spec.max === spec.min ? 0 : (clamped - spec.min) / (spec.max - spec.min);
+    return spec.max === spec.min ? 0 : (value - spec.min) / (spec.max - spec.min);
   }
-  return Math.log(clamped / spec.min) / Math.log(spec.max / spec.min);
+  // A log track has no position for zero or below, so the bottom of the range is the
+  // honest answer rather than negative infinity.
+  if (value <= 0) return 0;
+  return Math.log(value / spec.min) / Math.log(spec.max / spec.min);
 }
 
 /**
