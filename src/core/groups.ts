@@ -199,3 +199,161 @@ export function sectionFor(path: ParamPath): Section | undefined {
       (section.slotPrefix !== undefined && path.startsWith(`${section.slotPrefix}.`)),
   );
 }
+
+/** Every address a section holds, slot families expanded, in presentation order. */
+export function sectionPaths(id: SectionId): ParamPath[] {
+  const section = SIGNAL_CHAIN.find((candidate) => candidate.id === id);
+  if (section === undefined) return [];
+  if (section.slotPrefix === undefined) return [...section.paths];
+  const prefix = `${section.slotPrefix}.`;
+  return PARAM_PATHS.filter((path) => path.startsWith(prefix));
+}
+
+// ---------------------------------------------------------------------------
+// The nav: nine sections onto four tabs.
+// ---------------------------------------------------------------------------
+
+/**
+ * `SIGNAL_CHAIN` says what the audio path is. It does not say what a screen is, and on a
+ * phone those are different questions — nine panels is a scroll, four tabs is an
+ * instrument. That mapping is the one piece of layout knowledge nothing here declared,
+ * and a hand-written copy of it inside a component is precisely how a parameter becomes
+ * unreachable: it validates, it journals, it replays, and no control draws it.
+ *
+ * So the nav is declared, and the coverage gate in `src/tests/groups.test.ts` asserts in
+ * both directions — every address reaches exactly one destination, and every address a
+ * tab claims is real. Adding a parameter to `PARAM_SPECS` without placing it fails the
+ * suite rather than shipping a knob nobody can find.
+ *
+ * Groups are stated as whole SECTIONS rather than lists of addresses, so a parameter
+ * added to a placed section appears on its tab automatically. The count assertions are
+ * what stop that convenience from hiding a wrong split.
+ */
+
+/**
+ * The one place layout and signal order genuinely disagree.
+ *
+ * These four belong to the `filter` section — they are the contour that moves the cutoff,
+ * and the chain is right to own them there. But a player hunting for an envelope looks at
+ * the envelope screen, so the ADSR tab draws them beside the amp envelope, which is also
+ * what `04-envelope`'s `AMP | FILTER` sub-tabs already proposed.
+ *
+ * Declared once and read from both sides — the tab that takes them and the tab that gives
+ * them up point at this same array, so the two cannot drift into either a duplicate or a
+ * hole. The gate checks that anyway, because "cannot drift" is a claim, not a fact.
+ */
+const FILTER_ENVELOPE_STAGES: readonly ParamPath[] = [
+  'voice.filterEnvelope.attack',
+  'voice.filterEnvelope.decay',
+  'voice.filterEnvelope.sustain',
+  'voice.filterEnvelope.release',
+];
+
+export type NavTabId = 'osc' | 'adsr' | 'filter' | 'fx';
+
+/** A sub-tab. One group is one thing on screen at a time. */
+export interface NavGroup {
+  /** Unique within its tab, not globally — `filter` names a group on two different tabs. */
+  id: string;
+  /** The sub-tab's own label. A tab with one group draws no sub-tab bar. */
+  label: string;
+  /** Sections drawn here, whole, in the order they should read. */
+  sections: readonly SectionId[];
+  /** Addresses drawn here that `sections` does not own. */
+  adopts?: readonly ParamPath[];
+  /** Addresses `sections` owns that another group draws instead. */
+  omits?: readonly ParamPath[];
+}
+
+export interface NavTab {
+  id: NavTabId;
+  /** The nav bar label. These are four buttons on a phone — keep them short. */
+  label: string;
+  /** One line on what the tab is for. */
+  summary: string;
+  groups: readonly NavGroup[];
+}
+
+export const NAV_TABS: readonly NavTab[] = [
+  {
+    id: 'osc',
+    label: 'OSC',
+    summary: 'The waveforms and how they sit against each other.',
+    // A/B/C are slot indices, not groups — the family's own `slotCount` says how many
+    // there are, and declaring three sub-tabs here would fix at three what the schema
+    // already made variable.
+    groups: [{ id: 'slots', label: 'SLOTS', sections: ['oscillator'] }],
+  },
+  {
+    id: 'adsr',
+    label: 'ADSR',
+    summary: 'Both contours: what a note does to the volume, and to the cutoff.',
+    groups: [
+      { id: 'amp', label: 'AMP', sections: ['amplifier'] },
+      { id: 'filter', label: 'FILTER', sections: [], adopts: FILTER_ENVELOPE_STAGES },
+    ],
+  },
+  {
+    id: 'filter',
+    label: 'FILTER',
+    summary: 'What is removed from the sound, what moves it, and the tone at the end.',
+    groups: [
+      { id: 'filter', label: 'FILTER', sections: ['filter'], omits: FILTER_ENVELOPE_STAGES },
+      { id: 'lfo', label: 'LFO', sections: ['lfo'] },
+      { id: 'eq', label: 'EQ', sections: ['eq'] },
+    ],
+  },
+  {
+    id: 'fx',
+    label: 'FX',
+    summary: 'The serial chain after the voices mix, and the output stage.',
+    groups: [{ id: 'fx', label: 'FX', sections: ['effects', 'output'] }],
+  },
+];
+
+/**
+ * Behind the gear, not on a tab. Voicing is structural — polyphony and portamento change
+ * how notes share the voice pool rather than what any one note sounds like, and putting
+ * them in the signal path would be a claim that is not true.
+ */
+export const SETTINGS_SECTION: SectionId = 'voicing';
+
+/**
+ * An overlay, not a fifth tab. Routing is about the relationship between two addresses,
+ * so it is reachable from every control that has one rather than from one place in a bar.
+ */
+export const BAY_SECTION: SectionId = 'modulation';
+
+/** Every address a group draws, in order. */
+export function groupPaths(group: NavGroup): ParamPath[] {
+  const omitted = new Set<string>(group.omits ?? []);
+  const owned = group.sections.flatMap((id) =>
+    sectionPaths(id).filter((path) => !omitted.has(path)),
+  );
+  return [...owned, ...(group.adopts ?? [])];
+}
+
+/** Every address a tab draws, across all its groups. */
+export function tabPaths(tab: NavTab): ParamPath[] {
+  return tab.groups.flatMap(groupPaths);
+}
+
+export const SETTINGS_PATHS: readonly ParamPath[] = sectionPaths(SETTINGS_SECTION);
+export const BAY_PATHS: readonly ParamPath[] = sectionPaths(BAY_SECTION);
+
+/** Where an address is reachable from. `undefined` means it is not — which is a bug. */
+export type NavPlacement =
+  | { where: 'tab'; tab: NavTab; group: NavGroup }
+  | { where: 'settings' }
+  | { where: 'bay' };
+
+export function placementFor(path: ParamPath): NavPlacement | undefined {
+  for (const tab of NAV_TABS) {
+    for (const group of tab.groups) {
+      if (groupPaths(group).includes(path)) return { where: 'tab', tab, group };
+    }
+  }
+  if (SETTINGS_PATHS.includes(path)) return { where: 'settings' };
+  if (BAY_PATHS.includes(path)) return { where: 'bay' };
+  return undefined;
+}

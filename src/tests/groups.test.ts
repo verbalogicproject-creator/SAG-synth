@@ -9,10 +9,17 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  BAY_PATHS,
+  NAV_TABS,
+  SETTINGS_PATHS,
   SIGNAL_CHAIN,
+  groupPaths,
   placedPaths,
+  placementFor,
   sectionFor,
   slotCoveredPaths,
+  tabPaths,
+  type NavTabId,
   type SectionId,
 } from '../core/groups';
 import { PARAM_PATHS, PARAM_SPECS } from '../core/schemas';
@@ -103,5 +110,130 @@ describe('the signal chain covers the parameter surface', () => {
         expect(sectionFor(path), `destination "${path}" has no section`).toBeDefined();
       }
     }
+  });
+});
+
+/**
+ * The nav gate. `SIGNAL_CHAIN`'s own gate above proves the nine sections cover the
+ * parameter surface; this proves the four tabs cover the nine sections. Without the
+ * second half, a section could be placed and still be drawn by nothing — which is the
+ * same "declared but unreachable" failure one layer up, and the reason the whole designed
+ * surface is allowed to generate from a declaration.
+ */
+describe('the nav covers the signal chain', () => {
+  const destinations = () =>
+    [
+      ...NAV_TABS.map((tab) => [`tab:${tab.id}`, tabPaths(tab)] as const),
+      ['settings', [...SETTINGS_PATHS]] as const,
+      ['bay', [...BAY_PATHS]] as const,
+    ] as const;
+
+  it('lands every declared address on exactly one destination', () => {
+    // The gate the phase rests on, in both directions at once. Remove a section from a
+    // tab and `missing` grows; draw one in two places and `twice` does.
+    const seen = new Map<string, string[]>();
+    for (const [name, paths] of destinations()) {
+      for (const path of paths) seen.set(path, [...(seen.get(path) ?? []), name]);
+    }
+
+    const missing = PARAM_PATHS.filter((path) => !seen.has(path));
+    expect(missing, 'addresses no tab, the settings screen or the bay draws').toEqual([]);
+
+    const twice = [...seen].filter(([, where]) => where.length > 1);
+    expect(twice, 'addresses drawn in two places').toEqual([]);
+  });
+
+  it('claims nothing that is not a real address', () => {
+    const known = new Set<string>(PARAM_PATHS);
+    for (const [name, paths] of destinations()) {
+      for (const path of paths) {
+        expect(known.has(path), `${name} claims "${path}", which is not an address`).toBe(true);
+      }
+    }
+  });
+
+  it('splits the 119 the way the design says it does', () => {
+    // Written out rather than summed so a wrong split is a wrong LINE, not a wrong total.
+    // Sections read whole, so a new parameter joins its tab silently — these counts are
+    // the only thing that makes that convenience notice.
+    const counts = Object.fromEntries(destinations().map(([name, p]) => [name, p.length]));
+
+    expect(counts).toEqual({
+      'tab:osc': 27, // three slots of nine
+      'tab:adsr': 11, // seven amp + the four filter-envelope stages
+      'tab:filter': 31, // five filter + twenty LFO + six EQ
+      'tab:fx': 15, // twelve effects + three output
+      settings: 3, // voicing
+      bay: 32, // eight routes of four
+    });
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(PARAM_PATHS.length);
+  });
+
+  it('hands the filter envelope stages over without dropping or duplicating them', () => {
+    // The one place layout and signal order disagree, and therefore the one place a
+    // half-applied edit could open a hole. `adopts` on one tab and `omits` on another
+    // point at the same array; this asserts the pairing rather than trusting it.
+    const adopted = NAV_TABS.flatMap((tab) => tab.groups.flatMap((g) => [...(g.adopts ?? [])]));
+    const omitted = NAV_TABS.flatMap((tab) => tab.groups.flatMap((g) => [...(g.omits ?? [])]));
+
+    expect([...adopted].sort()).toEqual([...omitted].sort());
+    for (const path of adopted) {
+      // And the giver really did own it — an `omits` naming a path its sections never
+      // held would subtract nothing and read as though it had.
+      expect(sectionFor(path)?.id, `"${path}" is adopted from nowhere`).toBe('filter');
+    }
+  });
+
+  it('runs the tabs in the order the nav bar draws them', () => {
+    const order = NAV_TABS.map((tab) => tab.id);
+    const expected: NavTabId[] = ['osc', 'adsr', 'filter', 'fx'];
+    expect(order).toEqual(expected);
+  });
+
+  it('gives every tab and group a unique id, a label and something to draw', () => {
+    const tabIds = NAV_TABS.map((tab) => tab.id);
+    expect(new Set(tabIds).size).toBe(tabIds.length);
+
+    for (const tab of NAV_TABS) {
+      expect(tab.label.length, `${tab.id} has no label`).toBeGreaterThan(0);
+      expect(tab.summary.length, `${tab.id} has no summary`).toBeGreaterThan(0);
+
+      const groupIds = tab.groups.map((group) => group.id);
+      expect(new Set(groupIds).size, `${tab.id} repeats a group id`).toBe(groupIds.length);
+
+      for (const group of tab.groups) {
+        expect(group.label.length, `${tab.id}/${group.id} has no label`).toBeGreaterThan(0);
+        expect(groupPaths(group).length, `${tab.id}/${group.id} draws nothing`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('resolves a placement for every address', () => {
+    for (const path of PARAM_PATHS) {
+      expect(placementFor(path), `"${path}" is reachable from nowhere`).toBeDefined();
+    }
+  });
+
+  it('puts the two envelopes on the same screen and the cutoff on the other one', () => {
+    // The placements a reader is most likely to get wrong, named individually so the
+    // failure says which one moved.
+    expect(placementFor('voice.filterEnvelope.attack')).toMatchObject({
+      where: 'tab',
+      tab: { id: 'adsr' },
+      group: { id: 'filter' },
+    });
+    expect(placementFor('voice.envelope.attack')).toMatchObject({
+      where: 'tab',
+      tab: { id: 'adsr' },
+      group: { id: 'amp' },
+    });
+    // The live cutoff stays with the filter even though it is spelled as an envelope key.
+    expect(placementFor('voice.filterEnvelope.baseFrequency')).toMatchObject({
+      where: 'tab',
+      tab: { id: 'filter' },
+    });
+    expect(placementFor('voice.pan')).toMatchObject({ where: 'tab', tab: { id: 'fx' } });
+    expect(placementFor('voice.polyphony')).toEqual({ where: 'settings' });
+    expect(placementFor('voice.modRoutes.0.depth')).toEqual({ where: 'bay' });
   });
 });
