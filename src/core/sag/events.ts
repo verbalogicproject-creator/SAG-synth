@@ -11,10 +11,29 @@
  * maps at the bottom of this file carry that translation explicitly and testably,
  * rather than leaving it as an assumption nobody ever checks.
  *
- * Substrate-honest note: `~/kg-factory` does not exist on this host (probed
- * 2026-07-29). v0.1.0 emits to a local append-only journal only. `SagTransport` is the
- * seam a backend would plug into; `NullSagTransport` is what actually ships. No gate
- * may depend on a live backend.
+ * Substrate-honest note, corrected 2026-07-30. The earlier version of this comment said
+ * "`~/kg-factory` does not exist on this host (probed 2026-07-29)", which was true of
+ * `/root` and misleading in effect — it read as "there is no backend to talk to". There
+ * is: kg-factory lives at `/data/data/com.termux/files/home/kg-factory`, and the route a
+ * client would post to is `POST /api/sag/operation` (`backend/main.py:4129`, checked, not
+ * recalled) behind an `X-Agent-Key` header. `sag-api-SOT.ngf.md` §1 records the same
+ * "unreachable" claim being made and self-corrected elsewhere; this comment was a fossil
+ * of it.
+ *
+ * What has NOT changed is what ships. This emits to a local append-only journal only.
+ * `SagTransport` is the seam a backend would plug into; `NullSagTransport` is what
+ * actually ships, and **no gate may depend on a live backend** — a rule that is about
+ * test integrity rather than about reachability, so a reachable backend does not relax it.
+ *
+ * A note for whoever builds that transport. `sag-api-SOT.ngf.md` §2 mints one `scope_uri`
+ * per repo — ours would be `sag://verbalogic/repo/SAG-synth` — and it is deliberately NOT
+ * a slot on this event. The SOT's own bridge mapping puts it at journal level, not per
+ * entry: the caller opens the journal as `JournalSchema(ns=scope_uri, ...)`. Per-event it
+ * would be a constant on every row, and a constant cannot be falsified — there is no
+ * F-check to write about a value that never varies. So it belongs on the `SagTransport`
+ * implementation, declared once where the journal is opened, alongside the deterministic
+ * `sha256(scope_uri + "\0" + kind + "\0" + event_id)` row id that makes replay idempotent.
+ * Decided with Eyal 2026-07-31; the alternative was a framework tag for a decoration.
  */
 
 import type { CommandSource, CommandStatus, SynthCommand, SynthCommandType } from '../commands';
