@@ -211,8 +211,7 @@ Also established: **`lookAhead` is already `0.1`**, so every write already lands
 collapse onto time zero), which means churn must be gated by counting calls, not by measuring
 audio.
 
-**Other open items:** the routing bay's 32 addresses are drawn without SAG attributes;
-`arch/design-system.ngf.md` is referenced by two cards and does not exist; `tone-runtime.ts`'s
+**Other open items:** `arch/design-system.ngf.md` is referenced by two cards and does not exist; `tone-runtime.ts`'s
 header still says `MonoSynth` and "97 parameter addresses" (it is slots×3 and 119); `ROADMAP.md`
 says 376 tests and v0.1.17 (it is 491, and 13 commits have landed since).
 

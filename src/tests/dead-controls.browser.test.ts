@@ -36,7 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getParam } from '../core/params';
 import { reduce, validateAndReduce, type ReduceMeta } from '../core/reduce';
 import { PARAM_SPECS } from '../core/schemas';
-import { defaultPreset, initialEngineState } from '../core/state';
+import { defaultLfo, defaultPreset, defaultRoute, initialEngineState } from '../core/state';
 import type { EngineState } from '../core/state';
 import type { ParamPath, ParamValue } from '../core/types';
 import { SynthPanels } from '../clients/synth/SynthPanels';
@@ -72,6 +72,38 @@ const meta = (commandId: string): ReduceMeta => ({ commandId, ts: 1_700_000_000_
  */
 function factoryState(): EngineState {
   return { ...initialEngineState(), patch: defaultPreset() };
+}
+
+/**
+ * The factory patch with one LFO and two routes, for probing the bay.
+ *
+ * The bay is the one place the factory-patch rule above has to bend, and the reason is the
+ * same one that makes the rule right everywhere else. `modRoutes` is a slot family: with an
+ * empty list `RouteList` correctly draws no rows, so mounting it on the factory state probes
+ * **nothing** — all 32 `voice.modRoutes.N.*` addresses have never been write-tested by
+ * anything. That is not the bay being honest, it is the gate being blind, and it is blind
+ * exactly where the `+ route` decoy lived.
+ *
+ * So this state adds the minimum that makes rows exist. The claim is still "what is drawn can
+ * be changed" — it just needs something drawn to make the claim about.
+ */
+function routedState(): EngineState {
+  const patch = defaultPreset();
+  const lfo = { ...defaultLfo(), id: 'lfo-0' };
+  return {
+    ...initialEngineState(),
+    patch: {
+      ...patch,
+      voice: {
+        ...patch.voice,
+        lfos: [lfo],
+        modRoutes: [
+          { ...defaultRoute(true), id: 'route-0' },
+          { ...defaultRoute(true), id: 'route-1', destination: 'voice.filter.Q' },
+        ],
+      },
+    },
+  };
 }
 
 /**
@@ -149,6 +181,28 @@ async function drawnPaths(state: EngineState): Promise<Set<ParamPath>> {
   return seen;
 }
 
+/** Push a different value at every address and report the ones that will not take it. */
+function probeWrites(state: EngineState, paths: readonly ParamPath[]): string[] {
+  const dead: string[] = [];
+  for (const path of paths) {
+    const before = getParam(state, path);
+    const value = differentValue(path, before);
+    const result = reduce(state, { type: 'setParam', path, value }, meta(`probe-${path}`));
+
+    if (result.status !== 'applied') {
+      dead.push(`${path} — reducer ${result.status}`);
+      continue;
+    }
+    const after = getParam(result.state, path);
+    if (after !== value) {
+      // `undefined` after a write is the LFO bug exactly: the slot does not exist, so
+      // there is nowhere for the value to land and no error either.
+      dead.push(`${path} — wrote ${JSON.stringify(value)}, read back ${JSON.stringify(after)}`);
+    }
+  }
+  return dead;
+}
+
 describe('every control on screen is connected to the patch', () => {
   it('accepts a write at every address the factory surface draws', async () => {
     const state = factoryState();
@@ -156,25 +210,33 @@ describe('every control on screen is connected to the patch', () => {
 
     expect(drawn.length, 'the surface drew nothing').toBeGreaterThan(0);
 
-    const dead: string[] = [];
-    for (const path of drawn) {
-      const before = getParam(state, path);
-      const value = differentValue(path, before);
-      const result = reduce(state, { type: 'setParam', path, value }, meta(`probe-${path}`));
-
-      if (result.status !== 'applied') {
-        dead.push(`${path} — reducer ${result.status}`);
-        continue;
-      }
-      const after = getParam(result.state, path);
-      if (after !== value) {
-        // `undefined` after a write is the LFO bug exactly: the slot does not exist, so
-        // there is nowhere for the value to land and no error either.
-        dead.push(`${path} — wrote ${JSON.stringify(value)}, read back ${JSON.stringify(after)}`);
-      }
-    }
+    const dead = probeWrites(state, drawn);
 
     expect(dead, `${dead.length} of ${drawn.length} drawn controls cannot be changed`).toEqual([]);
+  });
+
+  it('accepts a write at every address the routing bay draws', async () => {
+    // The bay is an overlay the tab walk cannot enter, and its addresses are a slot family —
+    // so on the factory patch it correctly draws nothing and this claim had no subject. That
+    // left a quarter of the address space untested, in the overlay where the `+ route` decoy
+    // lived. Mounted directly, so this still needs no engine and no audio context.
+    const state = routedState();
+    await act(async () => {
+      root.render(
+        createElement(RouteList, {
+          context: surfaceContext(state, () => undefined),
+          onCommand: () => undefined,
+        }),
+      );
+    });
+
+    const drawn = [...new Set(visiblePaths())].sort();
+    expect(drawn.length, 'the bay drew no controls for a patch that has routes').toBeGreaterThan(0);
+    // Four addresses per route — enabled, source, destination, depth.
+    expect(drawn).toHaveLength(state.patch.voice.modRoutes.length * 4);
+
+    const dead = probeWrites(state, drawn);
+    expect(dead, `${dead.length} of ${drawn.length} bay controls cannot be changed`).toEqual([]);
   });
 });
 

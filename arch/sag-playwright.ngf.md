@@ -92,11 +92,22 @@ watching it exit 1.
 
 - **A touch-target gate on the real page.** Not a lint rule about CSS; a measurement of
   what the browser did after layout, at the viewport the instrument is played at.
-- **"Declared but never drawn," proven.** The first run reported 53 of 119 unmeasured and
-  the breakdown accounts for all of them: 3 behind the gear (never opened), 18 belonging to
-  oscillator slots B and C (the factory patch ships one slot, so they correctly do not
-  exist), and **32 bay addresses that the bay overlay does not draw with SAG attributes** —
-  which is honest, because §4.4's jackfield is still unbuilt.
+- **"Declared but never drawn," proven.** The first run reported 53 of 119 unmeasured and the
+  breakdown accounts for all of them: 3 behind the gear (never opened), 18 belonging to
+  oscillator slots B and C, and 32 in the routing bay.
+
+  **Corrected 2026-08-01.** This card originally said the 32 were unmeasured because the bay
+  "does not draw with SAG attributes." That was an inference from the harvest and it was
+  **wrong** — `RouteList` renders every route control through `renderControl(propsFor(…))`,
+  the same kit as everywhere else, so they carry both attributes. Verified on the running
+  page: 0 attributed controls in the bay with no routes, **8** after adding two (four
+  addresses per route). The 32 are unmeasured because `defaultPreset()` ships
+  `modRoutes: []` — a slot family with nothing in it, exactly like the LFO slots.
+
+  Worth recording rather than quietly editing, because a cold reader inherited the error
+  faithfully and planned against it. **A card asserting something the code does not do is
+  the same defect class this whole project exists to close**, and it reached the one place
+  that had no gate watching.
 - **Geometry the agent layer needs.** §4.2a says spatial awareness must come from
   `getBoundingClientRect()` at runtime, never baked coordinates, because *"a live rect is
   correct after every layout change, a frozen coordinate is a guess."* This is that runtime.
