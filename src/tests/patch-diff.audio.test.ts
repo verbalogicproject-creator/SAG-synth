@@ -229,6 +229,81 @@ describe('the amplitude knob still reaches the graph', () => {
   });
 });
 
+describe('a new voice joins the modulation graph instead of rebuilding it', () => {
+  // `voiceFor` used to call `rewireRoutes` for every new voice, which disposed every
+  // scaler and reconnected every LFO — so the second note of a chord tore down and
+  // rebuilt the modulation of the note already sounding. The effects chain is fixed-shape
+  // precisely because "reconnecting nodes mid-performance produces clicks"; the modulation
+  // graph was doing exactly that, once per note.
+
+  it('does not rewire when a chord is played', async () => {
+    const count = await inspect((runtime) => {
+      runtime.applyPatch(duckingPatch(1));
+      const after = runtime.getRewireCount();
+      for (const voiceId of [0, 1, 2, 3]) {
+        runtime.noteOn({ voiceId, note: 'C3', velocity: 0.8, portamento: 0 });
+      }
+      return { afterPatch: after, afterChord: runtime.getRewireCount() };
+    }).then((r) => r);
+
+    expect(count.afterPatch, 'the initial applyPatch wires the graph once').toBe(1);
+    expect(count.afterChord, 'four notes must not rebuild the graph four times').toBe(1);
+  });
+
+  it('still rewires when the routing actually changes', async () => {
+    // The vacuity guard. Without it the counter could be frozen — or `rewireRoutes` could
+    // have stopped being called at all — and the assertion above would still be green.
+    const count = await inspect((runtime) => {
+      const before = duckingPatch(1);
+      runtime.applyPatch(before);
+      runtime.noteOn({ voiceId: 0, note: 'C3', velocity: 0.8, portamento: 0 });
+      runtime.applyPatch({
+        ...before,
+        voice: { ...before.voice, modRoutes: [] },
+      });
+      return runtime.getRewireCount();
+    });
+
+    expect(count).toBe(2);
+  });
+
+  it('modulates a voice that did not exist when the patch landed', async () => {
+    // The guard, not the gate — the old wholesale rebuild wired the late voice correctly
+    // too, so this passes either way. It is here because the cheap path could easily wire
+    // nothing at all and the counter would look *better*, not worse. A gate that only
+    // rewards doing less is a gate that rewards deleting the feature.
+    //
+    // The LFO is 0.5 Hz starting at phase 0, so over two seconds it peaks near t=0.5 and
+    // troughs near t=1.5. At full duck depth the trough is far below the peak — but only
+    // for a voice that is actually connected.
+    const patch = duckingPatch(1);
+    const deep: SynthPreset = {
+      ...patch,
+      voice: {
+        ...patch.voice,
+        modRoutes: [{ ...patch.voice.modRoutes[0]!, depth: 1 }],
+      },
+    };
+
+    const { data, at } = await renderTimeline(
+      () => {
+        const runtime = new ToneRuntime();
+        runtime.applyPatch(deep);
+        // Voice 7 has never been built, so `voiceFor` creates it here — after the graph
+        // was already wired by `applyPatch`.
+        runtime.noteOn({ voiceId: 7, note: 'C3', velocity: 1, portamento: 0 });
+      },
+      { seconds: 2, sampleRate: SR },
+    );
+
+    const peak = rms(data, at(0.45), at(0.55));
+    const trough = rms(data, at(1.45), at(1.55));
+
+    expect(peak, 'the probe tone never sounded').toBeGreaterThan(0.02);
+    expect(trough / peak, `trough (${trough}) vs peak (${peak})`).toBeLessThan(0.5);
+  });
+});
+
 describe('a voice built after a change matches one built before', () => {
   /**
    * The invariant the whole diff rests on, and it holds by agreement between two lists

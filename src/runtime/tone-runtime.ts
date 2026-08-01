@@ -61,6 +61,7 @@ import type {
   Beats,
   EffectsConfig,
   ModDestination,
+  ModRoute,
   OscillatorIndex,
   OscillatorConfig,
   SignedUnit,
@@ -592,10 +593,30 @@ export class ToneRuntime implements Runtime {
   private readonly lfos = new Map<number, Tone.LFO>();
 
   /**
-   * One depth scaler per live connection. Rebuilt wholesale on every rewire, which is why
-   * they are a flat list rather than keyed by route id — nothing looks one up.
+   * The depth scalers, and the two collections mirror the two source TOPOLOGIES rather
+   * than being an arbitrary split.
+   *
+   * An LFO is one generator with one scaler fanned out to every voice, so its scaler
+   * belongs to the ROUTE and is looked up by route id. Velocity is per-voice — each voice
+   * holds a different value — so it is N sources with N scalers, and those belong to the
+   * VOICE.
+   *
+   * They used to be one flat list, on the reasoning that nothing ever looked one up.
+   * Something does now: a voice built after the graph was wired has to JOIN it, and
+   * joining means finding the route's existing scaler and connecting one more target to
+   * it. The flat list forced the alternative — tear the whole graph down and rebuild it —
+   * which meant every note of a chord disconnected and reconnected the modulation of the
+   * notes already sounding. See `attachVoiceToRoutes`.
    */
-  private readonly scalers: Tone.Gain[] = [];
+  private readonly lfoScalers = new Map<string, Tone.Gain>();
+  private readonly velocityScalers = new Map<VoiceId, Tone.Gain[]>();
+
+  /**
+   * How many times the modulation graph has been torn down and rebuilt. A diagnostic,
+   * counted because it cannot be heard: an offline render completes its clock pass before
+   * the first sample, so a dispose-and-rebuild leaves no mark in the buffer.
+   */
+  private rewireCount = 0;
 
   /** Last time scheduled on each voice; see MIN_EVENT_GAP_SECONDS. */
   private readonly lastEventTime = new Map<VoiceId, number>();
@@ -779,8 +800,12 @@ export class ToneRuntime implements Runtime {
   }
 
   dispose(): void {
-    for (const scaler of this.scalers) scaler.dispose();
-    this.scalers.length = 0;
+    for (const scaler of this.lfoScalers.values()) scaler.dispose();
+    this.lfoScalers.clear();
+    for (const scalers of this.velocityScalers.values()) {
+      for (const scaler of scalers) scaler.dispose();
+    }
+    this.velocityScalers.clear();
     for (const lfo of this.lfos.values()) lfo.dispose();
     this.lfos.clear();
     for (const nodes of this.voices.values()) {
@@ -874,6 +899,17 @@ export class ToneRuntime implements Runtime {
   /** Which sections the last `applyPatch` wrote, in `PATCH_SECTIONS` order. */
   getLastApplied(): readonly PatchSection[] {
     return this.lastApplied;
+  }
+
+  /**
+   * How many times the modulation graph has been torn down and rebuilt.
+   *
+   * Playing a chord must not move this. See `attachVoiceToRoutes`, and
+   * `patch-diff.audio.test.ts` for the gate — an offline render cannot hear a rebuild, so
+   * this is the only way to assert one did not happen.
+   */
+  getRewireCount(): number {
+    return this.rewireCount;
   }
 
   /**
@@ -1013,10 +1049,15 @@ export class ToneRuntime implements Runtime {
    * disable/re-enable case wrong in ways that leave a stale connection modulating
    * something nothing points at any more.
    *
-   * Wholesale *when it runs*, that is. It no longer runs on every `applyPatch` — see the
-   * `routes` entry in `SECTION_INPUTS` for what wakes it and why `voice.amplitude` is on
-   * that list. It is still called unconditionally by `voiceFor`, which is a separate and
-   * still-unfixed churn (a chord's second note rebuilds the graph under the first).
+   * Wholesale *when it runs*, that is, and it now runs in only one situation: the routing
+   * itself changed. See the `routes` entry in `SECTION_INPUTS` for what wakes it and why
+   * `voice.amplitude` is on that list.
+   *
+   * It used to also run on every new voice, which meant a chord's second note disposed and
+   * reconnected the modulation of the note already sounding — the exact thing the effects
+   * chain is fixed-shape to avoid, happening on every note. `voiceFor` now calls
+   * `attachVoiceToRoutes` instead, which adds the new voice without touching anything
+   * already connected.
    *
    * **This is the only writer of `nodes.gain.gain`.** There used to be a second, a plain
    * `nodes.gain.gain.value = patch.voice.amplitude` in `applyPatch`, and it was already
@@ -1027,9 +1068,14 @@ export class ToneRuntime implements Runtime {
    * and only with a route active. One writer, so the question cannot arise.
    */
   private rewireRoutes(patch: SynthPreset, mode: WriteMode): void {
+    this.rewireCount += 1;
     for (const lfo of this.lfos.values()) lfo.disconnect();
-    for (const scaler of this.scalers) scaler.dispose();
-    this.scalers.length = 0;
+    for (const scaler of this.lfoScalers.values()) scaler.dispose();
+    this.lfoScalers.clear();
+    for (const scalers of this.velocityScalers.values()) {
+      for (const scaler of scalers) scaler.dispose();
+    }
+    this.velocityScalers.clear();
 
     // Amplitude ducking re-centres the resting gain, so any voice whose route was just
     // removed or re-depthed has to go back to the patch's own value first.
@@ -1038,56 +1084,103 @@ export class ToneRuntime implements Runtime {
     }
 
     for (const route of patch.voice.modRoutes) {
-      if (!route.enabled) continue;
-      if (!isWirable(route.destination)) {
-        this.notImplemented(`route.destination.${route.destination}`);
-        continue;
-      }
-
-      const swing = routeSwing(route.destination, route.depth, patch.voice.amplitude);
+      const swing = this.swingFor(route, patch);
+      if (swing === null) continue;
 
       // Velocity is per-voice, so it cannot share one scaler the way an LFO does — each
       // voice holds a different value and needs its own scaled connection. The two source
       // kinds therefore differ in TOPOLOGY, not just in which node they read from: an LFO
       // is one generator with one scaler fanned out; velocity is N sources with N scalers.
-      if (route.source === 'velocity') {
-        for (const nodes of this.voices.values()) {
-          if (swing.baseOverride !== undefined) {
-            writeParam(nodes.gain.gain, swing.baseOverride, mode);
-          }
-          // Unipolar: velocity runs 0..1 and only ever adds, so the scaler carries the
-          // full swing rather than half of it the way a bipolar LFO does.
-          const target = this.destinationParam(nodes, route.destination);
-          if (target === null) continue;
-          const scaler = new Tone.Gain(swing.scale * 2);
-          this.scalers.push(scaler);
-          nodes.velocity.connect(scaler);
-          scaler.connect(target);
-        }
-        continue;
+      if (route.source !== 'velocity') {
+        const lfo = this.lfos.get(Number(route.source.slice('lfo.'.length)));
+        if (lfo === undefined) continue;
+
+        // The scaling lives on the CONNECTION, not on the generator.
+        //
+        // Setting `lfo.min`/`lfo.max` per route looked equivalent and was not: one LFO
+        // driving two destinations is the whole point of routes, and the second route
+        // silently overwrote the first's swing. A cutoff route sharing an LFO with a pan
+        // route came out modulating the cutoff by ±0.3 Hz. The generator now emits a unit
+        // signal and every connection scales it for itself.
+        const scaler = new Tone.Gain(swing.scale);
+        this.lfoScalers.set(route.id, scaler);
+        lfo.connect(scaler);
       }
 
-      const lfo = this.lfos.get(Number(route.source.slice('lfo.'.length)));
-      if (lfo === undefined) continue;
-
-      // The scaling lives on the CONNECTION, not on the generator.
-      //
-      // Setting `lfo.min`/`lfo.max` per route looked equivalent and was not: one LFO
-      // driving two destinations is the whole point of routes, and the second route
-      // silently overwrote the first's swing. A cutoff route sharing an LFO with a pan
-      // route came out modulating the cutoff by ±0.3 Hz. The generator now emits a unit
-      // signal and every connection scales it for itself.
-      const scaler = new Tone.Gain(swing.scale);
-      this.scalers.push(scaler);
-      lfo.connect(scaler);
-
-      for (const nodes of this.voices.values()) {
-        if (swing.baseOverride !== undefined) {
-          writeParam(nodes.gain.gain, swing.baseOverride, mode);
-        }
-        const target = this.destinationParam(nodes, route.destination);
-        if (target !== null) scaler.connect(target);
+      for (const [voiceId, nodes] of this.voices) {
+        this.wireVoiceToRoute(voiceId, nodes, route, swing, mode);
       }
+    }
+  }
+
+  /**
+   * The swing for a route, or `null` if it should not be wired at all.
+   *
+   * Split out because `rewireRoutes` and `attachVoiceToRoutes` must agree exactly on which
+   * routes are live and how deep they swing — two copies of that decision is how a voice
+   * ends up modulated differently depending on whether it existed when the patch landed.
+   */
+  private swingFor(route: ModRoute, patch: SynthPreset): RouteSwing | null {
+    if (!route.enabled) return null;
+    if (!isWirable(route.destination)) {
+      this.notImplemented(`route.destination.${route.destination}`);
+      return null;
+    }
+    return routeSwing(route.destination, route.depth, patch.voice.amplitude);
+  }
+
+  /** Connect one route to one voice, building a scaler only where velocity needs its own. */
+  private wireVoiceToRoute(
+    voiceId: VoiceId,
+    nodes: VoiceNodes,
+    route: ModRoute,
+    swing: RouteSwing,
+    mode: WriteMode,
+  ): void {
+    if (swing.baseOverride !== undefined) {
+      writeParam(nodes.gain.gain, swing.baseOverride, mode);
+    }
+    const target = this.destinationParam(nodes, route.destination as WirableDestination);
+    if (target === null) return;
+
+    if (route.source === 'velocity') {
+      // Unipolar: velocity runs 0..1 and only ever adds, so the scaler carries the full
+      // swing rather than half of it the way a bipolar LFO does.
+      const scaler = new Tone.Gain(swing.scale * 2);
+      const existing = this.velocityScalers.get(voiceId);
+      if (existing === undefined) this.velocityScalers.set(voiceId, [scaler]);
+      else existing.push(scaler);
+      nodes.velocity.connect(scaler);
+      scaler.connect(target);
+      return;
+    }
+
+    // The route's scaler already exists and is already running. Fanning one more target
+    // off it is the whole point of keying them by route: nothing is disposed, nothing is
+    // disconnected, and no voice already sounding notices.
+    this.lfoScalers.get(route.id)?.connect(target);
+  }
+
+  /**
+   * Add a newly built voice to the modulation graph that is already running.
+   *
+   * Voices are built lazily, so one created after the routes were wired would otherwise be
+   * the single unmodulated note in a chord. The old fix was to call `rewireRoutes` — which
+   * worked, and cost every held note a disconnect and reconnect of its modulation on every
+   * new note. The constructor comment on the effects chain states the rule this broke:
+   * *"Reconnecting nodes mid-performance produces clicks."*
+   *
+   * This is the cheap half of that call. It touches only the new voice.
+   */
+  private attachVoiceToRoutes(
+    voiceId: VoiceId,
+    nodes: VoiceNodes,
+    patch: SynthPreset,
+    mode: WriteMode,
+  ): void {
+    for (const route of patch.voice.modRoutes) {
+      const swing = this.swingFor(route, patch);
+      if (swing !== null) this.wireVoiceToRoute(voiceId, nodes, route, swing, mode);
     }
   }
 
@@ -1260,11 +1353,10 @@ export class ToneRuntime implements Runtime {
     // Voices are built lazily, so a voice created AFTER the routes were wired would
     // otherwise be the one unmodulated note in a chord. Rewire so it joins the graph.
     if (this.patch !== null && this.patch.voice.modRoutes.length > 0) {
-      // `'ramp'`, and the reason is the voices that are ALREADY sounding. This rebuilds
-      // every scaler for the whole pool, so a duck route re-writes the resting gain of
-      // every held note — stepping those is a click under the chord you are playing. For
-      // the voice just built the ramp is a no-op, since its gain already holds the value.
-      this.rewireRoutes(this.patch, 'ramp');
+      // `'step'` is right here where `rewireRoutes`'s `'ramp'` was not. This now touches
+      // ONLY the voice just built, whose gain still holds the plain amplitude and has
+      // never sounded — so a duck route's re-centred base is a first value, not a change.
+      this.attachVoiceToRoutes(voiceId, nodes, this.patch, 'step');
     }
     return nodes;
   }
@@ -1559,8 +1651,15 @@ export class ToneRuntime implements Runtime {
    */
   get nodeCount(): number {
     return (
-      this.lfos.size + this.scalers.length + this.voices.size * 7 + this.oscillatorCount * 4 + 3
+      this.lfos.size + this.scalerCount + this.voices.size * 7 + this.oscillatorCount * 4 + 3
     );
+  }
+
+  /** Every live depth scaler, across both topologies. See `lfoScalers`/`velocityScalers`. */
+  private get scalerCount(): number {
+    let total = this.lfoScalers.size;
+    for (const scalers of this.velocityScalers.values()) total += scalers.length;
+    return total;
   }
 }
 
