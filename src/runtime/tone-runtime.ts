@@ -576,6 +576,30 @@ const SECTION_INPUTS: Record<PatchSection, readonly ((patch: SynthPreset) => unk
   routes: [(p) => p.voice.modRoutes, (p) => p.voice.lfos, (p) => p.voice.amplitude],
 };
 
+/**
+ * The slice of the Web Audio `AudioContext` this reads for telemetry, all of it optional.
+ *
+ * Declared structurally rather than imported because none of it is in the TypeScript DOM
+ * library this project builds against: `renderCapacity` is Chromium-only, and even
+ * `outputLatency` is absent from some lib versions. Typing it here keeps the reads honest
+ * — every field is `| undefined`, which is exactly what a browser that does not implement
+ * them returns, and forces the guard at the call site.
+ */
+interface RenderCapacityLike {
+  start(options?: { updateInterval?: number }): void;
+  stop(): void;
+  onupdate: ((event: Event) => void) | null;
+  readonly averageLoad?: number;
+  readonly peakLoad?: number;
+  readonly underrunRatio?: number;
+}
+
+interface LatencyReportingContext {
+  baseLatency?: number;
+  outputLatency?: number;
+  renderCapacity?: RenderCapacityLike;
+}
+
 export class ToneRuntime implements Runtime {
   private readonly master: Tone.Volume;
   private readonly analyser: Tone.Analyser;
@@ -637,6 +661,17 @@ export class ToneRuntime implements Runtime {
 
   /** Whether `applySong` has ever run — its own `WriteMode` gate. See `applySong`. */
   private songApplied = false;
+
+  /**
+   * The most recent audio-thread load report, or `null` if this browser does not give one.
+   *
+   * Push, not pull: `AudioRenderCapacity` is an event source that has to be started and
+   * then emits, so the value is cached here and read by `observeAudio`. Null is the
+   * honest resting state — `observeAudio` omits the keys entirely rather than reporting a
+   * zero nobody measured.
+   */
+  private renderLoad: { averageLoad: number; underrunRatio: number } | null = null;
+  private renderCapacity: RenderCapacityLike | null = null;
 
   /** Methods called that this stage does not implement, in call order, deduplicated. */
   private readonly unimplemented = new Set<string>();
@@ -735,6 +770,40 @@ export class ToneRuntime implements Runtime {
     // thing an observer needs to see.
     this.safetyClip.connect(this.analyser);
     this.safetyClip.connect(this.meter);
+
+    this.watchRenderCapacity();
+  }
+
+  /**
+   * Subscribe to the audio thread's own load report, where the browser publishes one.
+   *
+   * Wrapped in a try/catch and silent on failure, per F78: telemetry that can take down
+   * the instrument it measures is worse than no telemetry. Anything that goes wrong here
+   * leaves `renderLoad` null, and `observeAudio` then omits the keys — which reads as
+   * "this browser did not say" and is the truth.
+   *
+   * 1000 ms because this is a background health signal, not a meter. The observer wakes
+   * the main thread on every update, and a synth that spent its own headroom measuring
+   * its headroom would be its own bug report.
+   */
+  private watchRenderCapacity(): void {
+    try {
+      const raw = Tone.getContext().rawContext as unknown as LatencyReportingContext;
+      const capacity = raw.renderCapacity;
+      if (capacity === undefined) return;
+      capacity.onupdate = (event: Event) => {
+        const update = event as unknown as { averageLoad?: number; underrunRatio?: number };
+        if (typeof update.averageLoad !== 'number') return;
+        this.renderLoad = {
+          averageLoad: update.averageLoad,
+          underrunRatio: typeof update.underrunRatio === 'number' ? update.underrunRatio : 0,
+        };
+      };
+      capacity.start({ updateInterval: 1 });
+      this.renderCapacity = capacity;
+    } catch {
+      this.renderLoad = null;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -800,6 +869,20 @@ export class ToneRuntime implements Runtime {
   }
 
   dispose(): void {
+    // Before anything else. The capacity observer holds a callback into this instance, so
+    // an undisposed one keeps a whole runtime alive across a hot reload — the same
+    // two-live-instances leak `instance_id` exists to make visible.
+    if (this.renderCapacity !== null) {
+      try {
+        this.renderCapacity.onupdate = null;
+        this.renderCapacity.stop();
+      } catch {
+        // Already stopped, or the context went away first. Never throw out of dispose.
+      }
+      this.renderCapacity = null;
+    }
+    this.renderLoad = null;
+
     for (const scaler of this.lfoScalers.values()) scaler.dispose();
     this.lfoScalers.clear();
     for (const scalers of this.velocityScalers.values()) {
@@ -1620,7 +1703,44 @@ export class ToneRuntime implements Runtime {
       // invisible from here.
       destination_muted: Tone.getDestination().mute,
       destination_volume_db: Tone.getDestination().volume.value,
+      ...this.latencyReport(),
     };
+  }
+
+  /**
+   * What the platform will say about its own headroom — and nothing it will not.
+   *
+   * Spread into the event so an unavailable reading omits its KEY rather than emitting a
+   * null or a zero. That distinction is the whole value: a `render_capacity` of 0 means
+   * "measured, and the audio thread is idle"; an absent `render_capacity` means "this
+   * browser does not publish one". Collapsing the two would put a reassuring number in
+   * front of the exact situation nobody has data for.
+   *
+   * An offline render is the ordinary case for the second: `OfflineAudioContext` has no
+   * `baseLatency` and no `outputLatency`, because there is no sink and no clock to be
+   * late against. Every audio gate in this project therefore sees these keys absent, and
+   * `telemetry.audio.test.ts` asserts exactly that rather than letting it pass unnoticed.
+   */
+  private latencyReport(): Partial<SynthAudioObservedEvent> {
+    const report: Partial<SynthAudioObservedEvent> = {};
+    let raw: LatencyReportingContext;
+    try {
+      raw = Tone.getContext().rawContext as unknown as LatencyReportingContext;
+    } catch {
+      return report;
+    }
+
+    if (typeof raw.baseLatency === 'number' && Number.isFinite(raw.baseLatency)) {
+      report.base_latency = raw.baseLatency;
+    }
+    if (typeof raw.outputLatency === 'number' && Number.isFinite(raw.outputLatency)) {
+      report.output_latency = raw.outputLatency;
+    }
+    if (this.renderLoad !== null) {
+      report.render_capacity = this.renderLoad.averageLoad;
+      report.underrun_ratio = this.renderLoad.underrunRatio;
+    }
+    return report;
   }
 
   getWaveform(): Float32Array {

@@ -189,6 +189,10 @@ export const SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS = [
   'unimplemented',
   'destination_muted',
   'destination_volume_db',
+  'base_latency',
+  'output_latency',
+  'render_capacity',
+  'underrun_ratio',
   'note',
 ] as const;
 
@@ -236,6 +240,37 @@ export interface SynthAudioObservedEvent {
    */
   destination_muted?: boolean;
   destination_volume_db?: number;
+
+  /**
+   * What the audio thread is actually up against, when the browser will say.
+   *
+   * Added because the crackle report that started Phase C arrived as "there are cracks
+   * when I play a note and change a parameter" — which was enough to find three real
+   * defects and could not, by itself, distinguish any of them from the device simply
+   * running out of headroom. The next such report should arrive with numbers.
+   *
+   * **Every one of these is optional, and the optionality is the contract.** They are
+   * emitted only where the running browser offers them: `baseLatency` and `outputLatency`
+   * exist on `AudioContext` and not on `OfflineAudioContext`, and `renderCapacity` is
+   * Chromium-only. A key that is absent means "this browser did not say", which is a
+   * different fact from zero and must never be fabricated into one — the same rule
+   * `level_db`'s null already encodes (F76).
+   */
+  /** `AudioContext.baseLatency`, seconds — the buffer between the graph and the sink. */
+  base_latency?: number;
+  /** `AudioContext.outputLatency`, seconds — estimated total to the speaker. */
+  output_latency?: number;
+  /** Mean audio-thread load, 0..1. At 1 the thread is not keeping up. */
+  render_capacity?: number;
+  /**
+   * Fraction of render quanta that underran since the last update, 0..1.
+   *
+   * The single most direct measure of a crackle there is: an underrun IS the click. It
+   * rides alongside `render_capacity` because the two answer different questions — load
+   * says how close to the edge, this says how often it went over.
+   */
+  underrun_ratio?: number;
+
   /** Free-text marker for human-driven diagnosis, e.g. "after unlock tap". */
   note?: string;
 }
