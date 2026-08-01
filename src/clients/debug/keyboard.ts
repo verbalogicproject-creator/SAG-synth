@@ -94,3 +94,81 @@ export const BLACK_KEYS: readonly (KeyDef & { afterWhite: number })[] = [
 export function clampOctave(octave: number): number {
   return Math.min(MAX_OCTAVE, Math.max(MIN_OCTAVE, octave));
 }
+
+/**
+ * Where each drawn key's centre sits across the keyboard's width, paired with the semitone
+ * it sounds. **Derived from the two tables above, never written out.**
+ *
+ * This exists because a piano keyboard's X axis is NOT linear in pitch, and assuming it is
+ * shipped a pad on which four of the eight white keys played a different note than they
+ * drew — C sounded C#, A sounded G#, B sounded A#, C sounded B. Eight equal-width white
+ * keys span twelve semitones, but the semitones are not spread evenly across them: C→D is
+ * two semitones of travel and E→F is one. `fraction * 12` is therefore wrong everywhere
+ * except by accident.
+ *
+ * The anchors are what makes it right. Sorted by x they are monotonic in both axes, so a
+ * piecewise-linear interpolation between them gives exactly the drawn note at any key's
+ * centre and a continuous glide in between. Segment widths differ — E→F covers 0.125 of the
+ * width for one semitone where F→F# covers 0.0625 — so the glide rate varies across the
+ * keyboard, which is what a keyboard-SHAPED pitch surface should do.
+ */
+export interface KeyAnchor {
+  /** Centre of the drawn key, as a fraction of the keyboard's width. */
+  x: number;
+  /** Semitone above the base octave's C. */
+  semitone: number;
+  label: string;
+}
+
+export const KEY_ANCHORS: readonly KeyAnchor[] = [
+  ...WHITE_KEYS.map((key, index) => ({
+    // White keys are laid out at equal widths, so key i spans [i/n, (i+1)/n).
+    x: (index + 0.5) / WHITE_KEYS.length,
+    semitone: key.offset,
+    label: key.label,
+  })),
+  ...BLACK_KEYS.map((key) => ({
+    // A black key is centred on the boundary between the white key it follows and the next.
+    x: (key.afterWhite + 1) / WHITE_KEYS.length,
+    semitone: key.offset,
+    label: key.label,
+  })),
+].sort((a, b) => a.x - b.x);
+
+/**
+ * The note and detune at a horizontal position across the drawn keyboard.
+ *
+ * At a key's centre the detune is 0 and the note is exactly the one drawn there. Between
+ * two centres the position interpolates, so a press between keys sounds between keys —
+ * which is the entire reason to offer a pad instead of buttons.
+ */
+export function pitchAtFraction(
+  fraction: number,
+  baseOctave: number,
+): { note: string; detuneCents: number } {
+  const clamped = Math.min(Math.max(fraction, 0), 1);
+
+  let semitone = KEY_ANCHORS[KEY_ANCHORS.length - 1]!.semitone;
+  if (clamped <= KEY_ANCHORS[0]!.x) {
+    semitone = KEY_ANCHORS[0]!.semitone;
+  } else {
+    for (let i = 1; i < KEY_ANCHORS.length; i += 1) {
+      const low = KEY_ANCHORS[i - 1]!;
+      const high = KEY_ANCHORS[i]!;
+      if (clamped <= high.x) {
+        const across = (clamped - low.x) / (high.x - low.x);
+        semitone = low.semitone + across * (high.semitone - low.semitone);
+        break;
+      }
+    }
+  }
+
+  const nearest = Math.round(semitone);
+  return {
+    note: noteName(baseOctave, nearest),
+    detuneCents: (semitone - nearest) * CENTS_PER_SEMITONE,
+  };
+}
+
+/** How a semitone divides into cents. Notation, not a parameter. */
+const CENTS_PER_SEMITONE = 100;

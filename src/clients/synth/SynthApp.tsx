@@ -12,18 +12,26 @@
  * ids reporting from one page is what silenced a tab on 2026-07-30, and adding a second
  * mount point is the phase plan's named way of doing it again.
  *
- * The header is deliberately thin. A patch stepper needs the preset browser and a bay
- * button needs the bay; both arrive at 4.6b, and drawing either now would be a control
- * that does nothing.
+ * The header is deliberately thin. The bay button is here because the bay is; the patch
+ * stepper is not, because it needs the preset browser and drawing it now would be a
+ * control that does nothing.
+ *
+ * The footer offers two play surfaces over the same three commands. `VirtualKeyboard`
+ * sends discrete notes; `XYPad` sends a note plus a detune, so a press between two keys
+ * sounds between two keys. Neither needs anything the engine does not already take.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getEngine } from '../engine';
 import { VirtualKeyboard } from '../debug/VirtualKeyboard';
-import type { ParamPath, ParamValue } from '../../core/types';
+import { controlForPath, fullNameOf } from '../../core/controls';
+import { getParam } from '../../core/params';
+import { PARAM_SPECS } from '../../core/schemas';
+import { WIRED_MOD_DESTINATIONS, type ParamPath, type ParamValue } from '../../core/types';
 import type { SynthCommand } from '../../core/commands';
 import { SynthPanels } from './SynthPanels';
 import { RouteList } from './RouteList';
+import { XYPad } from './XYPad';
 import { surfaceContext } from './controlProps';
 import { COLOR, FONT, TOUCH_MIN } from './tokens';
 
@@ -36,6 +44,21 @@ import { COLOR, FONT, TOUCH_MIN } from './tokens';
  * named constant rather than an inline number so the exception is visible as an exception.
  */
 const VELOCITY_STEP = 0.01;
+
+/**
+ * What the pad's Y axis may be pointed at: every wired destination that is a plain number.
+ *
+ * Generated rather than listed. Offering an UNWIRED destination here would be a Y axis that
+ * moves a validated, journalled value reaching no audio node — a slider that does nothing,
+ * which is the failure the whole surface is armoured against. `isDestinationWired` already
+ * knows which are which, so this cannot drift when the runtime wires more of them.
+ */
+const PAD_Y_TARGETS: readonly ParamPath[] = WIRED_MOD_DESTINATIONS.filter(
+  (path) => PARAM_SPECS[path]?.kind === 'number',
+);
+
+/** The pad's detune is written to the oscillators, so it obeys their declared range. */
+const DETUNE_SPEC = PARAM_SPECS['voice.oscillators.0.detune'];
 
 export function SynthApp() {
   const { dispatcher, runtime } = getEngine();
@@ -81,6 +104,12 @@ export function SynthApp() {
    * before playing and hunting for them is worse than the space they cost.
    */
   const [keysOpen, setKeysOpen] = useState(true);
+
+  /** Which play surface the footer shows, and what the pad's Y axis drives. */
+  const [padMode, setPadMode] = useState(false);
+  const [padTarget, setPadTarget] = useState<ParamPath>(
+    () => PAD_Y_TARGETS[0] ?? 'voice.amplitude',
+  );
 
   /**
    * Held notes come from the dispatcher's TRANSIENT state, not from `EngineState`.
@@ -143,7 +172,87 @@ export function SynthApp() {
     [dispatcher],
   );
 
+  /**
+   * The pad's gesture: which note is sounding, and what the patch's detune was before the
+   * finger touched it.
+   *
+   * A ref rather than state because it changes on every pointermove and nothing renders
+   * from it — putting it in state would re-render the whole app at pointer rate.
+   */
+  const padGesture = useRef<{ note: string; baseDetune: readonly number[]; sent: number } | null>(
+    null,
+  );
+
+  /**
+   * Fires on press AND on every move while held, so it must diff.
+   *
+   * Two things would go wrong without the diff. A `noteOn` per move stacks voices until the
+   * polyphony cap evicts them, which sounds like a stuck chord; and a `setParam` per move
+   * fills the journal with thousands of identical writes.
+   *
+   * The detune is written to every oscillator slot — that is what "continuous pitch" means
+   * against this contract, since `voice.oscillators.N.detune` is the wired address for it.
+   * It is an OFFSET from whatever the patch already had, and the base is restored on
+   * release: playing an instrument must not quietly rewrite the patch you are playing.
+   */
+  const onPadPitch = useCallback(
+    (note: string, detuneCents: number) => {
+      const slots = dispatcher.getState().patch.voice.oscillators;
+      let active = padGesture.current;
+
+      if (active === null) {
+        active = { note, baseDetune: slots.map((slot) => slot.detune), sent: Number.NaN };
+        padGesture.current = active;
+        dispatcher.dispatch({ type: 'noteOn', note, velocity });
+      } else if (active.note !== note) {
+        dispatcher.dispatch({ type: 'noteOff', note: active.note });
+        dispatcher.dispatch({ type: 'noteOn', note, velocity });
+        active.note = note;
+      }
+
+      if (DETUNE_SPEC.kind !== 'number') return;
+      const rounded = Math.round(detuneCents);
+      // Detune is an integer spec, so most moves land on the value already sent.
+      if (rounded === active.sent) return;
+      active.sent = rounded;
+
+      slots.forEach((_slot, index) => {
+        const base = active.baseDetune[index] ?? 0;
+        const value = Math.min(DETUNE_SPEC.max, Math.max(DETUNE_SPEC.min, base + rounded));
+        dispatcher.dispatch({
+          type: 'setParam',
+          path: `voice.oscillators.${index}.detune` as ParamPath,
+          value,
+        });
+      });
+    },
+    [dispatcher, velocity],
+  );
+
+  const onPadRelease = useCallback(
+    (note: string) => {
+      const active = padGesture.current;
+      padGesture.current = null;
+      dispatcher.dispatch({ type: 'noteOff', note });
+
+      // Put the patch back exactly as it was found.
+      active?.baseDetune.forEach((base, index) => {
+        dispatcher.dispatch({
+          type: 'setParam',
+          path: `voice.oscillators.${index}.detune` as ParamPath,
+          value: base,
+        });
+      });
+    },
+    [dispatcher],
+  );
+
   const running = contextState === 'running';
+
+  // Read through `getParam` rather than reached for by hand: the pad's Y target is chosen
+  // at runtime, so there is no field on `state.patch` this could name.
+  const padYValue = getParam(state, padTarget);
+  const padY = typeof padYValue === 'number' ? padYValue : 0;
 
   return (
     <div style={styles.app}>
@@ -239,6 +348,16 @@ export function SynthApp() {
           </button>
           <button
             type="button"
+            role="switch"
+            aria-checked={padMode}
+            onClick={() => setPadMode((on) => !on)}
+            style={styles.octave}
+            aria-label="glide pad"
+          >
+            {padMode ? 'PAD' : 'KEYS'}
+          </button>
+          <button
+            type="button"
             onClick={() => setKeysOpen((open) => !open)}
             style={styles.octave}
             aria-label={keysOpen ? 'hide the keyboard' : 'show the keyboard'}
@@ -247,13 +366,43 @@ export function SynthApp() {
             {keysOpen ? '⌄' : '⌃'}
           </button>
         </label>
-        {keysOpen && (
+        {keysOpen && !padMode && (
           <VirtualKeyboard
             octave={octave}
             held={held}
             onNoteOn={noteOn}
             onNoteOff={noteOff}
           />
+        )}
+        {keysOpen && padMode && (
+          <div style={styles.pad}>
+            <label style={styles.padTarget}>
+              <span>Y</span>
+              <select
+                value={padTarget}
+                onChange={(event) => setPadTarget(event.target.value as ParamPath)}
+                aria-label="what the pad's vertical axis drives"
+                style={styles.padSelect}
+              >
+                {PAD_Y_TARGETS.map((path) => {
+                  const control = controlForPath(path);
+                  return (
+                    <option key={path} value={path}>
+                      {control === undefined ? path : fullNameOf(control)}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <XYPad
+              octave={octave}
+              yTarget={padTarget}
+              yValue={padY}
+              onPitch={onPadPitch}
+              onRelease={onPadRelease}
+              onChange={onChange}
+            />
+          </div>
         )}
       </footer>
     </div>
@@ -387,6 +536,29 @@ const styles = {
     marginBottom: '0.4rem',
   },
   velocityTrack: { flex: 1, height: TOUCH_MIN / 2, touchAction: 'none', accentColor: COLOR.accent },
+  pad: { display: 'flex', flexDirection: 'column', gap: '0.35rem', padding: '0 0.5rem 0.5rem' },
+  padTarget: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    fontFamily: FONT.display,
+    fontSize: '0.65rem',
+    letterSpacing: '0.08em',
+    color: COLOR.textDim,
+  },
+  padSelect: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: TOUCH_MIN,
+    background: COLOR.surfaceLowest,
+    color: COLOR.text,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    borderRadius: 4,
+    fontFamily: FONT.mono,
+    fontSize: '0.75rem',
+  },
   velocityValue: { fontVariantNumeric: 'tabular-nums', minWidth: '2.5rem', textAlign: 'center' },
   octave: {
     minWidth: TOUCH_MIN,
