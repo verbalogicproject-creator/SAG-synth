@@ -3,7 +3,7 @@
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
 
-**Counts refreshed 2026-08-01 at commit `7c9ce76`.** The prose below still describes
+**Counts refreshed 2026-08-01 at commit `444d328`.** The prose below still describes
 Phase 4 as the frontier; Phases 4, A, B and C have all shipped since. What supersedes it
 is `arch/bus-routing.ngf.md` for the routing model and the working roadmap for the phase
 order — this file is kept as the engine reference it is good at being, not re-litigated.
@@ -13,14 +13,54 @@ order — this file is kept as the engine reference it is good at being, not re-
 ## Where we actually are
 
 **Version 0.1.17 in `package.json` — stale, and deliberately not bumped until Phase E
-tags 0.2.0.** 509 tests across three projects, 38 files. Build clean, `npm run geometry`
-exits 0. Preset schema version **4**, framework KINDs at tag `v0.0.10`.
+tags 0.2.0.** 526 tests across three projects, 42 files, at commit `444d328`. Build clean,
+`npm run geometry` exits 0. Preset schema version **4**, framework KINDs at tag `v0.0.10`.
 
 Shipped since this file was written: Phase 4 (the whole control surface), Phase A (touch
 targets, attribute placement, the geometry gate), Phase B (XY pad pitch geometry,
-draggable ADSR handles), and **Phase C — the instrument sounds clean**: `applyPatch`
-diffs by section and every audio-rate write ramps, so a knob under a held note no longer
-cracks.
+draggable ADSR handles), and **Phase C — the instrument sounds clean.**
+
+### Phase C, in one place
+
+The audible defect was "a knob under a held note cracks", and it had four causes, only one
+of which was the obvious one.
+
+- **`applyPatch` rewrote everything on every pointer move.** `setParam` returns a new patch
+  document for any change and `syncRuntime` pushes on a changed reference, so turning the
+  reverb knob rebuilt the distortion curve, reconstructed Freeverb's dampening filters,
+  re-`set` both envelopes on every live voice and disposed the whole modulation graph. It
+  now diffs by section (`PATCH_SECTIONS`) using reference comparison, which is exact
+  because core documents are immutable and structurally shared.
+- **Every write was a step.** `param.value = x` is `setValueAtTime(x, now())` — a
+  discontinuity, which is a click. All audio-rate writes now go through `writeParam`, which
+  ramps over 20 ms. **Order mattered:** diff before ramp, because `rampTo` runs
+  `cancelAndHoldAtTime` and walking twenty-odd automation timelines per pointer move is
+  more work than the steps it replaces.
+- **Every new voice rebuilt the modulation graph** under the notes already sounding.
+  Scalers are now keyed by route (LFO) or by voice (velocity), so a late voice joins
+  instead of forcing a rebuild.
+- **The cutoff could not be ramped at all.** `FrequencyEnvelope.baseFrequency` is a
+  JavaScript setter writing `Scale.min`/`.max`; the base moved onto `filter.detune` as
+  cents, where a biquad's `frequency × 2^(detune/1200)` reconstructs it exactly.
+
+Plus: one dispatch per animation frame during a drag, and `observeAudio` now reports
+`base_latency` / `output_latency` / `render_capacity` / `underrun_ratio` where the browser
+publishes them.
+
+**Two findings from Phase C that outlive it**, both measured and both changing later plans:
+
+1. **A disabled effects chain costs what an engaged one costs** — `1 chain (all wet 0)`
+   reads 0.241× against a full chain's 0.237×. Tone fans the input down both legs and `wet`
+   is only a crossfade, so a switched-off reverb still runs its comb filters. The factory
+   patch ships with every effect off and burns a quarter of realtime producing a dry
+   signal. Phase G's per-slot node skipping is therefore required work, not a nicety.
+2. **A stepped cutoff never clicked.** Planned as declicking; the gate written for it passed
+   against the unfixed code. A biquad is a stateful IIR — changing coefficients changes the
+   transfer function while the state carries over, so the output stays continuous. The
+   measurements are kept in `param-change.audio.test.ts`.
+
+Still open in C: **C6**, the real-time Playwright diagnostic (offline asserts, real-time
+reports), and `octaves`, which steps for exactly the reason `baseFrequency` used to.
 
 0.1.17 is the signed-depth bump — Phase 4 stage 4.0, and the last engine change the
 designed surface needed. A route's `depth` is now `−1..1`: the magnitude scales against
@@ -33,11 +73,20 @@ and three tests keep it honest. The signal path, per voice:
 
 ```
 slots x3 (osc -> level -> pan -> makeup) -> filter -> ampEnv -> gain -> pan -> fxInput
-filterEnvelope --------------------------> filter.frequency
+filterEnvelope (base pinned at 1 Hz) ----> filter.frequency
+cutoff base + velocity, in cents --------> filter.detune  <- and route swings sum here
 
 fxInput -> distortion -> chorus -> delay -> reverb -> eq x5
         -> master -> limiter -> safety clip -> destination
 ```
+
+The cutoff arrives on `detune` rather than `frequency` since Phase C, and the split is
+exact rather than approximate: a biquad computes `frequency × 2^(detune/1200)`, so a
+1 Hz-based envelope times `1200·log2(base)` cents reconstructs `base → base·2^octaves`.
+It is there because `frequency` is `overridden` by the envelope connection and
+`FrequencyEnvelope.baseFrequency` is a plain setter — neither can carry an automation
+curve, and `detune` is a `Signal` that can. It is also where a cutoff route already
+delivered its swing, so base and modulation now sum on one parameter.
 
 `Tone.MonoSynth` is gone. It is one oscillator by construction, so three slots had nowhere
 to live; the voice above is MonoSynth's own topology with the source stage widened, read
@@ -262,7 +311,7 @@ whether waveform pickers draw the shape and ADSR is a dragged curve, and the kno
 vocabulary. Then `taste-frontend-designer` builds inside the arch cards.
 
 The layout derives from `SIGNAL_CHAIN` in `src/core/groups.ts`, which is already gated to
-cover all 97 addresses exactly once — that is what makes "content aware pipeline" mechanical
+cover all 119 addresses exactly once — that is what makes "content aware pipeline" mechanical
 rather than aspirational.
 
 **Skill note:** the installed `design-taste-frontend` skill self-declares *"Not dashboards,

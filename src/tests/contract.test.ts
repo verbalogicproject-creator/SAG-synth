@@ -31,6 +31,8 @@ import {
   KIND_SYNTH_PATCH_SLOT_MAP,
   KIND_SYNTH_SONG_REQUIRED_SLOTS,
   KIND_SYNTH_SONG_SLOT_MAP,
+  SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS,
+  SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS,
   SYNTH_COMMAND_APPLIED_KIND,
   SYNTH_COMMAND_APPLIED_OPTIONAL_SLOTS,
   SYNTH_COMMAND_APPLIED_REQUIRED_SLOTS,
@@ -465,6 +467,45 @@ describe('SAG substrate matches the declared KINDs', () => {
       'preset_id',
       'duration_us',
       'last_acked_seq',
+    ]);
+  });
+
+  it('freezes KIND-synth_audio_observed, which until 2026-08-01 nothing did', () => {
+    // A gap, found while updating `arch/contract.ngf.md` rather than by any gate. That
+    // card's §3 says "never edit the KIND slot maps in `src/core/sag/events.ts` — they are
+    // transcribed from a separate repo and a contract test proves the correspondence." The
+    // second half was true of `synth_command_applied` above and NOT of this KIND, which
+    // had no freeze list at all. So four optional slots were added for the Phase C
+    // telemetry and every test stayed green — not because the addition was legitimate, but
+    // because nothing was watching. That is exactly the defect class this project exists
+    // to close, one layer up from the code.
+    //
+    // **The four marked below are NOT yet declared upstream.** The KIND lives in
+    // sag-declarum-atlas-framework at tag v0.0.10, which is not on this machine, so the
+    // mirror currently runs ahead of the declaration — emit-before-declare, recorded here
+    // and in `arch/contract.ngf.md` §3 rather than left to be discovered. Deleting this
+    // list is not the way to make it agree.
+    expect([...SYNTH_AUDIO_OBSERVED_REQUIRED_SLOTS]).toEqual([
+      'instance_id',
+      'observed_at',
+      'context_state',
+      'level_db',
+      'peak',
+      'rms',
+      'voices',
+    ]);
+    expect([...SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS]).toEqual([
+      'session_id',
+      'sample_rate',
+      'unimplemented',
+      'destination_muted',
+      'destination_volume_db',
+      // Pending upstream declaration — see above.
+      'base_latency',
+      'output_latency',
+      'render_capacity',
+      'underrun_ratio',
+      'note',
     ]);
   });
 

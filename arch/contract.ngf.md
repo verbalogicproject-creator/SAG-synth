@@ -12,7 +12,7 @@ edges:
   companion_cards:
     - arch/clients.ngf.md
     - arch/design-system.ngf.md   # written by the design planning cycle, does not exist yet
-  substrate: "sag-declarum-atlas-framework tag v0.0.9 — KIND-synth_patch, KIND-synth_song, KIND-synth_command_applied, KIND-synth_mod_route, KIND-synth_audio_observed"
+  substrate: "sag-declarum-atlas-framework tag v0.0.10 — KIND-synth_patch, KIND-synth_song, KIND-synth_command_applied, KIND-synth_mod_route, KIND-synth_audio_observed"
 ---
 
 # §0. Why this card exists
@@ -30,7 +30,7 @@ line, that is a finding to report upward, not a change to make.
 
 ```yaml
 main_files:
-  src/core/types.ts:          the frozen domain vocabulary; 97 parameter addresses, 36 command verbs
+  src/core/types.ts:          the frozen domain vocabulary; 119 parameter addresses, 36 command verbs
   src/core/commands.ts:       the command union — simultaneously UI API, journal row, and SDK wire format
   src/core/schemas.ts:        zod validation + PARAM_SPECS, the range/unit/choices registry
   src/core/groups.ts:         SIGNAL_CHAIN — section order and membership for any control surface
@@ -55,14 +55,14 @@ public_interfaces:
   dispatcher.getState() -> EngineState:   read the current patch/song/history
   getParam(state, path) -> ParamValue:    read one address
   PARAM_SPECS[path] -> ParamSpec:         kind, min, max, unit, choices, modulation
-  PARAM_PATHS: readonly ParamPath[]:      all 97, exhaustive
+  PARAM_PATHS: readonly ParamPath[]:      all 119, exhaustive
   SIGNAL_CHAIN / sectionFor(path):        src/core/groups.ts — layout derives from this
   runtime.getWaveform() / getLevel():     read-only observation for a scope or meter
 ```
 
 # §3. risk_areas — do not touch
 
-- **Never rename or remove a `ParamPath`.** The 97 addresses are a wire format: they are
+- **Never rename or remove a `ParamPath`.** The 119 addresses are a wire format: they are
   in the journal, in saved presets, in `KIND-synth_mod_route`'s destination vocabulary, and
   in the v0.2 SDK's surface. Renaming one to read better in a label breaks replay of every
   session ever recorded. Labels are a UI concern and belong in the UI; the address is not.
@@ -77,6 +77,34 @@ public_interfaces:
 - **Never import `react` into `src/core/**` or `src/app/**`.** Same test.
 - **Never edit the KIND slot maps** in `src/core/sag/events.ts`. They are transcribed from
   a separate repo and a contract test proves the correspondence.
+
+  **This rule was crossed on 2026-08-01 and the crossing is recorded rather than tidied
+  away.** Phase C's telemetry (X4) added four optional slots to
+  `SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS` — `base_latency`, `output_latency`,
+  `render_capacity`, `underrun_ratio` — and the whole suite stayed green. Not because the
+  addition was legitimate: because the second half of the sentence above was **not true of
+  that KIND**. `synth_command_applied` had a `toEqual` freeze list; `synth_audio_observed`
+  had none, so nothing was watching. A rule with no gate behind it is a comment, and this
+  project's recurring defect is a thing that looks wired and is not — here, one layer up
+  from the code.
+
+  Two consequences, both open:
+
+  1. **The freeze list now exists** (`contract.test.ts`, "freezes
+     KIND-synth_audio_observed"), so the mirror cannot drift again unnoticed.
+  2. **The mirror currently runs AHEAD of the declaration.** `KIND-synth_audio_observed`
+     lives in `sag-declarum-atlas-framework` at tag `v0.0.10`, which is not present on this
+     machine, so the four slots cannot be declared from here. Until they are, this is
+     emit-before-declare and is a real violation of the substrate's own discipline, not a
+     formality. The slots are additive and optional, so nothing downstream breaks — but a
+     consumer validating against the published KIND will not recognise them.
+
+  **What closing it needs**, so it is one edit rather than an investigation: add to
+  `KIND-synth_audio_observed` §2 optional slots — `base_latency` (seconds,
+  `AudioContext.baseLatency`), `output_latency` (seconds, `AudioContext.outputLatency`),
+  `render_capacity` (0..1 mean audio-thread load), `underrun_ratio` (0..1 fraction of
+  render quanta that underran). All four are absent-when-unavailable by design; see
+  `telemetry.audio.test.ts` for the gate that asserts the absence.
 - **Never change `PARAM_SPECS` ranges to suit a slider.** The spec is the validator. A
   control whose range disagrees with the spec produces values the dispatcher rejects, which
   looks like a broken knob and is actually a broken claim.
@@ -92,8 +120,11 @@ See `arch/clients.ngf.md`. In this subtree there are none.
 ```bash
 npx tsc --noEmit          # prints nothing
 npm run build             # exits 0
-npx vitest run            # 251 tests, zero failures
+npx vitest run            # zero failures — 526 at 444d328, 2026-08-01
 ```
+
+The count carries its commit because it moves on most of them, and a bare number in a card
+is a claim that rots. What does not move is the zero.
 
 If `src/tests/contract.test.ts` fails, a risk area was crossed. That is the signal to stop
 and report, not to update the test.

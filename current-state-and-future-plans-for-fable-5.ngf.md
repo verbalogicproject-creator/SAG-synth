@@ -17,6 +17,26 @@ edges:
   substrate: "sag-declarum-atlas-framework tag v0.0.10"
 ---
 
+> **This is a SNAPSHOT, not a living document. It describes the repository as it stood on
+> 2026-08-01 at commit `1e164de`, before Phase C.** It was written for one purpose — a
+> `/plan-solo` review by a cold reader — and it served it; the review's findings became
+> X1–X4 and are all now shipped.
+>
+> **Do not read the numbers in it as current.** At `444d328`: 526 tests across 42 files,
+> not 491 across 34. The CPU table is one run of a quantity that moves (a single chain has
+> read 0.247×, 0.293× and 0.345× on this device), and it was taken entirely at `wet: 0.5` —
+> a chain with every effect *disabled* has since measured the same as an engaged one, which
+> changes Phase G's terms. The doc-drift items in §9 are fixed. Phase C is closed but for
+> C6.
+>
+> Current instead: `ROADMAP.md` for state and phase history, `arch/bus-routing.ngf.md` for
+> the routing model, `arch/contract.ngf.md` and `arch/clients.ngf.md` for the boundaries.
+>
+> Kept rather than deleted because it is the only record of what a cold reader was told,
+> and one of its conclusions was inherited from an error of mine — see
+> `arch/sag-playwright.ngf.md` §3. A briefing that produced a wrong plan is worth keeping
+> next to the correction.
+
 # §0. Who this is for and what is wanted
 
 Written for a **cold reader with no conversation history** — `/plan-solo` forks into an

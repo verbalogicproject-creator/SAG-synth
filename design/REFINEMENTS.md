@@ -6,11 +6,28 @@ conversation, because a list that lives in a chat log is a list that gets lost.
 **Status vocabulary:** `confirmed` — reproduced with evidence, cause known. `open` — asked
 for, not built. `done` — shipped, with the commit. `blocked` — waiting on a decision.
 
+**Swept 2026-08-01 at `444d328`.** R1–R5 and R7 are shipped; R6 moved from Phase 5 to
+Phase G, which absorbed the mixer brief. The diagnoses below are left as written rather
+than rewritten in the past tense — a record of what was wrong and why is worth more than a
+tidy list, and every one of these was found by holding the thing rather than by a test.
+
+**Still open: R6** (per-component channels — now Phase G, and the CPU probe has since
+changed its terms; see below), **R8** (custom LFO shapes, a contract change), **R9**
+(master mono/stereo) and **R10** (stereo meter), both Phase E.
+
+New since this list was written, and not defects — measurements that move the plan:
+
+- **A disabled effects chain costs what an engaged one costs** (0.241× vs 0.237×). Phase
+  G's per-slot node skipping is required work, not a nicety. See `arch/bus-routing.ngf.md`.
+- **`octaves` still steps.** `FrequencyEnvelope.octaves` writes `Scale.max` and has no
+  parameter behind it, exactly as `baseFrequency` did before Phase C moved it to
+  `filter.detune`. It is a knob, so it will want the same treatment.
+
 ---
 
 ## Confirmed defects
 
-### R1 — the whole LFO tab is inert `confirmed` **highest severity**
+### R1 — the whole LFO tab is inert `done` — `ce8dade`
 
 Reported from the device 2026-07-31 with a screenshot: *"none of the toggles nor knobs work
 in LFO TAB."*
@@ -35,21 +52,21 @@ ship the factory patch with one LFO so the tab is not empty on first open. The a
 having the factory patch ship four LFOs — makes every new patch pay for four oscillators of
 modulation it did not ask for.
 
-### R2 — the routing bay has nothing to route `confirmed`
+### R2 — the routing bay has nothing to route `done` — `51712b7`, gated in `9bb4733`
 
 Same cause, different family: `modRoutes: []`. The bay declares **32 addresses** and the
 geometry harvest measured none of them, because the overlay draws no controls for slots that
 do not exist. `addRoute` exists and only the debug wall calls it. Overlaps with §4.4, which
 is half-built (the list shipped in `c23c430`; the jackfield has not).
 
-### R3 — every slider is half its declared touch target `confirmed`
+### R3 — every slider is half its declared touch target `done` — Phase A, gated by `npm run geometry`
 
 `tokens.ts` declares `TOUCH_MIN = 44`. `Slider.tsx:72` sets the track to `TOUCH_MIN / 2`,
 and the comment above it reads *"Tall enough to hit with a fingertip."* Measured hit box:
 **22px on 14 sliders** — both envelopes. Found by `npm run geometry`; see
 `arch/sag-playwright.ngf.md` §2.
 
-### R4 — SAG identity sits on wrappers, not on interactive elements `confirmed`
+### R4 — SAG identity sits on wrappers, not on interactive elements `done` — Phase A
 
 All seven kit controls put `data-sag-id` on a wrapper `<div>`. The §4.2a plan and
 `arch/clients` both say *"the outermost interactive element."* Consequence: any geometry
@@ -57,7 +74,7 @@ measured from the id overstates the hit area, and the harness had to learn to me
 interactive descendant separately. Also note `Knob` has **no** interactive descendant at all
 (a pointer-driven div), so it has no `role`/`input` for automation to find.
 
-### R5 — the XY pad plays a different note than it draws `blocked`
+### R5 — the XY pad plays a different note than it draws `done` — B1, pitch now derived from the drawn key geometry
 
 Four of eight drawn white keys sound wrong (C→C#, A→G#, B→A#, C→B). `pitchAt` maps X
 linearly over twelve semitones; the drawn keyboard is eight equal-width white keys with
@@ -68,7 +85,7 @@ this reason. **Waiting on Eyal:** send back to `implementer`, fix in place, or p
 
 ## Asked for, not built
 
-### R6 — mixer: a channel per oscillator and per effect `open` → Phase 5
+### R6 — mixer: a channel per oscillator and per effect `open` → Phase G
 
 *"Each oscillator can have a separate track/channel"*, with FX routing, an FL-Studio-style
 master mixer, buses, chains, and mono/stereo at every level. This is **Phase 5** and the
@@ -76,7 +93,7 @@ brief exists (`design/PHASE-5-BRIEF.md`) with the CPU probe measured. The measur
 already decided one open question: reverb is 74% of a chain's cost, so shared buses are
 load-bearing rather than decorative.
 
-### R7 — ADSR with draggable dots for shape modulation `open`
+### R7 — ADSR with draggable dots for shape modulation `done` — B2, `d94910f`
 
 The envelope curve renders from the values and the sliders control it (a Phase 4 decision:
 *"draggable later, no data-path change"*). This is the "later". Dots on the curve that drag

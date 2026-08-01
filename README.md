@@ -30,6 +30,7 @@ audio graph re-syncs without knowing history exists.
 ```
 slots x N (osc -> level -> pan) -> filter -> ampEnv -> gain -> panner -> fxInput
 filterEnvelope ------------------------------> filter.frequency
+cutoff base + velocity, in cents ------------> filter.detune   (routes sum here too)
 
 fxInput -> distortion -> chorus -> delay -> reverb -> eq x5
         -> master -> limiter -> safety clip -> destination
@@ -39,6 +40,14 @@ The chain is fixed-shape and never rewired: a disabled effect is `wet: 0`, not a
 disconnection, because reconnecting nodes mid-performance clicks and a graph whose shape
 depends on parameter values is a graph whose behaviour depends on arrival order — which is
 exactly what replay must not have.
+
+**Changes are diffed and ramped.** The dispatcher pushes a patch on every `pointermove`, so
+`applyPatch` writes only the sections whose documents actually changed — reference
+comparison, which is exact because core documents are immutable and structurally shared —
+and every audio-rate value arrives through a 20 ms ramp rather than a step. A new voice
+joins the running modulation graph instead of forcing it to be rebuilt, and the client
+coalesces a drag to one dispatch per animation frame. All of that exists because turning a
+knob under a held note used to crack.
 
 **Modulation** is LFO and velocity sources scaled onto destinations, with the scaling on the
 *connection* rather than the generator, so one LFO can drive a cutoff and a pan at different
@@ -105,6 +114,13 @@ development machine and the target, which is why the CPU probe
 (`src/tests/mixer-cost.audio.test.ts`) is a real constraint rather than a curiosity —
 one full effects chain renders at roughly a third of realtime here, and cost is linear in
 chains, so three or four simultaneous chains is the ceiling.
+
+That probe also measured the thing nobody had: **a chain with every effect disabled costs
+what an engaged one costs.** Tone fans an effect's input down both the dry and wet legs and
+`wet` is only the crossfade position, so a switched-off reverb still runs its comb filters
+and discards the result. The factory patch therefore spends about a quarter of realtime
+producing a dry signal. Fixing it needs typed effect slots whose absence means the node was
+never built — see `arch/bus-routing.ngf.md`.
 
 ## Documents
 

@@ -1,5 +1,21 @@
 # Phase 5 — the mixer
 
+> **SUPERSEDED 2026-08-01 by `arch/bus-routing.ngf.md`.** That card carries the routing
+> model, argued against FL Studio's documented one, and the decisions this brief left open.
+> The phase itself was renumbered to **G** when the roadmap was merged.
+>
+> **Two numbers below are stale and the difference is material.** The CPU table was one
+> run; the same probe has since read 0.247×, 0.293× and 0.345× for a single chain on this
+> device, so treat the absolute column as an order of magnitude — that is why the gate in
+> `mixer-cost.audio.test.ts` now asserts a ratio. And the table was taken entirely at
+> `wet: 0.5`. Measured since: **a chain with every effect disabled costs the same as an
+> engaged one** (0.241× vs 0.237×), because Tone fans an effect's input down both legs and
+> `wet` is only the crossfade. That single measurement is why per-slot node skipping is
+> required work in Phase G rather than a refinement.
+>
+> Kept, not deleted: the reasoning about buses-versus-chains is still the right reasoning,
+> and the measurement that reverb dominates a chain still holds.
+
 **Status: proposal. Nothing here is settled and no code follows from it yet.**
 
 Asked for on 2026-07-31, after playing v0.2.0 on the device: *"I want the correct
