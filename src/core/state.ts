@@ -15,6 +15,7 @@ import {
   STEPS_PER_BEAT,
   type Beats,
   type EffectsConfig,
+  type LFOConfig,
   type LoopRegion,
   type MasterConfig,
   type NoteName,
@@ -120,6 +121,22 @@ export const DEFAULT_SONG_ID = 'song-default';
 export const DEFAULT_TRACK_ID = 'track-1';
 /** 2026-01-01T00:00:00Z — a constant epoch for the shipped factory bundle. */
 export const FACTORY_EPOCH_MS = 1767225600000;
+
+/**
+ * What a fresh LFO is, declared once.
+ *
+ * **No id**, because core is forbidden from minting one: an id invented inside a reducer
+ * would differ on replay and break the journal. The caller adds it, exactly as
+ * `OscillatorGroup` does for a new oscillator slot.
+ *
+ * This exists because two places already had their own literal opinion of a starting LFO —
+ * the debug wall's `addLfo` button and, shortly, the instrument's. Two uncoordinated
+ * answers to "what is an LFO by default" is the same shape as the duplicated `cutoff`
+ * labels and the hand-maintained wired-destination list, both of which drifted.
+ */
+export function defaultLfo(): Omit<LFOConfig, 'id'> {
+  return { enabled: true, type: 'sine', frequency: 4, sync: false, retrigger: false };
+}
 
 export function defaultVoiceConfig(): VoiceConfig {
   return {

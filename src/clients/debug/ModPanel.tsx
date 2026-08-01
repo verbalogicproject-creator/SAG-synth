@@ -28,6 +28,7 @@ import { controlForPath, fullNameOf } from '../../core/controls';
 import { PARAM_SPECS } from '../../core/schemas';
 import { describeDepth, getParam } from '../../core/params';
 import { describeLoad, modulationLoad } from '../../core/modulation';
+import { defaultLfo } from '../../core/state';
 import type { EngineState } from '../../core/state';
 import type { SynthCommand } from '../../core/commands';
 import { ParamControl } from './ParamControl';
@@ -128,14 +129,9 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
           onClick={() =>
             onCommand({
               type: 'addLfo',
-              config: {
-                id: `lfo-${lfos.length}-${state.revision}`,
-                enabled: true,
-                type: 'sine',
-                frequency: 4,
-                sync: false,
-                retrigger: false,
-              },
+              // Settings from core so the wall and the instrument cannot disagree about
+              // what a fresh LFO is; the id is minted here because core must not.
+              config: { ...defaultLfo(), id: `lfo-${lfos.length}-${state.revision}` },
             })
           }
         >

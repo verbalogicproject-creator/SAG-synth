@@ -13,8 +13,14 @@ import { useState } from 'react';
 import { sectionPaths } from '../../core/groups';
 import { PARAM_SPECS } from '../../core/schemas';
 import { getParam } from '../../core/params';
-import { defaultPreset } from '../../core/state';
-import { EFFECT_CHAIN_ORDER, EQ_BAND_FREQUENCIES, type EffectId, type ParamPath } from '../../core/types';
+import { defaultLfo, defaultPreset } from '../../core/state';
+import {
+  EFFECT_CHAIN_ORDER,
+  EQ_BAND_FREQUENCIES,
+  MAX_LFOS,
+  type EffectId,
+  type ParamPath,
+} from '../../core/types';
 import type { SynthCommand } from '../../core/commands';
 import { ControlGrid } from './ControlGrid';
 import { EnvelopeCurve, Toggle } from './controls';
@@ -98,6 +104,89 @@ export function OscillatorGroup({
         )}
       </div>
       <ControlGrid context={context} paths={slotPaths(index)} />
+    </div>
+  );
+}
+
+/** Paths of one LFO slot, in the order the panel draws them. */
+function lfoPaths(index: number): ParamPath[] {
+  return sectionPaths('lfo').filter((path) => path.startsWith(`voice.lfos.${index}.`));
+}
+
+/**
+ * One LFO at a time, and only the ones the patch actually holds.
+ *
+ * This group exists because drawing all four slots unconditionally shipped twenty controls
+ * that could not be changed: the factory patch has `lfos: []`, so every `setParam` at
+ * `voice.lfos.N.*` was REJECTED by the reducer and silently discarded by the surface. The
+ * whole tab looked finished and did nothing — the failure this project keeps shipping.
+ *
+ * `OscillatorGroup` above had already solved it. This is the same shape, and the fix is
+ * that the surface now tells the truth about a slot family: what exists is drawn, what does
+ * not exist is offered.
+ */
+export function LfoGroup({
+  context,
+  onCommand,
+}: {
+  context: SurfaceContext;
+  onCommand: (command: SynthCommand) => void;
+}) {
+  const slots = context.state.patch.voice.lfos;
+  const [active, setActive] = useState(0);
+  const index = Math.min(active, slots.length - 1);
+
+  return (
+    <div>
+      <div style={styles.subBar} role="tablist" aria-label="lfo slot">
+        {slots.map((slot, i) => (
+          <button
+            key={slot.id}
+            type="button"
+            role="tab"
+            aria-selected={i === index}
+            onClick={() => setActive(i)}
+            style={{ ...styles.subTab, ...(i === index ? styles.subTabOn : null) }}
+          >
+            {i + 1}
+          </button>
+        ))}
+        {slots.length < MAX_LFOS && (
+          <button
+            type="button"
+            onClick={() =>
+              onCommand({
+                type: 'addLfo',
+                // Settings from core, id minted here — core must not generate one.
+                config: { ...defaultLfo(), id: `lfo-${Date.now().toString(36)}` },
+              })
+            }
+            style={styles.subTab}
+            aria-label="add an lfo"
+          >
+            +
+          </button>
+        )}
+        {slots.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onCommand({ type: 'removeLfo', lfoId: slots[index]!.id })}
+            style={styles.subTab}
+            aria-label={`remove lfo ${index + 1}`}
+          >
+            −
+          </button>
+        )}
+      </div>
+      {slots.length === 0 ? (
+        // Honest empty state. Saying "no LFOs yet" is not a smaller surface than four dead
+        // panels — it is the only one of the two that is true.
+        <p style={styles.note}>
+          No LFOs in this patch yet. Add one to modulate the filter, pitch or amplitude.
+        </p>
+      ) : (
+        <ControlGrid context={context} paths={lfoPaths(index)} />
+      )}
     </div>
   );
 }

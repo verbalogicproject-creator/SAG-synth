@@ -16,11 +16,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NAV_TABS, tabPaths } from '../core/groups';
-import { defaultPreset, initialEngineState } from '../core/state';
+import { defaultLfo, defaultPreset, initialEngineState } from '../core/state';
 import type { EngineState } from '../core/state';
 import type { ParamPath } from '../core/types';
 import type { SynthCommand } from '../core/commands';
 import { SynthPanels } from '../clients/synth/SynthPanels';
+import { sweepSurface } from './sweep-surface';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -38,10 +39,20 @@ afterEach(async () => {
   container.remove();
 });
 
-/** Three sounding slots, so the whole oscillator family is addressable. */
+/**
+ * Every slot family filled, so the whole address space is addressable.
+ *
+ * The LFO slots are here for a reason worth stating: reachability is a claim about a patch,
+ * not about the app. `voice.lfos.3.sync` is reachable when a fourth LFO exists and is
+ * correctly nowhere when it does not — so this state creates them, and
+ * `dead-controls.browser.test.ts` separately proves that whatever IS drawn can be changed.
+ * Before that split, the LFO panel drew four slots unconditionally and the factory patch
+ * held none, which passed this test and shipped twenty controls that did nothing.
+ */
 function fullState(): EngineState {
   const patch = defaultPreset();
   const slot = patch.voice.oscillators[0]!;
+  const lfo = { ...defaultLfo(), id: 'lfo-0' };
   return {
     ...initialEngineState(),
     patch: {
@@ -49,6 +60,12 @@ function fullState(): EngineState {
       voice: {
         ...patch.voice,
         oscillators: [slot, { ...slot, id: 'osc-1' }, { ...slot, id: 'osc-2' }],
+        lfos: [
+          lfo,
+          { ...lfo, id: 'lfo-1' },
+          { ...lfo, id: 'lfo-2' },
+          { ...lfo, id: 'lfo-3' },
+        ],
       },
     },
   };
@@ -80,30 +97,10 @@ const visiblePaths = () =>
 /** Every button that switches something, in the order a finger would find them. */
 const tabButtons = () => [...container.querySelectorAll('[role="tab"]')];
 
-/**
- * Walk the whole surface and record everything that appears. Sub-tabs and slot letters are
- * both `role="tab"`, so re-reading the list after each click handles the nesting without
- * this test knowing the structure — which is the point, since the structure is declared.
- */
 async function sweep(state: EngineState): Promise<Set<string>> {
   const seen = new Set<string>();
   await mount(state);
-
-  for (let top = 0; top < NAV_TABS.length; top += 1) {
-    await click(tabButtons()[top]!);
-    visiblePaths().forEach((path) => seen.add(path));
-
-    // Everything after the top-level tabs is a sub-tab or a slot letter.
-    let inner = NAV_TABS.length;
-    while (inner < tabButtons().length) {
-      await click(tabButtons()[inner]!);
-      visiblePaths().forEach((path) => seen.add(path));
-      inner += 1;
-      // Re-select the top tab's row in case the click changed how many inner tabs exist.
-      await click(tabButtons()[top]!);
-    }
-  }
-
+  await sweepSurface(container, click, () => visiblePaths().forEach((path) => seen.add(path)));
   return seen;
 }
 

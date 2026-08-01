@@ -14,7 +14,13 @@ import { groupPaths, type NavTab } from '../../core/groups';
 import type { SynthCommand } from '../../core/commands';
 import type { ParamPath } from '../../core/types';
 import { ControlGrid } from './ControlGrid';
-import { EffectsGroup, EnvelopeGroup, OscillatorGroup, styles as groupStyles } from './groups';
+import {
+  EffectsGroup,
+  EnvelopeGroup,
+  LfoGroup,
+  OscillatorGroup,
+  styles as groupStyles,
+} from './groups';
 import type { SurfaceContext } from './controlProps';
 import { COLOR, FONT } from './tokens';
 
@@ -88,6 +94,10 @@ export function TabView({ tab, context, onCommand }: TabViewProps) {
       ) : (
         <EnvelopeGroup context={context} label="filter envelope" stages={FILTER_STAGES} />
       );
+    }
+    // A slot family, so only the slots the patch holds are drawn — see LfoGroup.
+    if (group.id === 'lfo') {
+      return <LfoGroup context={context} onCommand={onCommand} />;
     }
     if (tab.id === 'fx' ) {
       return (
