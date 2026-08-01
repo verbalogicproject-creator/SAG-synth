@@ -317,7 +317,13 @@ export const styles = {
     minHeight: TOUCH_MIN,
     background: 'transparent',
     color: COLOR.textDim,
-    border: `1px solid ${COLOR.border}`,
+    // Longhand, not the `border` shorthand, because `subTabOn` overrides `borderColor`
+    // alone — and React warns (correctly) that removing a longhand while a conflicting
+    // shorthand is set produces a style that depends on render order. The control kit
+    // already writes borders this way; this was the one place that did not.
+    borderStyle: 'solid',
+    borderWidth: 1,
+    borderColor: COLOR.border,
     borderRadius: 4,
     fontFamily: FONT.display,
     fontSize: '0.8rem',

@@ -18,6 +18,7 @@ import {
   type LFOConfig,
   type LoopRegion,
   type MasterConfig,
+  type ModRoute,
   type NoteName,
   type Song,
   type SongTrack,
@@ -136,6 +137,28 @@ export const FACTORY_EPOCH_MS = 1767225600000;
  */
 export function defaultLfo(): Omit<LFOConfig, 'id'> {
   return { enabled: true, type: 'sine', frequency: 4, sync: false, retrigger: false };
+}
+
+/**
+ * What a fresh route is, declared once. Same no-id rule as `defaultLfo`.
+ *
+ * **`hasLfo` is not a preference, it is a correctness argument.** `reduce.ts` refuses a route
+ * whose source names an empty LFO slot, and the factory patch ships `lfos: []` — so a route
+ * born pointing at `lfo.0` is rejected on every fresh patch, which is exactly how the
+ * instrument's `+ route` button came to be a decoy. Velocity needs no slot and always works,
+ * so it is what a patch with no LFOs gets.
+ *
+ * The debug wall had already worked this out and the instrument had its own copy that had
+ * not. That is the whole reason this lives in core: two literals, one of them wrong.
+ */
+export function defaultRoute(hasLfo: boolean): Omit<ModRoute, 'id'> {
+  return {
+    enabled: true,
+    source: hasLfo ? 'lfo.0' : 'velocity',
+    // The cutoff is the one every player reaches for first.
+    destination: 'voice.filterEnvelope.baseFrequency',
+    depth: 0.3,
+  };
 }
 
 export function defaultVoiceConfig(): VoiceConfig {

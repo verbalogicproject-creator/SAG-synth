@@ -17,7 +17,8 @@
 
 import { describeDepth } from '../../core/params';
 import { describeLoad, modulationLoad } from '../../core/modulation';
-import { MAX_ROUTES, isDestinationWired, type ModDestination, type ParamPath } from '../../core/types';
+import { MAX_ROUTES, isDestinationWired, type ParamPath } from '../../core/types';
+import { defaultRoute } from '../../core/state';
 import type { SynthCommand } from '../../core/commands';
 import { renderControl } from './controls';
 import { propsFor, type SurfaceContext } from './controlProps';
@@ -28,16 +29,6 @@ export interface RouteListProps {
   onCommand: (command: SynthCommand) => void;
 }
 
-/** A new route starts pointed at the cutoff, which is the one every player reaches for. */
-function newRoute() {
-  return {
-    id: `route-${Date.now().toString(36)}`,
-    enabled: true,
-    source: 'lfo.0' as const,
-    destination: 'voice.filterEnvelope.baseFrequency' as ModDestination,
-    depth: 0.3,
-  };
-}
 
 export function RouteList({ context, onCommand }: RouteListProps) {
   const { state } = context;
@@ -65,11 +56,19 @@ export function RouteList({ context, onCommand }: RouteListProps) {
         </p>
       )}
 
-      {lfos.length === 0 && routes.length > 0 && (
+      {lfos.length === 0 && (
         // Sources are declared for four LFOs whether or not the patch holds any, so a
         // route can point at `lfo.0` when there is no lfo.0 to point at. Saying so beats
         // drawing a route that looks connected.
-        <p style={styles.warn}>This patch has no LFOs, so every route below has no source.</p>
+        //
+        // Shown even with no routes yet, which is where it matters most: this used to hide
+        // behind `routes.length > 0`, so on a fresh patch the surface said nothing at all
+        // about the one fact that decided what the button below would do.
+        <p style={styles.warn}>
+          {routes.length > 0
+            ? 'This patch has no LFOs, so every route below has no source.'
+            : 'No LFOs in this patch, so a new route will use velocity as its source.'}
+        </p>
       )}
 
       {routes.map((route, index) => {
@@ -126,7 +125,16 @@ export function RouteList({ context, onCommand }: RouteListProps) {
       {routes.length < MAX_ROUTES ? (
         <button
           type="button"
-          onClick={() => onCommand({ type: 'addRoute', route: newRoute() })}
+          onClick={() =>
+            onCommand({
+              type: 'addRoute',
+              // Settings from core; the id is minted here because core must not read a
+              // clock or generate an id. Indexed by length and revision rather than
+              // `Date.now()`, which collides for two adds inside one millisecond and is
+              // then refused as a duplicate.
+              route: { ...defaultRoute(lfos.length > 0), id: `route-${routes.length}-${state.revision}` },
+            })
+          }
           style={styles.add}
         >
           + route

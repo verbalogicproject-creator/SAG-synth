@@ -34,12 +34,15 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getParam } from '../core/params';
-import { reduce, type ReduceMeta } from '../core/reduce';
+import { reduce, validateAndReduce, type ReduceMeta } from '../core/reduce';
 import { PARAM_SPECS } from '../core/schemas';
 import { defaultPreset, initialEngineState } from '../core/state';
 import type { EngineState } from '../core/state';
 import type { ParamPath, ParamValue } from '../core/types';
 import { SynthPanels } from '../clients/synth/SynthPanels';
+import { RouteList } from '../clients/synth/RouteList';
+import { surfaceContext } from '../clients/synth/controlProps';
+import type { SynthCommand } from '../core/commands';
 import { sweepSurface } from './sweep-surface';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -172,5 +175,72 @@ describe('every control on screen is connected to the patch', () => {
     }
 
     expect(dead, `${dead.length} of ${drawn.length} drawn controls cannot be changed`).toEqual([]);
+  });
+});
+
+/**
+ * Every button that presses, pressed — and every command it produced, validated.
+ *
+ * The test above covers PARAMETERS: a control is drawn, `setParam` is pushed at its address,
+ * the value must come back. That misses a whole sub-class, because not every control is a
+ * parameter. `+ route`, `+ LFO`, the slot letters' `−`, and each effect's ACTIVE/BYPASS are
+ * COMMANDS, and a command the reducer refuses is just as dead as an address that will not
+ * take a write.
+ *
+ * That sub-class shipped too. `RouteList`'s `newRoute()` was born pointing at `lfo.0`, the
+ * reducer refuses a route whose source names an empty LFO slot, and the factory patch holds
+ * no LFOs — so `+ route` was rejected on every press a new player could make, and the
+ * surface discarded the refusal in silence.
+ *
+ * So: click everything, capture what it dispatched, and run each command through the real
+ * validator and reducer against the state it was dispatched from. Nothing may be refused.
+ */
+/** Every enabled button that is not navigation — tabs move the view, they do not command. */
+const actionButtons = () =>
+  [...container.querySelectorAll('button')].filter(
+    (button) => !button.disabled && button.getAttribute('role') !== 'tab',
+  );
+
+describe('every button on screen dispatches a command the engine accepts', () => {
+  it('is refused by nothing the factory surface offers to press', async () => {
+    const state = factoryState();
+    const sink: SynthCommand[] = [];
+    const onCommand = (command: SynthCommand) => sink.push(command);
+
+    // The four tabs and everything nested in them.
+    await act(async () => {
+      root.render(
+        createElement(SynthPanels, { state, onChange: () => undefined, onCommand }),
+      );
+    });
+    // Pressed at every resting state the walk passes through, not gathered and pressed at
+    // the end: a button on the FILTER tab is detached from the document by the time the
+    // walk reaches FX, and a detached node dispatches nothing.
+    await sweepSurface(container, click, async () => {
+      for (const button of actionButtons()) await click(button);
+    });
+
+    // The bay is an overlay that `sweepSurface` cannot reach, and it is where the dead
+    // button actually lived. Mounted directly rather than through SynthApp so this test
+    // still needs no engine, no audio context and no IndexedDB.
+    await act(async () => {
+      root.render(
+        createElement(RouteList, { context: surfaceContext(state, () => undefined), onCommand }),
+      );
+    });
+    for (const button of actionButtons()) await click(button);
+
+    expect(sink.length, 'nothing on the surface dispatched a command').toBeGreaterThan(0);
+
+    const refused = sink
+      .map((command, index) => {
+        const result = validateAndReduce(state, command, meta(`press-${index}`));
+        return result.status === 'applied'
+          ? null
+          : `${command.type} — ${result.status}: ${'error' in result ? result.error : ''}`;
+      })
+      .filter((entry): entry is string => entry !== null);
+
+    expect(refused, `${refused.length} of ${sink.length} presses were refused`).toEqual([]);
   });
 });

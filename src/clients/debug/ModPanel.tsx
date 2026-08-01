@@ -28,7 +28,7 @@ import { controlForPath, fullNameOf } from '../../core/controls';
 import { PARAM_SPECS } from '../../core/schemas';
 import { describeDepth, getParam } from '../../core/params';
 import { describeLoad, modulationLoad } from '../../core/modulation';
-import { defaultLfo } from '../../core/state';
+import { defaultLfo, defaultRoute } from '../../core/state';
 import type { EngineState } from '../../core/state';
 import type { SynthCommand } from '../../core/commands';
 import { ParamControl } from './ParamControl';
@@ -143,14 +143,12 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
           onClick={() =>
             onCommand({
               type: 'addRoute',
+              // Settings from core so the wall and the instrument cannot disagree about
+              // what a fresh route is — they already did, and the instrument's copy was
+              // the wrong one.
               route: {
+                ...defaultRoute(lfos.length > 0),
                 id: `route-${modRoutes.length}-${state.revision}`,
-                enabled: true,
-                // Velocity when there is no LFO yet: it needs no slot, and the reducer
-                // rejects a route naming an empty one.
-                source: lfos.length > 0 ? 'lfo.0' : 'velocity',
-                destination: 'voice.filterEnvelope.baseFrequency',
-                depth: 0.3,
               },
             })
           }

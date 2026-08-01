@@ -22,7 +22,14 @@
  * rename is a deliberate act that should break this. An index into a flat list is not.
  */
 
-export type Recorder = () => void;
+/**
+ * Called at every resting state the walk passes through.
+ *
+ * May be async, because one caller does more than read: `dead-controls` presses every
+ * button it finds, and a button on the FILTER tab is detached from the document by the time
+ * the walk reaches FX. Collecting nodes now and clicking them later would click nothing.
+ */
+export type Recorder = () => void | Promise<void>;
 
 const tabsIn = (container: HTMLElement, selector: string): HTMLElement[] => {
   const bar = container.querySelector(selector);
@@ -48,7 +55,7 @@ export async function sweepSurface(
 
   for (let top = 0; top < topCount; top += 1) {
     await click(topTabs()[top]!);
-    record();
+    await record();
 
     // Re-counted rather than cached: how many groups a tab has is a property of the tab.
     const groupCount = groupTabs().length;
@@ -58,14 +65,14 @@ export async function sweepSurface(
       if (groupCount > 0) {
         await click(topTabs()[top]!);
         await click(groupTabs()[group]!);
-        record();
+        await record();
       }
 
       // Slot letters do not change which slots exist, so no reset is needed between them.
       const slots = slotTabs();
       for (let slot = 0; slot < slots.length; slot += 1) {
         await click(slotTabs()[slot]!);
-        record();
+        await record();
       }
     }
   }
