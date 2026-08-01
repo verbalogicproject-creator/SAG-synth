@@ -35,12 +35,13 @@ export function Slider({
   const tint = state === 'ignored' ? COLOR.ignored : COLOR.accent;
 
   return (
-    <div {...sagAttributes({ id, path })} style={styles.wrap}>
+    <div style={styles.wrap}>
       <div style={styles.head}>
         <span style={styles.label}>{label}</span>
         <span style={{ ...styles.value, color: tint }}>{formatValue(current, spec)}</span>
       </div>
       <input
+        {...sagAttributes({ id, path })}
         type="range"
         min={0}
         max={RESOLUTION}
@@ -67,8 +68,13 @@ const styles = {
     color: COLOR.textDim,
   },
   value: { fontFamily: FONT.mono, fontSize: '0.7rem', fontVariantNumeric: 'tabular-nums' },
-  // Tall enough to hit with a fingertip, and touchAction none so a drag turns the control
-  // instead of scrolling the tab underneath it.
-  track: { width: '100%', height: TOUCH_MIN / 2, touchAction: 'none' },
+  // TOUCH_MIN exactly, not half of it. This read `TOUCH_MIN / 2` while the comment above
+  // it claimed "tall enough to hit with a fingertip" — 22px against a 44px declared
+  // minimum, on the fourteen sliders that make up both envelopes. Nothing in the suite
+  // could see it, because a rendered box is not something a declaration can be wrong
+  // about; `npm run geometry` measured it off the running page.
+  //
+  // touchAction none so a drag turns the control instead of scrolling the tab underneath.
+  track: { width: '100%', height: TOUCH_MIN, touchAction: 'none' },
   reason: { fontFamily: FONT.display, fontSize: '0.6rem', color: COLOR.ignored },
 } as const satisfies Record<string, React.CSSProperties>;

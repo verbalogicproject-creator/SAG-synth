@@ -271,6 +271,21 @@ async function main() {
     console.error('a drawn control carries an id the mint does not declare.');
     process.exit(1);
   }
+
+  // A hit box below the declared minimum is a gate, not a note, because it is a fact about
+  // the shipped page that no other check in this project can see. It was worth 22px on
+  // fourteen sliders the first time it was measured.
+  if (tooSmall.length > 0) {
+    console.error(
+      `${tooSmall.length} control(s) are smaller than TOUCH_MIN (${TOUCH_MIN}px) where a finger lands.`,
+    );
+    process.exit(1);
+  }
+
+  // Deliberately NOT a gate: `missing` cannot tell "legitimately absent" from "broken". A
+  // slot family the factory patch does not hold, or a screen the sweep never opens, both
+  // land here honestly. A gate that fails for the wrong reason is a gate that gets
+  // disabled, and this one is worth keeping.
   if (!swept) process.exit(1);
   process.exit(0);
 }

@@ -65,20 +65,28 @@ No existing gate could see this. `synth-tabs.browser.test.ts` proves a control i
 and only one of them is about pixels.
 
 **2. The harness's own first answer was wrong, and the harness caught it.**
-The first run reported 41px, not 22px. Every control in the kit puts `data-sag-id` on a
-**wrapper** `<div>`, not on the element that takes the touch — so the wrapper's box
-includes the label row and overstates the target by the height of some text.
+The first run reported 41px, not 22px. Every control in the kit put `data-sag-id` on a
+**wrapper** `<div>`, not on the element that takes the touch — so the wrapper's box included
+the label row and overstated the target by the height of some text.
 
 `arch/clients` and the §4.2a plan both say the attributes go on *"the outermost interactive
-element."* Seven of seven controls put them on a non-interactive wrapper. That is a real
+element."* Seven of seven controls put them on a non-interactive wrapper. That was a real
 divergence between the declared instrumentation contract and the built one, and it means:
 
 > **Geometry is only as honest as the element the identity sits on.**
 
-`harvest()` now measures both — the wrapper box (the control's visual extent) and the
-largest interactive descendant (what a finger actually gets) — and judges `TOUCH_MIN`
-against the second. `wrapped: true` in the output marks every control where they differ.
-Fixing the kit to move the attributes is a separate decision, not taken here.
+`harvest()` measures both — the wrapper box and the largest interactive descendant — and
+judges `TOUCH_MIN` against the second, so the reading is right regardless of where the
+attributes sit.
+
+**Both are fixed as of Phase A** (2026-08-01). The sliders are `TOUCH_MIN`, and all seven
+controls now carry their attributes on the interactive element: `Knob` → its
+`role="slider"` svg, `Slider` → the `<input>`, `Toggle` → the `<button>`, `Select` → the
+`<select>`, `RateControl` → its button, `GlyphButtons` → the `role="radiogroup"` (N radios
+*are* the control, so the group is the smallest element that means "this parameter"). The
+page now measures zero below `TOUCH_MIN`, and **that is a gate**: `npm run geometry` exits
+non-zero on any control smaller than a fingertip. Proven by shrinking one slider back and
+watching it exit 1.
 
 # §3. What this makes possible that nothing else does
 

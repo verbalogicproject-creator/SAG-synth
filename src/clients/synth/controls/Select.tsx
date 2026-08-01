@@ -71,9 +71,10 @@ export function Select({
     !isDestinationWired(current as ModDestination);
 
   return (
-    <div {...sagAttributes({ id, path })} style={styles.wrap}>
+    <div style={styles.wrap}>
       <span style={styles.label}>{label}</span>
       <select
+        {...sagAttributes({ id, path })}
         value={current}
         aria-label={label}
         onChange={(event) => onChange(path, event.target.value)}

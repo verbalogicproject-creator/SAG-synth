@@ -112,8 +112,9 @@ export function Knob({
   const tint = state === 'ignored' ? COLOR.ignored : COLOR.accent;
 
   return (
-    <div {...sagAttributes({ id, path })} style={styles.wrap}>
+    <div style={styles.wrap}>
       <svg
+        {...sagAttributes({ id, path })}
         width={SIZE}
         height={SIZE}
         viewBox={`0 0 ${SIZE} ${SIZE}`}

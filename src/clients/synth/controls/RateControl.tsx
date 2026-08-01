@@ -33,13 +33,14 @@ export function RateControl(props: ControlProps) {
 
   if (typeof value === 'string') {
     return (
-      <div {...sagAttributes({ id, path })} style={styles.wrap}>
+      <div style={styles.wrap}>
         <span style={styles.label}>{label}</span>
         <span style={styles.synced}>{value}</span>
         <span style={styles.reason}>
           synced rates need a transport — this LFO is running at 1 Hz
         </span>
         <button
+          {...sagAttributes({ id, path })}
           type="button"
           onClick={() => onChange(path, 1)}
           style={styles.revert}

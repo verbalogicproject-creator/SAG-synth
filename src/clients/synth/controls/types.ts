@@ -54,7 +54,21 @@ export interface ControlProps {
   modulation?: ModulationReach;
 }
 
-/** The attributes that make a control addressable. Spread onto the outermost element. */
+/**
+ * The attributes that make a control addressable.
+ *
+ * **Spread onto the element that takes the touch** — the `<input>`, the `<select>`, the
+ * `<button>`, the `role="slider"` svg — never onto a wrapper that merely contains it.
+ *
+ * That distinction is not pedantry, it is the difference between a true measurement and a
+ * flattering one. Every control here used to put these on its wrapping `<div>`, whose box
+ * includes the label row, so `npm run geometry` reported a Slider as 41px tall when the
+ * thing a thumb can actually hit was 22px. An agent reading the surface inherits the same
+ * lie: a rect that is bigger than the target is a promise the control cannot keep.
+ *
+ * Both attributes always travel together — `control-kit.browser.test.ts` asserts they sit
+ * on one node, because an id without an address resolves to nothing.
+ */
 export function sagAttributes(props: Pick<ControlProps, 'id' | 'path'>) {
   return { 'data-sag-id': props.id, 'data-sag-path': props.path } as const;
 }

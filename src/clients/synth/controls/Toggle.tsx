@@ -33,8 +33,9 @@ export function Toggle({
   const tint = state === 'ignored' ? COLOR.ignored : COLOR.accent;
 
   return (
-    <div {...sagAttributes({ id, path })} style={styles.wrap}>
+    <div style={styles.wrap}>
       <button
+        {...sagAttributes({ id, path })}
         type="button"
         role="switch"
         aria-checked={on}

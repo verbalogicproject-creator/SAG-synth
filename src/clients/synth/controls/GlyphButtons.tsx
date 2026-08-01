@@ -40,9 +40,11 @@ export function GlyphButtons({
   const tint = state === 'ignored' ? COLOR.ignored : COLOR.accent;
 
   return (
-    <div {...sagAttributes({ id, path })} style={styles.wrap}>
+    <div style={styles.wrap}>
       <span style={styles.label}>{label}</span>
-      <div style={styles.row} role="radiogroup" aria-label={label}>
+      {/* The radiogroup, not a single leaf: N radios ARE the control, so the group is the
+          smallest element that means "this parameter". */}
+      <div {...sagAttributes({ id, path })} style={styles.row} role="radiogroup" aria-label={label}>
         {options.map((option) => {
           const selected = option === value;
           return (
