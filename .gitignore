@@ -5,3 +5,7 @@ dist/
 .vite/
 coverage/
 .sag/
+
+# Per-session tool artifacts. Filenames carry a session UUID, so every session that
+# touched the repo would otherwise add a file nobody reads.
+.vouch/

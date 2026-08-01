@@ -7,23 +7,32 @@
  * `NullRuntime` is what makes the engine headless, and a headless engine is the v0.2
  * SAG-SDK seam. One stray `import 'tone'` upstream and the SDK needs a browser.
  *
- * Why a pool of `MonoSynth` and never `Tone.PolySynth`: PolySynth owns voice allocation
- * and hard-codes oldest-steal. Decision D1 gives that decision to `core/allocate.ts` as
- * a pure function, because the same allocation has to happen identically during live
- * play and during journal replay. This class is told which voice sounds and which dies;
- * it never chooses.
+ * Why a pool of hand-built voices and never `Tone.PolySynth`: PolySynth owns voice
+ * allocation and hard-codes oldest-steal. Decision D1 gives that decision to
+ * `core/allocate.ts` as a pure function, because the same allocation has to happen
+ * identically during live play and during journal replay. This class is told which voice
+ * sounds and which dies; it never chooses.
  *
- * SCOPE. As of Stage 3 this reads **every one of the 97 declared parameter addresses**:
- * the voice (oscillator, both envelopes, filter, velocity, amplitude, pan), modulation
+ * SCOPE. This reads **every one of the 119 declared parameter addresses**: the voice
+ * (the oscillator slots, both envelopes, filter, velocity, amplitude, pan), modulation
  * routing, the effects chain, the five-band EQ, and the master stage. What remains
  * unimplemented is song PLAYBACK — tracks, tempo, the step grid — which needs
  * `Tone.Transport` and is v0.3.0.
  *
- * The signal path, in order:
+ * The signal path, in order. The voice was a `Tone.MonoSynth` until schema_version 3 and
+ * could not stay one — MonoSynth is a single oscillator by construction, so a second slot
+ * had nowhere to go. What replaced it is MonoSynth's own topology with the source stage
+ * widened, read out of `Tone/instrument/MonoSynth.ts` rather than guessed at; see
+ * `VoiceNodes`.
  *
- *   voice(MonoSynth -> Gain -> Panner) -> fxInput
+ *   voice(slots x N (osc -> level -> pan) -> filter -> ampEnv -> Gain -> Panner) -> fxInput
  *     -> distortion -> chorus -> delay -> reverb -> eq x5
  *     -> master(Volume) -> limiter -> safety clip -> destination
+ *
+ * **Writes are diffed and ramped, never wholesale and never stepped.** `applyPatch` runs
+ * at pointer rate, so it pushes only the sections whose documents actually changed
+ * (`PATCH_SECTIONS`) and every audio-rate value arrives through `writeParam`. Both exist
+ * because turning a knob under a held note used to crack.
  *
  * Two kinds of honesty about what is missing, deliberately kept separate: adapter methods
  * this version cannot service are recorded at call time by `notImplemented`, while

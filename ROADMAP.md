@@ -3,12 +3,24 @@
 Written 2026-07-30, revised the same day at commit `81a81bb`. Every number here was read
 from the repo, not recalled; where something is unverified it says so.
 
+**Counts refreshed 2026-08-01 at commit `7c9ce76`.** The prose below still describes
+Phase 4 as the frontier; Phases 4, A, B and C have all shipped since. What supersedes it
+is `arch/bus-routing.ngf.md` for the routing model and the working roadmap for the phase
+order — this file is kept as the engine reference it is good at being, not re-litigated.
+
 ---
 
 ## Where we actually are
 
-**Version 0.1.17 — the engine is complete, and Phase 4 has started.** 376 tests across
-three projects. Build clean. Preset schema version **4**, framework KINDs at tag `v0.0.10`.
+**Version 0.1.17 in `package.json` — stale, and deliberately not bumped until Phase E
+tags 0.2.0.** 509 tests across three projects, 38 files. Build clean, `npm run geometry`
+exits 0. Preset schema version **4**, framework KINDs at tag `v0.0.10`.
+
+Shipped since this file was written: Phase 4 (the whole control surface), Phase A (touch
+targets, attribute placement, the geometry gate), Phase B (XY pad pitch geometry,
+draggable ADSR handles), and **Phase C — the instrument sounds clean**: `applyPatch`
+diffs by section and every audio-rate write ramps, so a knob under a held note no longer
+cracks.
 
 0.1.17 is the signed-depth bump — Phase 4 stage 4.0, and the last engine change the
 designed surface needed. A route's `depth` is now `−1..1`: the magnitude scales against

@@ -148,12 +148,34 @@ describe('what N effect chains cost on this device', () => {
     // The numbers are the deliverable, and the default reporter hides stdout for a
     // PASSING test — which is every run of this one. Read them with:
     //   npx vitest run --project audio src/tests/mixer-cost.audio.test.ts --reporter=verbose
+    //
+    // **Read the absolute column as an order of magnitude, not a measurement.** "1 full
+    // chain" has read 0.247x, 0.293x and 0.345x from three isolated runs on this device
+    // and 0.53x–0.84x from inside the parallel suite. It is a wall-clock timing on a
+    // phone; it moves with thermal state, what else is running, and the scheduler.
     // eslint-disable-next-line no-console
     console.log(`\n${table.join('\n')}\n`);
 
-    // The floor. Not a benchmark: one full chain must render comfortably faster than
-    // realtime, or nothing in Phase 5 is affordable and the caps question is moot.
+    // The floor, expressed as a RATIO because an absolute one cannot hold here.
+    //
+    // This assertion was `oneChain / realtime < 0.5` and it went red twice for reasons
+    // that had nothing to do with the code — the first time it was diagnosed as a
+    // regression from the parameter-ramping work, which does not touch this file at all.
+    // Taking the fastest of three runs narrowed the spread and did not close it, because
+    // suite contention is sustained rather than transient: all three runs are contended.
+    //
+    // A ratio against the bare source measured in the SAME run is contention-invariant —
+    // if the machine is half speed, both readings halve — and it is also the question
+    // worth asking, which is what the effects chain costs over merely making sound.
+    // Observed 17x–20x. The bound is deliberately loose: this is a catastrophe detector,
+    // not a benchmark, and a gate that fails for the wrong reason gets disabled.
+    //
+    // The absolute realtime claim still matters for Phase G's caps, and it is answered by
+    // reading the table from an isolated run, by a person, at the moment the decision is
+    // made — not by a threshold committed months earlier.
     const oneChain = readings.find((reading) => reading.name === '1 full chain')!;
-    expect(oneChain.ms / audioMs).toBeLessThan(0.5);
+    const bare = readings.find((reading) => reading.name === 'dry (no effects)')!;
+    const overSource = oneChain.ms / bare.ms;
+    expect(overSource, `one chain cost ${overSource.toFixed(1)}x the bare source`).toBeLessThan(40);
   }, 300_000);
 });

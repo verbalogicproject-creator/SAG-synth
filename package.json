@@ -2,6 +2,12 @@
   "name": "sag-synth",
   "private": true,
   "version": "0.1.17",
+  "description": "A browser synthesiser built as an AI-integrated instrument - every control declared, addressable and observable.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/verbalogicproject-creator/SAG-synth.git"
+  },
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
