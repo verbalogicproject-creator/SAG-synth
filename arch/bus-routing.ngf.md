@@ -128,6 +128,28 @@ source may name, not how many chains exist.
 because the FL model is otherwise so directly transferable that it would be easy to inherit
 the cardinality along with the topology.
 
+**A disabled effect is not a cheap effect — measured, and it changes Phase G's priority.**
+`1 chain (all wet 0)` reads **0.241× against a fully-wet chain's 0.237×**: the same number
+within this device's noise. `Tone/effect/Effect.ts` explains it —
+`this.input.fan(this._dryWet.a, this.effectSend)` sends the input down *both* legs, and
+`wet` is only the crossfade position, so a switched-off reverb still runs its comb filters
+over every sample and discards the result.
+
+The decision rule for this was written down before the number was known, and it fires:
+**per-slot node skipping is mandatory performance work in Phase G, not a design nicety**,
+and any cap arithmetic must price a disabled slot at the full rate.
+
+It also indicts the present tense, not just the plan. The factory patch ships with every
+effect off and still pays for a reverb, a chorus, a delay, a waveshaper and five biquads in
+order to produce a dry signal — roughly a quarter of realtime, on the target device, for
+nothing. That is most of one bus, spent before the player touches anything.
+
+**The fix must not be a disconnection**, which is the trap. The chain is fixed-shape
+because reconnecting nodes mid-performance clicks — Phase C exists to kill exactly those.
+So the shape is: a typed effect *slot* (G2) whose absence means the node was never built,
+decided when the patch is applied rather than when a toggle is flipped. That is why G2 was
+already the plan; this measurement only moves it from "cleaner" to "required."
+
 **No Patcher, and no node-graph editor, for now.**
 Patcher exists in FL to solve problems the flat model genuinely cannot: multi-output
 instruments, multi-band parallel chains, fan-out from one source to several destinations.

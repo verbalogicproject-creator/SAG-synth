@@ -30,14 +30,23 @@ const SR = 44100;
 const SECONDS = 2;
 const EQ_BAND_Q = 1.3;
 
-/** One full chain, node-for-node what `ToneRuntime` builds today. */
-function buildChain(input: Tone.ToneAudioNode, destination: Tone.InputNode): void {
+/**
+ * One full chain, node-for-node what `ToneRuntime` builds today.
+ *
+ * `wet` is a parameter here because the instrument's SHIPPED configuration is every effect
+ * off, and until 2026-08-01 that configuration had never been measured — every reading in
+ * this file was taken at `wet: 0.5`. See the `all wet 0` row.
+ */
+function buildChain(input: Tone.ToneAudioNode, destination: Tone.InputNode, wet = 0.5): void {
   const distortion = new Tone.WaveShaper(makeCurve());
-  const chorus = new Tone.Chorus({ frequency: 4, delayTime: 2.5, depth: 0.5, wet: 0.5 }).start();
-  const delay = new Tone.FeedbackDelay({ delayTime: 0.25, feedback: 0.3, wet: 0.5 });
-  const reverb = new Tone.Freeverb({ roomSize: 0.7, dampening: 3000, wet: 0.5 });
+  const chorus = new Tone.Chorus({ frequency: 4, delayTime: 2.5, depth: 0.5, wet }).start();
+  const delay = new Tone.FeedbackDelay({ delayTime: 0.25, feedback: 0.3, wet });
+  const reverb = new Tone.Freeverb({ roomSize: 0.7, dampening: 3000, wet });
+  // A peaking filter at 0 dB is an identity filter, which is how the runtime expresses a
+  // disabled EQ — so the "off" chain uses gain 0 rather than removing the bands.
   const bands = EQ_BAND_FREQUENCIES.map(
-    (frequency) => new Tone.Filter({ type: 'peaking', frequency, Q: EQ_BAND_Q, gain: 3 }),
+    (frequency) =>
+      new Tone.Filter({ type: 'peaking', frequency, Q: EQ_BAND_Q, gain: wet === 0 ? 0 : 3 }),
   );
 
   input.chain(distortion, chorus, delay, reverb, ...bands, destination as Tone.ToneAudioNode);
@@ -127,6 +136,34 @@ describe('what N effect chains cost on this device', () => {
     for (const [name, build] of singles) {
       readings.push({ name, ms: await cost((destination) => build(source(), destination)) });
     }
+
+    // The configuration the instrument SHIPS in, and the one nobody had measured.
+    //
+    // Every other row here is taken at `wet: 0.5`. The factory patch has every effect
+    // disabled, and disabled is expressed as `wet: 0` rather than as a disconnection —
+    // which is deliberate (a fixed-shape graph cannot click) and is NOT free.
+    // `Tone/effect/Effect.ts` reads `this.input.fan(this._dryWet.a, this.effectSend)`:
+    // the input fans to BOTH legs and `wet` is only the crossfade position, so a switched
+    // off reverb still runs its comb filters over every sample and throws the result away.
+    //
+    // The decision rule was written down before the number was known, so it cannot be
+    // rationalised afterwards: **if this reads at or above 0.15x, Phase G's node-skipping
+    // is mandatory performance work rather than a design nicety**, and G1's cap arithmetic
+    // must use THIS figure for disabled slots rather than treating them as free.
+    //
+    // **Measured 2026-08-01, and the rule fires.** `1 chain (all wet 0)` read 0.241x
+    // against `1 full chain` at 0.237x — the same number within the noise of this device.
+    // A fully disabled effects chain costs what a fully engaged one costs. Which means the
+    // factory patch, the one every session starts on, pays for a reverb, a chorus, a
+    // delay, a waveshaper and five biquads in order to produce a dry signal.
+    //
+    // Not a surprise once Tone's source is read, but it was never going to be found by
+    // reading the source alone: the guess would have been "wet 0 is cheaper, just not
+    // free." It is not cheaper at all.
+    readings.push({
+      name: '1 chain (all wet 0)',
+      ms: await cost((destination) => buildChain(source(), destination, 0)),
+    });
 
     // Then the question the contract actually turns on: how does a full chain scale.
     for (const chains of [1, 2, 3, 4, 6, 8]) {

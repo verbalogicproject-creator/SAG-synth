@@ -33,6 +33,7 @@ import { SynthPanels } from './SynthPanels';
 import { RouteList } from './RouteList';
 import { XYPad } from './XYPad';
 import { surfaceContext } from './controlProps';
+import { createParamCoalescer, type ParamCoalescer } from './param-coalescer';
 import { COLOR, FONT, TOUCH_MIN } from './tokens';
 
 /**
@@ -151,12 +152,35 @@ export function SynthApp() {
     }
   }, [dispatcher, runtime]);
 
-  const onChange = useCallback(
-    (path: ParamPath, value: ParamValue) => {
+  /**
+   * Every parameter change in the instrument funnels through here — knobs, sliders, the
+   * XY pad, the envelope handles, the routing bay — which is why the coalescer sits at
+   * this one point rather than inside each control.
+   *
+   * A ref, not state: it must survive re-renders without being rebuilt, or a drag would
+   * lose its pending value every time the value it is changing re-renders the app.
+   */
+  const coalescer = useRef<ParamCoalescer | null>(null);
+  if (coalescer.current === null) {
+    coalescer.current = createParamCoalescer((path, value) => {
       dispatcher.dispatch({ type: 'setParam', path, value });
-    },
-    [dispatcher],
-  );
+    });
+  }
+
+  // `requestAnimationFrame` does not fire in a hidden tab, so a value left pending when
+  // the phone locks or the player switches away would sit there until they came back.
+  useEffect(() => {
+    const flush = (): void => coalescer.current?.flush();
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      flush();
+    };
+  }, []);
+
+  const onChange = useCallback((path: ParamPath, value: ParamValue) => {
+    coalescer.current?.change(path, value);
+  }, []);
 
   const onCommand = useCallback(
     (command: SynthCommand) => dispatcher.dispatch(command),
