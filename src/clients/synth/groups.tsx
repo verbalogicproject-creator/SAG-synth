@@ -224,6 +224,11 @@ export function EnvelopeGroup({
           sustain={read(stages[2])}
           release={read(stages[3])}
           maxStage={maxStage}
+          // Draggable: the handles dispatch the same `setParam` the sliders below do, so
+          // the curve gains a second way to reach these four values and no second opinion
+          // about what they are.
+          stages={stages}
+          onChange={context.onChange}
         />
       </div>
       <ControlGrid context={context} paths={[...stages, ...extra]} />
