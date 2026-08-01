@@ -412,6 +412,96 @@ interface VoiceNodes {
 }
 
 /**
+ * How long a parameter takes to reach a new value.
+ *
+ * 20 ms. Long enough that the step is not a click — a discontinuity's energy is spread
+ * over the ramp instead of arriving in one sample — and short enough that a knob still
+ * feels attached to the finger. It is also comfortably shorter than the 100 ms `lookAhead`
+ * every write is already scheduled behind, so a ramp begins and ends in the future and
+ * never fights the render quantum.
+ */
+const PARAM_RAMP_SECONDS = 0.02;
+
+/**
+ * Whether a write has a value to come FROM.
+ *
+ * The first push into a graph has none: every node still holds its constructor default, so
+ * gliding to the patch would not be a declick — it would be an audible slide on every
+ * patch load, from a value the player never chose, and a preset would take 20 ms to become
+ * itself.
+ *
+ * That semantic reason is the whole reason. An earlier draft of this comment also claimed
+ * the existing audio gates would break, since they build a runtime, apply once at offline
+ * time zero and measure early. **Checked, and false**: forcing every write to ramp leaves
+ * all 508 of them green. Worth recording rather than quietly deleting — the claim was
+ * plausible, it was never measured, and a comment asserting something the suite does not
+ * do is the defect class this project keeps closing.
+ */
+type WriteMode = 'step' | 'ramp';
+
+/**
+ * The slice of a Tone parameter this needs, structurally.
+ *
+ * `Tone.Param` and `Tone.Signal` are unrelated classes — `Signal` *implements* `Param`
+ * rather than extending it — and a class with private members is not structurally
+ * assignable to another class. An interface has no such problem, so this is what lets one
+ * helper serve `Param<'gain'>`, `Signal<'frequency'>` and the rest without an `any` and
+ * without a fourteen-arm union.
+ */
+interface RampableParam<T> {
+  value: T;
+  rampTo(value: T, rampTime: number): unknown;
+  linearRampTo(value: T, rampTime: number): unknown;
+}
+
+/**
+ * Push `value` at an audio-rate parameter without clicking.
+ *
+ * Every parameter in this runtime was written as `param.value = x`, which Tone implements
+ * as `setValueAtTime(x, now())` — an instantaneous step in the signal, which is a
+ * discontinuity, which is broadband click. Reported from the device as a crack when a knob
+ * moves under a held note, and gated by `param-change.audio.test.ts`.
+ *
+ * `rampTo` is safe at pointer rate by construction. It begins with `setRampPoint`, which
+ * reads the value in flight, `cancelAndHoldAtTime`s there, and schedules onward from that
+ * point — so a ramp interrupted by the next ramp continues from wherever it had got to
+ * rather than jumping back. That is also why this had to land AFTER the diff and not
+ * before: `cancelAndHoldAtTime` walks the param's automation `Timeline`, so ramping all
+ * twenty-odd writes on every pointer move would have been strictly more main-thread work
+ * than the steps it replaces.
+ *
+ * **`curve` is a correctness switch, not taste.** `Param.rampTo` picks an EXPONENTIAL ramp
+ * for units `frequency`, `bpm` and `decibels` (`Tone/core/context/Param.ts`). That is right
+ * when decibels are converted to gain first — `Tone.Volume.volume` is — and wrong when they
+ * are not. `Tone.Filter.gain` (the five EQ bands) and `Tone.Limiter.threshold` are both
+ * built `convert: false`, verified in Tone's source, so an exponential ramp would
+ * interpolate raw signed decibels: `v0 · (v1/v0)^t` is undefined through zero, Web Audio
+ * refuses it, and a band moved from −6 dB to +6 dB never arrives. Those pass `'linear'`.
+ *
+ * **What is deliberately not ramped, so it is not "fixed" later.** `filter.rolloff`,
+ * `filter.type`, `chorus.delayTime`, `chorus.depth`, `reverb.dampening` and
+ * `WaveShaper.curve` are plain JavaScript setters that rebuild nodes; there is no
+ * automation to schedule, and the diff — not a ramp — is what stops them firing.
+ * `filter.frequency` and `osc.frequency` have a Signal connected in, so Tone marks them
+ * `overridden` and every scheduled value becomes 0: writes there are already dead, and
+ * `rampTo` would be exactly as dead.
+ */
+function writeParam<T>(
+  param: RampableParam<T>,
+  value: T,
+  mode: WriteMode,
+  curve: 'auto' | 'linear' = 'auto',
+): void {
+  if (mode === 'step') {
+    param.value = value;
+  } else if (curve === 'linear') {
+    param.linearRampTo(value, PARAM_RAMP_SECONDS);
+  } else {
+    param.rampTo(value, PARAM_RAMP_SECONDS);
+  }
+}
+
+/**
  * The units `applyPatch` writes in, each one a piece of the graph that can be brought up
  * to date on its own.
  *
@@ -514,6 +604,9 @@ export class ToneRuntime implements Runtime {
    * its own test asserts that blindness). Churn is proven by counting what was written.
    */
   private lastApplied: readonly PatchSection[] = [];
+
+  /** Whether `applySong` has ever run — its own `WriteMode` gate. See `applySong`. */
+  private songApplied = false;
 
   /** Methods called that this stage does not implement, in call order, deduplicated. */
   private readonly unimplemented = new Set<string>();
@@ -739,6 +832,8 @@ export class ToneRuntime implements Runtime {
     if (dirty.length === 0) return;
 
     const wrote = new Set<PatchSection>(dirty);
+    // Nothing was ever pushed into this graph before, so there is nothing to ramp from.
+    const mode: WriteMode = previous === null ? 'step' : 'ramp';
 
     if (wrote.has('oscillators')) {
       for (const [index, slot] of patch.voice.oscillators.entries()) {
@@ -747,23 +842,24 @@ export class ToneRuntime implements Runtime {
     }
 
     for (const nodes of this.voices.values()) {
-      if (wrote.has('oscillators')) this.syncSlots(nodes, patch);
+      if (wrote.has('oscillators')) this.syncSlots(nodes, patch, mode);
       if (wrote.has('filter')) {
+        // `type` and `rolloff` reconstruct biquads and cannot be ramped; `Q` can.
         nodes.filter.type = patch.voice.filter.type;
-        nodes.filter.Q.value = patch.voice.filter.Q;
+        writeParam(nodes.filter.Q, patch.voice.filter.Q, mode);
         nodes.filter.rolloff = patch.voice.filter.rolloff;
       }
       if (wrote.has('filterEnvelope')) nodes.filterEnvelope.set(frequencyEnvelopeOptions(patch));
       if (wrote.has('envelope')) nodes.amp.set({ ...patch.voice.envelope });
       if (wrote.has('portamento')) nodes.portamento = patch.voice.portamento;
-      if (wrote.has('pan')) nodes.panner.pan.value = patch.voice.pan;
+      if (wrote.has('pan')) writeParam(nodes.panner.pan, patch.voice.pan, mode);
       // `nodes.gain.gain` is deliberately absent. `voice.amplitude` reaches it through
       // `rewireRoutes` and nowhere else — see the note there.
     }
 
-    this.applyEffects(patch.effects, wrote);
-    if (wrote.has('lfos')) this.syncLfos(patch);
-    if (wrote.has('routes')) this.rewireRoutes(patch);
+    this.applyEffects(patch.effects, wrote, mode);
+    if (wrote.has('lfos')) this.syncLfos(patch, mode);
+    if (wrote.has('routes')) this.rewireRoutes(patch, mode);
   }
 
   /** Which sections the last `applyPatch` wrote, in `PATCH_SECTIONS` order. */
@@ -779,7 +875,11 @@ export class ToneRuntime implements Runtime {
    * disabled reverb with `wet: 0.3` stored has to sound like no reverb, and re-enabling it
    * has to restore 0.3 without the UI having to remember it. Multiplying gets both.
    */
-  private applyEffects(effects: EffectsConfig, wrote: ReadonlySet<PatchSection>): void {
+  private applyEffects(
+    effects: EffectsConfig,
+    wrote: ReadonlySet<PatchSection>,
+    mode: WriteMode,
+  ): void {
     const wetOf = (enabled: boolean, value: number) => (enabled ? value : 0);
 
     // Split five ways rather than gated once on `patch.effects`, because two of these
@@ -788,33 +888,36 @@ export class ToneRuntime implements Runtime {
     // eight new IIR filter nodes. At one gate for the whole chain, moving the delay's
     // feedback would still pay for both.
     if (wrote.has('distortion')) {
+      // The curve itself is a step and cannot be anything else — a `WaveShaper`'s transfer
+      // function is a table, not an automatable value. The mix around it ramps, which is
+      // what the wet and enable controls move.
       const { curve, makeup } = distortionCurve(effects.distortion.amount);
       this.distortionShaper.curve = curve;
       const distortionWet = wetOf(effects.distortion.enabled, effects.distortion.wet);
       // Linear crossfade, and the makeup rides on the wet leg only. Equal-power would keep
       // the loudness steadier through the middle of the knob, and would also mean wet 0 is
       // not quite unity dry — the wrong trade for a stage that has to disappear when off.
-      this.distortionDry.gain.value = 1 - distortionWet;
-      this.distortionWet.gain.value = distortionWet * makeup;
+      writeParam(this.distortionDry.gain, 1 - distortionWet, mode);
+      writeParam(this.distortionWet.gain, distortionWet * makeup, mode);
     }
 
     if (wrote.has('chorus')) {
-      this.chorus.frequency.value = effects.chorus.frequency;
+      writeParam(this.chorus.frequency, effects.chorus.frequency, mode);
       this.chorus.delayTime = effects.chorus.delayTime;
       this.chorus.depth = effects.chorus.depth;
-      this.chorus.wet.value = wetOf(effects.chorus.enabled, effects.chorus.wet);
+      writeParam(this.chorus.wet, wetOf(effects.chorus.enabled, effects.chorus.wet), mode);
     }
 
     if (wrote.has('delay')) {
-      this.delay.delayTime.value = effects.delay.delayTime;
-      this.delay.feedback.value = effects.delay.feedback;
-      this.delay.wet.value = wetOf(effects.delay.enabled, effects.delay.wet);
+      writeParam(this.delay.delayTime, effects.delay.delayTime, mode);
+      writeParam(this.delay.feedback, effects.delay.feedback, mode);
+      writeParam(this.delay.wet, wetOf(effects.delay.enabled, effects.delay.wet), mode);
     }
 
     if (wrote.has('reverb')) {
-      this.reverb.roomSize.value = effects.reverb.roomSize;
+      writeParam(this.reverb.roomSize, effects.reverb.roomSize, mode);
       this.reverb.dampening = effects.reverb.dampening;
-      this.reverb.wet.value = wetOf(effects.reverb.enabled, effects.reverb.wet);
+      writeParam(this.reverb.wet, wetOf(effects.reverb.enabled, effects.reverb.wet), mode);
     }
 
     if (wrote.has('eq')) {
@@ -828,7 +931,10 @@ export class ToneRuntime implements Runtime {
         effects.eq.band4.gain,
       ];
       this.eqBands.forEach((band, index) => {
-        band.gain.value = effects.eq.enabled ? gains[index]! : 0;
+        // `linear`, and it is load-bearing: `Tone.Filter.gain` is `convert: false`
+        // decibels, so `rampTo` would schedule an exponential ramp over raw signed dB.
+        // See `writeParam`.
+        writeParam(band.gain, effects.eq.enabled ? gains[index]! : 0, mode, 'linear');
       });
     }
   }
@@ -845,7 +951,7 @@ export class ToneRuntime implements Runtime {
    * destination and a cents one need different amplitudes, so the swing belongs to the
    * connection and is applied in `rewireRoutes`.
    */
-  private syncLfos(patch: SynthPreset): void {
+  private syncLfos(patch: SynthPreset, mode: WriteMode): void {
     const configs = patch.voice.lfos;
 
     for (const [index, lfo] of this.lfos) {
@@ -867,7 +973,9 @@ export class ToneRuntime implements Runtime {
         lfo.start();
         this.lfos.set(index, lfo);
       } else {
-        lfo.frequency.value = frequency;
+        // A rate glide rather than a jump. `frequency` units ramp exponentially, which is
+        // the right shape for a rate — halving reads as one step wherever you start.
+        writeParam(lfo.frequency, frequency, mode);
         lfo.type = config.type;
       }
 
@@ -909,14 +1017,16 @@ export class ToneRuntime implements Runtime {
    * value the graph needed, so a tremolo would jump to the wrong resting level, silently
    * and only with a route active. One writer, so the question cannot arise.
    */
-  private rewireRoutes(patch: SynthPreset): void {
+  private rewireRoutes(patch: SynthPreset, mode: WriteMode): void {
     for (const lfo of this.lfos.values()) lfo.disconnect();
     for (const scaler of this.scalers) scaler.dispose();
     this.scalers.length = 0;
 
     // Amplitude ducking re-centres the resting gain, so any voice whose route was just
     // removed or re-depthed has to go back to the patch's own value first.
-    for (const nodes of this.voices.values()) nodes.gain.gain.value = patch.voice.amplitude;
+    for (const nodes of this.voices.values()) {
+      writeParam(nodes.gain.gain, patch.voice.amplitude, mode);
+    }
 
     for (const route of patch.voice.modRoutes) {
       if (!route.enabled) continue;
@@ -933,7 +1043,9 @@ export class ToneRuntime implements Runtime {
       // is one generator with one scaler fanned out; velocity is N sources with N scalers.
       if (route.source === 'velocity') {
         for (const nodes of this.voices.values()) {
-          if (swing.baseOverride !== undefined) nodes.gain.gain.value = swing.baseOverride;
+          if (swing.baseOverride !== undefined) {
+            writeParam(nodes.gain.gain, swing.baseOverride, mode);
+          }
           // Unipolar: velocity runs 0..1 and only ever adds, so the scaler carries the
           // full swing rather than half of it the way a bipolar LFO does.
           const target = this.destinationParam(nodes, route.destination);
@@ -961,7 +1073,9 @@ export class ToneRuntime implements Runtime {
       lfo.connect(scaler);
 
       for (const nodes of this.voices.values()) {
-        if (swing.baseOverride !== undefined) nodes.gain.gain.value = swing.baseOverride;
+        if (swing.baseOverride !== undefined) {
+          writeParam(nodes.gain.gain, swing.baseOverride, mode);
+        }
         const target = this.destinationParam(nodes, route.destination);
         if (target !== null) scaler.connect(target);
       }
@@ -1047,7 +1161,7 @@ export class ToneRuntime implements Runtime {
    * Make a voice's slot nodes match the patch's slot count, building and disposing as
    * needed. Called on every `applyPatch`, so `addOscillator` reaches a live voice.
    */
-  private syncSlots(nodes: VoiceNodes, patch: SynthPreset): void {
+  private syncSlots(nodes: VoiceNodes, patch: SynthPreset, mode: WriteMode): void {
     const wanted = patch.voice.oscillators;
     while (nodes.slots.length > wanted.length) {
       const slot = nodes.slots.pop();
@@ -1062,9 +1176,9 @@ export class ToneRuntime implements Runtime {
       const slot = nodes.slots[index];
       if (slot === undefined) continue;
       slot.osc.set(oscillatorOptions(config));
-      slot.osc.detune.value = slotDetune(config);
-      slot.level.gain.value = slotGain(config);
-      slot.panner.pan.value = config.pan;
+      writeParam(slot.osc.detune, slotDetune(config), mode);
+      writeParam(slot.level.gain, slotGain(config), mode);
+      writeParam(slot.panner.pan, config.pan, mode);
     }
   }
 
@@ -1128,13 +1242,20 @@ export class ToneRuntime implements Runtime {
       panner,
       velocity,
     };
-    if (patch !== null) this.syncSlots(nodes, patch);
+    // `'step'`: every node above was constructed from this patch, so these writes land on
+    // the values they already hold. Ramping would be a no-op with a `cancelAndHoldAtTime`
+    // attached to it.
+    if (patch !== null) this.syncSlots(nodes, patch, 'step');
     this.voices.set(voiceId, nodes);
 
     // Voices are built lazily, so a voice created AFTER the routes were wired would
     // otherwise be the one unmodulated note in a chord. Rewire so it joins the graph.
     if (this.patch !== null && this.patch.voice.modRoutes.length > 0) {
-      this.rewireRoutes(this.patch);
+      // `'ramp'`, and the reason is the voices that are ALREADY sounding. This rebuilds
+      // every scaler for the whole pool, so a duck route re-writes the resting gain of
+      // every held note — stepping those is a click under the chord you are playing. For
+      // the voice just built the ramp is a no-op, since its gain already holds the value.
+      this.rewireRoutes(this.patch, 'ramp');
     }
     return nodes;
   }
@@ -1298,8 +1419,16 @@ export class ToneRuntime implements Runtime {
    * changes is that the mixer is no longer missing with it.
    */
   applySong(song: Song): void {
-    this.master.volume.value = song.master.volume;
-    this.limiter.threshold.value = song.master.limiterThreshold;
+    // Its own first-call flag rather than the patch's. The dispatcher applies a song at
+    // construction, before any patch, so sharing one flag would make whichever ran second
+    // ramp from a constructor default it never held.
+    const mode: WriteMode = this.songApplied ? 'ramp' : 'step';
+    this.songApplied = true;
+
+    writeParam(this.master.volume, song.master.volume, mode);
+    // `linear`: `Limiter.threshold` proxies `Compressor.threshold`, which Tone builds
+    // `convert: false` — raw signed decibels, the same trap as the EQ bands.
+    writeParam(this.limiter.threshold, song.master.limiterThreshold, mode, 'linear');
     this.notImplemented('applySong.transport');
   }
 

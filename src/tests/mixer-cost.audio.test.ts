@@ -53,17 +53,37 @@ function makeCurve(): Float32Array {
 }
 
 /** Wall-clock milliseconds to render `SECONDS` of audio through `build`. */
+/**
+ * Wall-clock cost of rendering `build`, as the FASTEST of three runs.
+ *
+ * The minimum, not the mean, and that is the fix for a real failure rather than a
+ * refinement. This is a wall-clock measurement taken inside a suite vitest runs in
+ * parallel across projects, on a phone. A single timing therefore measures the machine's
+ * mood as much as the graph: the same "1 full chain" that reads 0.29x alone read 0.59x
+ * inside the full suite and 0.84x with a background agent also running. The assertion
+ * below went red on the second of those, and the diagnosis "the code got slower" was
+ * wrong — nothing in this file touches `ToneRuntime` at all.
+ *
+ * Contention can only ever make a timing LONGER, so the minimum of several is the closest
+ * available estimate of the uncontended cost, and it is the standard answer for exactly
+ * this reason. A gate that fails for the wrong reason is a gate that gets disabled.
+ */
 async function cost(build: (destination: Tone.InputNode) => void): Promise<number> {
-  const started = performance.now();
-  await Tone.Offline(
-    ({ destination }) => {
-      build(destination);
-    },
-    SECONDS,
-    2,
-    SR,
-  );
-  return performance.now() - started;
+  const RUNS = 3;
+  let best = Infinity;
+  for (let run = 0; run < RUNS; run += 1) {
+    const started = performance.now();
+    await Tone.Offline(
+      ({ destination }) => {
+        build(destination);
+      },
+      SECONDS,
+      2,
+      SR,
+    );
+    best = Math.min(best, performance.now() - started);
+  }
+  return best;
 }
 
 function source(): Tone.Oscillator {
