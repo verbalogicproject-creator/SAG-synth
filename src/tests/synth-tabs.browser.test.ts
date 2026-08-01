@@ -16,7 +16,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NAV_TABS, tabPaths } from '../core/groups';
-import { defaultLfo, defaultPreset, initialEngineState } from '../core/state';
+import { defaultLfo, defaultPreset, defaultRoute, initialEngineState } from '../core/state';
 import type { EngineState } from '../core/state';
 import type { ParamPath } from '../core/types';
 import type { SynthCommand } from '../core/commands';
@@ -102,6 +102,16 @@ async function sweep(state: EngineState): Promise<Set<string>> {
   await mount(state);
   await sweepSurface(container, click, () => visiblePaths().forEach((path) => seen.add(path)));
   return seen;
+}
+
+/** FILTER tab, LFO sub-tab — where the LFO panel lives. */
+async function openLfoPanel(): Promise<void> {
+  const top = [...container.querySelectorAll('[role="tablist"][aria-label="signal path"] [role="tab"]')];
+  const filter = top.find((tab) => (tab.textContent ?? '').includes('FILTER'));
+  await click(filter!);
+  const groups = [...container.querySelectorAll('[role="tablist"][aria-label$="sections"] [role="tab"]')];
+  const lfo = groups.find((tab) => (tab.textContent ?? '').trim() === 'LFO');
+  await click(lfo!);
 }
 
 describe('the four tabs reach everything they claim', () => {
@@ -212,5 +222,47 @@ describe('a control that cannot be honoured says so on screen', () => {
     await click(tabButtons()[0]!);
 
     expect(container.textContent).not.toContain('only a pulse has width');
+  });
+
+  it('says an LFO drives nothing when no route points at it', async () => {
+    // Reported from the device as "the LFO isn't working", and it was true in the way that
+    // matters: an LFO is a SOURCE, it reaches audio only through a route, and the panel
+    // looked finished while never mentioning the one thing standing between it and a
+    // sound. The engine was fine the whole time — `route-wiring.audio.test.ts` measures
+    // all thirteen wired destinations actually moving audio.
+    await mount(fullState());
+    await openLfoPanel();
+
+    expect(container.textContent).toContain('This LFO drives nothing');
+
+    // Saying so is half of it. Naming the problem and offering no way out is a diagnosis,
+    // not a surface — so the panel must also carry the one-press fix.
+    const fix = [...container.querySelectorAll('button')].find((button) =>
+      (button.textContent ?? '').includes('route it'),
+    );
+    expect(fix, 'the panel named the problem and offered no way to fix it').toBeDefined();
+  });
+
+  it('stops saying it once a route points at that LFO', async () => {
+    // The other half. Asserting only the warning appears would pass against a panel that
+    // shows it permanently, which is furniture again.
+    const state = fullState();
+    const routed: EngineState = {
+      ...state,
+      patch: {
+        ...state.patch,
+        voice: {
+          ...state.patch.voice,
+          modRoutes: [
+            { ...defaultRoute(true), id: 'route-0', source: 'lfo.0' },
+          ],
+        },
+      },
+    };
+
+    await mount(routed);
+    await openLfoPanel();
+
+    expect(container.textContent).not.toContain('This LFO drives nothing');
   });
 });

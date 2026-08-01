@@ -13,12 +13,14 @@ import { useState } from 'react';
 import { sectionPaths } from '../../core/groups';
 import { PARAM_SPECS } from '../../core/schemas';
 import { getParam } from '../../core/params';
-import { defaultLfo, defaultPreset } from '../../core/state';
+import { defaultLfo, defaultPreset, defaultRoute } from '../../core/state';
 import {
   EFFECT_CHAIN_ORDER,
   EQ_BAND_FREQUENCIES,
   MAX_LFOS,
+  MAX_ROUTES,
   type EffectId,
+  type ModSource,
   type ParamPath,
 } from '../../core/types';
 import type { SynthCommand } from '../../core/commands';
@@ -37,9 +39,12 @@ const SLOT_NAMES = ['A', 'B', 'C'];
  * The id is minted in the client because core is forbidden from generating one: an id
  * invented inside a reducer would differ on replay and break the journal.
  */
-function newSlot() {
+function newSlot(count: number, revision: number) {
   const base = defaultPreset().voice.oscillators[0]!;
-  return { ...base, id: `osc-${Date.now().toString(36)}` };
+  // Indexed by count and revision rather than a clock, like the LFO and route slots: two
+  // adds inside one millisecond mint the same id, which the reducer then refuses as a
+  // duplicate — a button that works except when pressed quickly.
+  return { ...base, id: `osc-${count}-${revision}` };
 }
 
 /** Paths of one oscillator slot, in the order the panel draws them. */
@@ -83,7 +88,12 @@ export function OscillatorGroup({
         {slots.length < SLOT_NAMES.length && (
           <button
             type="button"
-            onClick={() => onCommand({ type: 'addOscillator', config: newSlot() })}
+            onClick={() =>
+              onCommand({
+                type: 'addOscillator',
+                config: newSlot(slots.length, context.state.revision),
+              })
+            }
             style={styles.subTab}
             aria-label="add an oscillator slot"
           >
@@ -133,8 +143,17 @@ export function LfoGroup({
   onCommand: (command: SynthCommand) => void;
 }) {
   const slots = context.state.patch.voice.lfos;
+  const routes = context.state.patch.voice.modRoutes;
   const [active, setActive] = useState(0);
   const index = Math.min(active, slots.length - 1);
+
+  // An LFO is not a sound. It is a source, and it reaches audio only through a route — so
+  // an LFO with no route pointed at it runs, validates, journals and is completely silent.
+  // That is what "the LFO isn't working" turned out to mean: the panel looked finished and
+  // never mentioned the one thing standing between it and a sound.
+  const source = `lfo.${index}`;
+  const pointingHere = routes.filter((route) => route.source === source);
+  const drivingHere = pointingHere.filter((route) => route.enabled);
 
   return (
     <div>
@@ -158,7 +177,9 @@ export function LfoGroup({
               onCommand({
                 type: 'addLfo',
                 // Settings from core, id minted here — core must not generate one.
-                config: { ...defaultLfo(), id: `lfo-${Date.now().toString(36)}` },
+                // Indexed by length and revision rather than a clock: two adds inside one
+                // millisecond produce the same id, which the reducer then refuses.
+                config: { ...defaultLfo(), id: `lfo-${slots.length}-${context.state.revision}` },
               })
             }
             style={styles.subTab}
@@ -181,11 +202,52 @@ export function LfoGroup({
       {slots.length === 0 ? (
         // Honest empty state. Saying "no LFOs yet" is not a smaller surface than four dead
         // panels — it is the only one of the two that is true.
+        //
+        // It also no longer promises that adding one will modulate anything. It said
+        // "add one to modulate the filter, pitch or amplitude", and adding one modulates
+        // nothing until a route exists — a sentence the button could not deliver on.
         <p style={styles.note}>
-          No LFOs in this patch yet. Add one to modulate the filter, pitch or amplitude.
+          No LFOs in this patch yet. An LFO is a source: add one, then route it to a
+          destination to hear it.
         </p>
       ) : (
-        <ControlGrid context={context} paths={lfoPaths(index)} />
+        <>
+          {drivingHere.length === 0 && (
+            <div style={styles.unrouted}>
+              <p style={styles.unroutedNote}>
+                {pointingHere.length === 0
+                  ? 'This LFO drives nothing. It runs, but an LFO only reaches audio through a route.'
+                  : `This LFO has ${pointingHere.length} route${pointingHere.length === 1 ? '' : 's'}, all disabled — so it moves nothing.`}
+              </p>
+              {pointingHere.length === 0 &&
+                (routes.length < MAX_ROUTES ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onCommand({
+                        type: 'addRoute',
+                        route: {
+                          ...defaultRoute(true),
+                          source: source as ModSource,
+                          id: `route-${routes.length}-${context.state.revision}`,
+                        },
+                      })
+                    }
+                    style={styles.unroutedAction}
+                  >
+                    route it to the filter cutoff
+                  </button>
+                ) : (
+                  // No button at the cap, for the same reason RouteList draws none: a press
+                  // the reducer refuses is a control that appears to work.
+                  <span style={styles.unroutedNote}>
+                    All {MAX_ROUTES} route slots are in use — free one in ROUTING.
+                  </span>
+                ))}
+            </div>
+          )}
+          <ControlGrid context={context} paths={lfoPaths(index)} />
+        </>
       )}
     </div>
   );
@@ -362,6 +424,39 @@ export const styles = {
     borderWidth: 1,
     fontFamily: FONT.mono,
     fontSize: '0.7rem',
+    cursor: 'pointer',
+  },
+  unrouted: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.4rem',
+    alignItems: 'flex-start',
+    margin: '0 0 0.6rem',
+    padding: '0.5rem 0.6rem',
+    borderStyle: 'solid',
+    borderWidth: 1,
+    borderColor: COLOR.unwired,
+    borderRadius: 4,
+  },
+  unroutedNote: {
+    margin: 0,
+    fontFamily: FONT.display,
+    fontSize: '0.65rem',
+    lineHeight: 1.5,
+    color: COLOR.unwired,
+  },
+  unroutedAction: {
+    minHeight: TOUCH_MIN,
+    padding: '0 0.8rem',
+    background: 'transparent',
+    color: COLOR.accentText,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    borderColor: COLOR.accent,
+    borderRadius: 4,
+    fontFamily: FONT.display,
+    fontSize: '0.65rem',
+    letterSpacing: '0.08em',
     cursor: 'pointer',
   },
   note: {
