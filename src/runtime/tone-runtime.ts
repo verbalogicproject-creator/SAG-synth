@@ -883,7 +883,15 @@ export class ToneRuntime implements Runtime {
         writeParam(nodes.filter.Q, patch.voice.filter.Q, mode);
         nodes.filter.rolloff = patch.voice.filter.rolloff;
       }
-      if (wrote.has('filterEnvelope')) nodes.filterEnvelope.set(frequencyEnvelopeOptions(patch));
+      if (wrote.has('filterEnvelope')) {
+        nodes.filterEnvelope.set(frequencyEnvelopeOptions(patch));
+        // The cutoff itself, in cents, on the one node in the voice that can ramp it.
+        writeParam(
+          nodes.filter.detune,
+          baseFrequencyCents(patch.voice.filterEnvelope.baseFrequency),
+          mode,
+        );
+      }
       if (wrote.has('envelope')) nodes.amp.set({ ...patch.voice.envelope });
       if (wrote.has('portamento')) nodes.portamento = patch.voice.portamento;
       if (wrote.has('pan')) writeParam(nodes.panner.pan, patch.voice.pan, mode);
@@ -1292,7 +1300,19 @@ export class ToneRuntime implements Runtime {
     const filter = new Tone.Filter(
       patch === null
         ? undefined
-        : { type: patch.voice.filter.type, Q: patch.voice.filter.Q, rolloff: patch.voice.filter.rolloff },
+        : {
+            type: patch.voice.filter.type,
+            Q: patch.voice.filter.Q,
+            rolloff: patch.voice.filter.rolloff,
+            // `detune` is deliberately NOT set here, and it was until a probe showed the
+            // line could be deleted with all 121 audio gates still green. `voiceFor` is
+            // only ever reached from `noteOn`, which writes the cutoff base into
+            // `filter.detune` a few lines later — and its `velocityConfig !== undefined`
+            // guard is false exactly when `patch` is null here, so the two can never
+            // disagree. A constructor value that is always overwritten before a sample is
+            // produced is a decoy, which is the one thing this file is least allowed to
+            // grow. `noteOn` and `applyPatch` are the writers; see `baseFrequencyCents`.
+          },
     );
     const filterEnvelope = new Tone.FrequencyEnvelope(
       patch === null ? undefined : frequencyEnvelopeOptions(patch),
@@ -1405,14 +1425,27 @@ export class ToneRuntime implements Runtime {
       // than the resulting gain so that a full-velocity note is unaffected either way.
       const scaled = 1 - velocityConfig.toAmplitude * (1 - request.velocity);
 
-      // Harder notes open the filter. Applied to the envelope's base rather than through
-      // a route, because it has to be settled before the attack begins — a modulation
+      // Harder notes open the filter. Applied to the cutoff base rather than through a
+      // route, because it has to be settled before the attack begins — a modulation
       // arriving alongside the note would sweep in after the transient that carries most
       // of the brightness.
+      //
+      // In CENTS, on `filter.detune`, and it has to be: the base moved there (see
+      // `baseFrequencyCents`) and this used to write `filterEnvelope.baseFrequency = base *
+      // 2^octaves`. Left alone it applied the base a second time, multiplying instead of
+      // offsetting, and put the cutoff somewhere above nyquist. Sixteen gates caught it —
+      // which is the only reason the pin was not shipped looking correct.
+      //
+      // Adding octaves as cents is the same arithmetic in the unit the axis is already in:
+      // `2^octaves` in Hz IS `octaves * 1200` in cents.
       if (this.patch !== null) {
-        const base = this.patch.voice.filterEnvelope.baseFrequency;
         const octaves = request.velocity * velocityConfig.toFilterOctaves;
-        nodes.filterEnvelope.baseFrequency = base * Math.pow(2, octaves);
+        writeParam(
+          nodes.filter.detune,
+          baseFrequencyCents(this.patch.voice.filterEnvelope.baseFrequency) +
+            octaves * CENTS_PER_OCTAVE,
+          'step',
+        );
       }
 
       this.attack(nodes, request.note, time, scaled);
@@ -1770,9 +1803,60 @@ type OscillatorOptions =
  */
 
 /**
+ * What the frequency envelope's base is pinned to, in Hz — see `baseFrequencyCents`.
+ *
+ * 1 Hz, so that the cents offset carrying the real base is `1200·log2(hz)` with no origin
+ * term to remember. It is never heard: the envelope's output is multiplied back up by
+ * `filter.detune` before it reaches a biquad.
+ */
+const ENVELOPE_BASE_HZ = 1;
+
+/**
+ * The cutoff base as cents above `ENVELOPE_BASE_HZ`, which is where it now lives.
+ *
+ * **Why the base moved off the envelope.** `FrequencyEnvelope.baseFrequency` is a
+ * JavaScript setter, not a parameter. It writes `Scale.min` and `Scale.max`, and `Scale`
+ * is `Multiply(max−min) → Add(min)` — two signal values, stepped. There is nothing to
+ * schedule an automation curve on, so the cutoff was the one control in the instrument
+ * that could not be ramped even in principle. `filter.frequency` was no help either: the
+ * envelope is connected into it, so Tone marks it `overridden` and every write is dead.
+ *
+ * **The algebra.** A `BiquadFilterNode` computes its own cutoff as
+ * `frequency × 2^(detune/1200)`. Pin the envelope's base at 1 Hz and it sweeps
+ * `1 → 2^octaves`; put `1200·log2(base)` cents on `detune` and the biquad multiplies them
+ * back into `base → base·2^octaves`. Identical output, and now the base is on a `Signal`
+ * that ramps.
+ *
+ * Two things fall out that are better than the thing being fixed:
+ *
+ * - **Cents are the right unit.** A linear ramp in cents is an exponential glide in Hz,
+ *   which is how a cutoff sweep is supposed to move and what a linear Hz ramp never was.
+ * - **The base and its modulation now share one parameter.** `filter.detune` was already
+ *   the destination a `voice.filterEnvelope.baseFrequency` route wires to, because the
+ *   `octaves` curve delivers its swing in cents. An `AudioParam` sums its intrinsic value
+ *   with every connected signal, so base-plus-wobble composes for free rather than
+ *   needing an offset node.
+ *
+ * **What this does NOT fix, stated so it is not claimed later.** `octaves` still steps —
+ * it writes `Scale.max` and there is no parameter behind it either. And none of this was
+ * ever a click: a stepped cutoff changes a biquad's coefficients, not its output, and the
+ * state variables carry over. See the note in `param-change.audio.test.ts`.
+ */
+export function baseFrequencyCents(hz: number): number {
+  return CENTS_PER_OCTAVE * Math.log2(Math.max(hz, ENVELOPE_BASE_HZ) / ENVELOPE_BASE_HZ);
+}
+
+/**
  * The filter envelope's options, which is the only part of the voice whose translation is
- * not a straight field copy: `baseFrequency` is the cutoff and `octaves` is how far above
- * it the envelope sweeps. See UNMAPPED_PARAMS above for why this and not filter.frequency.
+ * not a straight field copy.
+ *
+ * `baseFrequency` is deliberately NOT `patch.voice.filterEnvelope.baseFrequency`. The
+ * envelope is pinned at `ENVELOPE_BASE_HZ` and the patch's cutoff rides on
+ * `filter.detune` — see `baseFrequencyCents` for the algebra and the reason. The address
+ * is still fully honoured; it simply arrives at a different node, which is the same move
+ * `voice.filterEnvelope.baseFrequency` routes have always made.
+ *
+ * See UNMAPPED_PARAMS above for why any of this and not `filter.frequency`.
  */
 export function frequencyEnvelopeOptions(patch: SynthPreset): {
   attack: number;
@@ -1789,7 +1873,7 @@ export function frequencyEnvelopeOptions(patch: SynthPreset): {
     decay: filterEnvelope.decay,
     sustain: filterEnvelope.sustain,
     release: filterEnvelope.release,
-    baseFrequency: filterEnvelope.baseFrequency,
+    baseFrequency: ENVELOPE_BASE_HZ,
     octaves: filterEnvelope.octaves,
     exponent: FILTER_ENVELOPE_EXPONENT,
   };

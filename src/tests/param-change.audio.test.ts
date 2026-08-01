@@ -116,6 +116,33 @@ describe('changing a parameter while a note sounds', () => {
     expect(across, `jump across the change (${across}) vs quiet (${quiet})`).toBeLessThan(quiet * 3);
   });
 
+  /**
+   * **The cutoff is not in this file, and the reason is a measurement.**
+   *
+   * It was going to be, on the diagnosis that `FrequencyEnvelope.baseFrequency` is a
+   * JavaScript setter writing `Scale.min`/`.max` — `Multiply(max-min) -> Add(min)` — so a
+   * knob movement stepped two signal values into `filter.frequency` with no automation
+   * anywhere. All of that is true. It does not produce a click, and the gate written for
+   * it passed against the unfixed code, which is the only reason anybody found out.
+   *
+   * Measured, ratio of the jump across the change to the same render's quiet stretch:
+   *
+   *     sine C3   200 -> 800     1.13
+   *     sine C3   800 -> 200     1.48
+   *     sine C3  2000 -> 150     1.38
+   *     saw  C2  3000 -> 300     1.00
+   *     saw  C2   nothing        1.00
+   *
+   * A biquad is a stateful IIR. Changing its coefficients changes the transfer function
+   * while the state variables carry over, so the OUTPUT stays continuous — there is no
+   * single-sample jump to find. (`saw 300 -> 3000` reads 5.33 and is a trap: that is the
+   * filter opening and letting the sawtooth's own flyback through, which is the material,
+   * not the change.)
+   *
+   * So the cutoff work is real but it is not declicking, and its gates live in
+   * `cutoff-detune.audio.test.ts` where they measure what it actually does.
+   */
+
   it('survives a DRAG across 0 dB on an EQ band, which an exponential ramp does not', async () => {
     // The `convert: false` trap, and the shape of this test is the whole lesson.
     //
