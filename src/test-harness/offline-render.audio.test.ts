@@ -11,6 +11,10 @@
  *    which is the entire premise of the fix.
  * 4. **Graph churn is invisible to it.** Asserted rather than footnoted, so nobody later
  *    writes a churn gate through this helper and gets a green that means nothing.
+ * 5. A node CONSTRUCTED inside a scheduled callback joins the offline graph. `Tone.Offline`
+ *    restores the global context before the clock runs, so without the helper's own
+ *    save/restore this builds on the online context and renders nothing. Added after that
+ *    happened to a real gate — see the header.
  */
 
 import * as Tone from 'tone';
@@ -109,5 +113,27 @@ describe('renderTimeline', () => {
     expect(across, 'offline rendering is blind to graph rebuilds — see the header').toBeLessThan(
       quiet * 2,
     );
+  });
+
+  it('builds a node scheduled mid-render on the OFFLINE graph, not the online one', async () => {
+    // The bug this helper shipped with. `Tone.Offline` calls `setContext(original)` the
+    // moment it calls `render()`, so a callback firing during the clock pass sees the
+    // online context — and `new Tone.Oscillator()` reads the global context to decide
+    // where it lives. Built on the wrong graph it renders silence, quietly.
+    //
+    // Remove the save/restore in `renderTimeline` and the second window goes silent while
+    // everything else in this file stays green. That is why it is a test.
+    const { data, at } = await renderTimeline(
+      (schedule) => {
+        const gain = new Tone.Gain(1).toDestination();
+        schedule(0.5, () => {
+          new Tone.Oscillator({ type: 'sine', frequency: 220 }).connect(gain).start();
+        });
+      },
+      { seconds: 1, sampleRate: SR },
+    );
+
+    expect(rms(data, at(0.1), at(0.45)), 'silent before the source exists').toBeLessThan(0.001);
+    expect(rms(data, at(0.6), at(0.95)), 'sounding after it was built').toBeGreaterThan(0.1);
   });
 });

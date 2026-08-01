@@ -411,6 +411,71 @@ interface VoiceNodes {
   velocity: Tone.Signal<'number'>;
 }
 
+/**
+ * The units `applyPatch` writes in, each one a piece of the graph that can be brought up
+ * to date on its own.
+ *
+ * They exist because `applyPatch` used to write ALL of them on every call, and the
+ * dispatcher calls it on every `pointermove`: `setParam` returns a new patch document for
+ * any change, `syncRuntime` sees a new reference and pushes the whole thing. Turning the
+ * reverb knob therefore rebuilt the distortion curve (a 1024-point `Float32Array` and a
+ * `WaveShaper.curve` assignment), reconstructed Freeverb's dampening filters, re-`set` both
+ * envelopes on every live voice, and disposed and rebuilt the entire modulation graph —
+ * per move. That is the crackle.
+ *
+ * The order is the order they are applied in, and `getLastApplied()` reports in it.
+ */
+export const PATCH_SECTIONS = [
+  'oscillators',
+  'filter',
+  'filterEnvelope',
+  'envelope',
+  'portamento',
+  'pan',
+  'distortion',
+  'chorus',
+  'delay',
+  'reverb',
+  'eq',
+  'lfos',
+  'routes',
+] as const;
+
+export type PatchSection = (typeof PATCH_SECTIONS)[number];
+
+/**
+ * What each section watches. Reference comparison, and that is not an approximation.
+ *
+ * Core documents are immutable and structurally shared — the reducer returns a new object
+ * only along the path that changed — so `before.voice.filter !== after.voice.filter` is
+ * exactly the question "did the filter change", answered in one pointer compare instead of
+ * a deep walk. The same property `syncRuntime` already relies on at the document level
+ * (`src/app/dispatcher.ts:322`); this is that idea one level down.
+ *
+ * A section may watch more than one input. `routes` watches three, and the third is the
+ * one that will look redundant later, so: `rewireRoutes` calls
+ * `routeSwing(destination, depth, patch.voice.amplitude)`, and BOTH of that function's
+ * outputs are functions of the amplitude — the scaler's gain and, for the `duckDb` curve,
+ * the re-centred resting base. `voice.amplitude` is therefore an input to the WIRING, not
+ * merely a parameter, and a rewire that skipped it would leave a tremolo running at the old
+ * depth around the wrong base while the knob read correctly. Do not remove it.
+ */
+const SECTION_INPUTS: Record<PatchSection, readonly ((patch: SynthPreset) => unknown)[]> = {
+  oscillators: [(p) => p.voice.oscillators],
+  filter: [(p) => p.voice.filter],
+  filterEnvelope: [(p) => p.voice.filterEnvelope],
+  envelope: [(p) => p.voice.envelope],
+  portamento: [(p) => p.voice.portamento],
+  pan: [(p) => p.voice.pan],
+  distortion: [(p) => p.effects.distortion],
+  chorus: [(p) => p.effects.chorus],
+  delay: [(p) => p.effects.delay],
+  reverb: [(p) => p.effects.reverb],
+  eq: [(p) => p.effects.eq],
+  lfos: [(p) => p.voice.lfos],
+  routes: [(p) => p.voice.modRoutes, (p) => p.voice.lfos, (p) => p.voice.amplitude],
+};
+
 export class ToneRuntime implements Runtime {
   private readonly master: Tone.Volume;
   private readonly analyser: Tone.Analyser;
@@ -438,6 +503,17 @@ export class ToneRuntime implements Runtime {
 
   private patch: SynthPreset | null = null;
   private disposed = false;
+
+  /**
+   * Which sections the last `applyPatch` actually wrote. A diagnostic, not a contract —
+   * it is not on `Runtime`, because `NullRuntime` has no graph to keep up to date.
+   *
+   * It exists because the thing worth gating here cannot be heard. An offline render
+   * completes its clock pass before the first sample, so a disposed-and-rebuilt modulation
+   * graph leaves no mark in the buffer at all (`src/test-harness/offline-render.ts`, and
+   * its own test asserts that blindness). Churn is proven by counting what was written.
+   */
+  private lastApplied: readonly PatchSection[] = [];
 
   /** Methods called that this stage does not implement, in call order, deduplicated. */
   private readonly unimplemented = new Set<string>();
@@ -632,29 +708,67 @@ export class ToneRuntime implements Runtime {
   // -------------------------------------------------------------------------
 
   /**
-   * F64 — never partial. Every live voice is updated, or none is: the options object is
-   * built completely before a single `.set()` runs, so a malformed patch cannot leave
-   * half the pool on the old sound and half on the new.
+   * F64 — never partial. Every live voice is updated, or none is: a section is written
+   * across the whole pool or not at all, so a malformed patch cannot leave half the pool
+   * on the old sound and half on the new.
+   *
+   * **Only what changed.** See `PATCH_SECTIONS`. The first call has no previous patch to
+   * compare against and therefore writes everything, which is also the honest answer:
+   * before it there are no values to have kept.
+   *
+   * **Why skipping is safe for a voice that did not exist yet.** Voices are built lazily,
+   * so one can appear between two calls and miss the writes in between. It is correct
+   * anyway because `voiceFor` constructs every node from the CURRENT patch — filter,
+   * both envelopes, portamento, gain, pan and the slots, which is the same list this
+   * method writes. That agreement is load-bearing rather than incidental: let the two
+   * lists drift and a knob turned before the first note would apply to nothing. Gated by
+   * `patch-diff.audio.test.ts`, "a voice built after a change matches one built before".
    */
   applyPatch(patch: SynthPreset): void {
-    for (const [index, slot] of patch.voice.oscillators.entries()) {
-      for (const gap of unsupportedOscillatorFeatures(slot, index)) this.notImplemented(gap);
-    }
+    const previous = this.patch;
+    const dirty = PATCH_SECTIONS.filter(
+      (section) =>
+        previous === null ||
+        SECTION_INPUTS[section].some((read) => read(previous) !== read(patch)),
+    );
+
+    // Before the early return: `voiceFor` reads this to build new voices, so it has to be
+    // the newest document even on a call that writes nothing.
     this.patch = patch;
-    for (const nodes of this.voices.values()) {
-      this.syncSlots(nodes, patch);
-      nodes.filter.type = patch.voice.filter.type;
-      nodes.filter.Q.value = patch.voice.filter.Q;
-      nodes.filter.rolloff = patch.voice.filter.rolloff;
-      nodes.filterEnvelope.set(frequencyEnvelopeOptions(patch));
-      nodes.amp.set({ ...patch.voice.envelope });
-      nodes.portamento = patch.voice.portamento;
-      nodes.gain.gain.value = patch.voice.amplitude;
-      nodes.panner.pan.value = patch.voice.pan;
+    this.lastApplied = dirty;
+    if (dirty.length === 0) return;
+
+    const wrote = new Set<PatchSection>(dirty);
+
+    if (wrote.has('oscillators')) {
+      for (const [index, slot] of patch.voice.oscillators.entries()) {
+        for (const gap of unsupportedOscillatorFeatures(slot, index)) this.notImplemented(gap);
+      }
     }
-    this.applyEffects(patch.effects);
-    this.syncLfos(patch);
-    this.rewireRoutes(patch);
+
+    for (const nodes of this.voices.values()) {
+      if (wrote.has('oscillators')) this.syncSlots(nodes, patch);
+      if (wrote.has('filter')) {
+        nodes.filter.type = patch.voice.filter.type;
+        nodes.filter.Q.value = patch.voice.filter.Q;
+        nodes.filter.rolloff = patch.voice.filter.rolloff;
+      }
+      if (wrote.has('filterEnvelope')) nodes.filterEnvelope.set(frequencyEnvelopeOptions(patch));
+      if (wrote.has('envelope')) nodes.amp.set({ ...patch.voice.envelope });
+      if (wrote.has('portamento')) nodes.portamento = patch.voice.portamento;
+      if (wrote.has('pan')) nodes.panner.pan.value = patch.voice.pan;
+      // `nodes.gain.gain` is deliberately absent. `voice.amplitude` reaches it through
+      // `rewireRoutes` and nowhere else — see the note there.
+    }
+
+    this.applyEffects(patch.effects, wrote);
+    if (wrote.has('lfos')) this.syncLfos(patch);
+    if (wrote.has('routes')) this.rewireRoutes(patch);
+  }
+
+  /** Which sections the last `applyPatch` wrote, in `PATCH_SECTIONS` order. */
+  getLastApplied(): readonly PatchSection[] {
+    return this.lastApplied;
   }
 
   /**
@@ -665,43 +779,58 @@ export class ToneRuntime implements Runtime {
    * disabled reverb with `wet: 0.3` stored has to sound like no reverb, and re-enabling it
    * has to restore 0.3 without the UI having to remember it. Multiplying gets both.
    */
-  private applyEffects(effects: EffectsConfig): void {
+  private applyEffects(effects: EffectsConfig, wrote: ReadonlySet<PatchSection>): void {
     const wetOf = (enabled: boolean, value: number) => (enabled ? value : 0);
 
-    const { curve, makeup } = distortionCurve(effects.distortion.amount);
-    this.distortionShaper.curve = curve;
-    const distortionWet = wetOf(effects.distortion.enabled, effects.distortion.wet);
-    // Linear crossfade, and the makeup rides on the wet leg only. Equal-power would keep
-    // the loudness steadier through the middle of the knob, and would also mean wet 0 is
-    // not quite unity dry — the wrong trade for a stage that has to disappear when off.
-    this.distortionDry.gain.value = 1 - distortionWet;
-    this.distortionWet.gain.value = distortionWet * makeup;
+    // Split five ways rather than gated once on `patch.effects`, because two of these
+    // stages BUILD something on write: `distortionCurve` allocates a 1024-point
+    // `Float32Array` and hands it to a `WaveShaper`, and `Freeverb.dampening` constructs
+    // eight new IIR filter nodes. At one gate for the whole chain, moving the delay's
+    // feedback would still pay for both.
+    if (wrote.has('distortion')) {
+      const { curve, makeup } = distortionCurve(effects.distortion.amount);
+      this.distortionShaper.curve = curve;
+      const distortionWet = wetOf(effects.distortion.enabled, effects.distortion.wet);
+      // Linear crossfade, and the makeup rides on the wet leg only. Equal-power would keep
+      // the loudness steadier through the middle of the knob, and would also mean wet 0 is
+      // not quite unity dry — the wrong trade for a stage that has to disappear when off.
+      this.distortionDry.gain.value = 1 - distortionWet;
+      this.distortionWet.gain.value = distortionWet * makeup;
+    }
 
-    this.chorus.frequency.value = effects.chorus.frequency;
-    this.chorus.delayTime = effects.chorus.delayTime;
-    this.chorus.depth = effects.chorus.depth;
-    this.chorus.wet.value = wetOf(effects.chorus.enabled, effects.chorus.wet);
+    if (wrote.has('chorus')) {
+      this.chorus.frequency.value = effects.chorus.frequency;
+      this.chorus.delayTime = effects.chorus.delayTime;
+      this.chorus.depth = effects.chorus.depth;
+      this.chorus.wet.value = wetOf(effects.chorus.enabled, effects.chorus.wet);
+    }
 
-    this.delay.delayTime.value = effects.delay.delayTime;
-    this.delay.feedback.value = effects.delay.feedback;
-    this.delay.wet.value = wetOf(effects.delay.enabled, effects.delay.wet);
+    if (wrote.has('delay')) {
+      this.delay.delayTime.value = effects.delay.delayTime;
+      this.delay.feedback.value = effects.delay.feedback;
+      this.delay.wet.value = wetOf(effects.delay.enabled, effects.delay.wet);
+    }
 
-    this.reverb.roomSize.value = effects.reverb.roomSize;
-    this.reverb.dampening = effects.reverb.dampening;
-    this.reverb.wet.value = wetOf(effects.reverb.enabled, effects.reverb.wet);
+    if (wrote.has('reverb')) {
+      this.reverb.roomSize.value = effects.reverb.roomSize;
+      this.reverb.dampening = effects.reverb.dampening;
+      this.reverb.wet.value = wetOf(effects.reverb.enabled, effects.reverb.wet);
+    }
 
-    // The EQ needs no wet control: a peaking filter at 0 dB is an identity filter, so
-    // "disabled" here is genuinely flat rather than an approximation of it.
-    const gains = [
-      effects.eq.band0.gain,
-      effects.eq.band1.gain,
-      effects.eq.band2.gain,
-      effects.eq.band3.gain,
-      effects.eq.band4.gain,
-    ];
-    this.eqBands.forEach((band, index) => {
-      band.gain.value = effects.eq.enabled ? gains[index]! : 0;
-    });
+    if (wrote.has('eq')) {
+      // The EQ needs no wet control: a peaking filter at 0 dB is an identity filter, so
+      // "disabled" here is genuinely flat rather than an approximation of it.
+      const gains = [
+        effects.eq.band0.gain,
+        effects.eq.band1.gain,
+        effects.eq.band2.gain,
+        effects.eq.band3.gain,
+        effects.eq.band4.gain,
+      ];
+      this.eqBands.forEach((band, index) => {
+        band.gain.value = effects.eq.enabled ? gains[index]! : 0;
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -766,6 +895,19 @@ export class ToneRuntime implements Runtime {
    * which connections survived an edit costs more than remaking them, and gets the
    * disable/re-enable case wrong in ways that leave a stale connection modulating
    * something nothing points at any more.
+   *
+   * Wholesale *when it runs*, that is. It no longer runs on every `applyPatch` — see the
+   * `routes` entry in `SECTION_INPUTS` for what wakes it and why `voice.amplitude` is on
+   * that list. It is still called unconditionally by `voiceFor`, which is a separate and
+   * still-unfixed churn (a chord's second note rebuilds the graph under the first).
+   *
+   * **This is the only writer of `nodes.gain.gain`.** There used to be a second, a plain
+   * `nodes.gain.gain.value = patch.voice.amplitude` in `applyPatch`, and it was already
+   * dead: this method ran last on every call and overwrote it in the same pass. Once the
+   * call became conditional, keeping it would have been actively wrong — the amplitude
+   * knob would have written the raw value while a duck route's `baseOverride` was the
+   * value the graph needed, so a tremolo would jump to the wrong resting level, silently
+   * and only with a route active. One writer, so the question cannot arise.
    */
   private rewireRoutes(patch: SynthPreset): void {
     for (const lfo of this.lfos.values()) lfo.disconnect();

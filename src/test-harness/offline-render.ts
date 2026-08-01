@@ -15,6 +15,28 @@
  *
  * ---
  *
+ * **The global context has to be restored by hand, and finding out why cost a red gate.**
+ *
+ * `Tone/core/context/Offline.ts` reads, in order: `setContext(offline)`, `await callback`,
+ * `const bufferPromise = context.render()`, `setContext(originalContext)`, then `await
+ * bufferPromise`. The restore happens as soon as `render()` is *called* — not when it
+ * resolves — and the simulated clock runs inside that promise. **So by the time a
+ * `setTimeout` callback fires, `Tone.getContext()` is the ONLINE context again.**
+ *
+ * Writing to an existing `AudioParam` survives that, because the param was captured when
+ * the graph was built. Anything that CONSTRUCTS a node does not: `new Tone.Gain()` reads
+ * the global context, so it would be built on the online graph, silently, and never
+ * render. `ToneRuntime.rewireRoutes` does exactly that, and the failure mode it produced
+ * was the loud one — `cannot connect to an AudioNode belonging to a different audio
+ * context` — only because it then tried to wire the new node to an offline LFO. A
+ * construction that did not cross the boundary would have rendered silence and passed.
+ *
+ * So each scheduled callback re-enters the offline context and restores the previous one
+ * afterwards. `setContext` with a `BaseContext` is a bare assignment (`GlobalContext.ts`)
+ * — it neither wraps nor disposes, so this is cheap and reversible.
+ *
+ * ---
+ *
  * **The limitation, which is load-bearing and is asserted in this file's own test rather
  * than left as a footnote.**
  *
@@ -74,7 +96,18 @@ export async function renderTimeline(
   const buffer = await Tone.Offline(
     (context) => {
       drive((when, fn) => {
-        context.setTimeout(fn, when);
+        context.setTimeout(() => {
+          // See the header. This fires during `render()`, by which point the global
+          // context is the online one again, so anything `fn` builds would be built on
+          // the wrong graph.
+          const outer = Tone.getContext();
+          Tone.setContext(context);
+          try {
+            fn();
+          } finally {
+            Tone.setContext(outer);
+          }
+        }, when);
       });
     },
     seconds,

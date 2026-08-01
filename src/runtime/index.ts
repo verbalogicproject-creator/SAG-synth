@@ -1,4 +1,6 @@
+export type { PatchSection } from './tone-runtime';
 export {
+  PATCH_SECTIONS,
   ToneRuntime,
   frequencyEnvelopeOptions,
   oscillatorOptions,
