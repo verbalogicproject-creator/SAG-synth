@@ -15,6 +15,7 @@ import { ToneRuntime } from '../runtime';
 import { createEngine } from '../app/create-engine';
 import { connectHotCommandBridge } from '../app/hot-command-bridge';
 import { HttpSagObserver } from '../app/http-observer';
+import { nativeChannel, NativeSagObserver } from '../app/native-bridge';
 import { MemorySagJournal } from '../core/sag/events';
 import type { Dispatcher } from '../app/dispatcher';
 
@@ -47,7 +48,13 @@ export type EngineHandle = {
   runtime: ToneRuntime;
   dispatcher: Dispatcher;
   journal: MemorySagJournal;
-  observer: HttpSagObserver;
+  /**
+   * `HttpSagObserver` when there is a dev server to post to, `NativeSagObserver` when a
+   * shell has taken its place. Only the former needs `dispose()` — the native one has no
+   * buffer or timer to tear down — so `disposeEngine` below checks for the method rather
+   * than widening this to a third, dispose-optional interface.
+   */
+  observer: HttpSagObserver | NativeSagObserver;
   /**
    * Identity of THIS engine instance, not the session.
    *
@@ -69,7 +76,7 @@ function disposeEngine(): void {
   const live = slot()[ENGINE_KEY];
   if (live == null) return;
   live.dispatcher.dispose();
-  live.observer.dispose();
+  if (live.observer instanceof HttpSagObserver) live.observer.dispose();
   slot()[ENGINE_KEY] = null;
 }
 
@@ -85,10 +92,14 @@ export function getEngine(): EngineHandle {
 
   const runtime = new ToneRuntime();
   const journal = new MemorySagJournal();
+  // A native shell, when present, is preferred over the dev-server channel: it is the one
+  // that is actually reachable in a production bundle, and `nativeChannel()` is null in
+  // every other context (including this project's own hosted build), so this never
+  // changes behaviour for a plain browser.
   const built: EngineHandle = {
     runtime,
     journal,
-    observer: new HttpSagObserver(),
+    observer: nativeChannel() ? new NativeSagObserver() : new HttpSagObserver(),
     instanceId: crypto.randomUUID().slice(0, 8),
     dispatcher: createEngine({ runtime, overrides: { journal } }),
   };
@@ -115,5 +126,15 @@ if (import.meta.hot) {
   // Let the dev server play this engine. `'agent'` rather than `'ui'` so the journal
   // records who moved the knob, which is the distinction CommandSource exists for.
   connectHotCommandBridge(import.meta.hot, (command) => getEngine().dispatcher.dispatch(command, 'agent'));
+} else {
+  // The production-legal path. `import.meta.hot` is always undefined in a built bundle,
+  // so this branch is the ONLY way an external driver can reach a shipped instrument —
+  // and it only fires when a native shell actually injected `window.AndroidBridge`.
+  // A plain browser, including this project's own hosted build, sees `nativeChannel()`
+  // return null and takes neither branch: no bridge, no behaviour change.
+  const channel = nativeChannel();
+  if (channel) {
+    connectHotCommandBridge(channel, (command) => getEngine().dispatcher.dispatch(command, 'agent'));
+  }
 }
 

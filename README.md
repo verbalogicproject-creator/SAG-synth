@@ -88,6 +88,46 @@ The layer rule is enforced by a test, not by convention. Swapping `ToneRuntime` 
 `NullRuntime` is what makes the engine headless, and one stray `import 'tone'` upstream
 would mean the headless path needs a browser.
 
+## Driving the synth from an Android shell
+
+`npm run observe` / `npm run command` only work against the Vite dev server —
+`import.meta.hot` does not exist in a production bundle, so that channel is dead there.
+A shipped, installed build has exactly one other legal external driver:
+`src/app/native-bridge.ts`, which is inert everywhere except inside a native shell that
+has injected `window.AndroidBridge` before the page loads.
+
+The contract, entirely on the shell's side:
+
+- The shell provides `window.AndroidBridge = { postResult(json), observe(json), log(line) }`.
+- The page installs `window.__sagNative = { deliver(json), onIntent(uri) }`. The shell
+  delivers a command by calling `window.__sagNative.deliver(JSON.stringify({id, command}))`
+  and forwards a deep link via `window.__sagNative.onIntent(uri)`.
+- Everything else is identical to the dev-server bridge: the same `SynthCommand` shapes,
+  the same `CommandResult` replies, the same `'agent'` `CommandSource` in the journal.
+
+A plain browser — including this project's own hosted build — never sees
+`window.AndroidBridge`, so `nativeChannel()` returns `null` and `src/clients/engine.ts`
+takes neither the Vite nor the native branch: no bridge, no behaviour change.
+
+## MCP
+
+`npm run mcp` starts a stdio MCP server (`scripts/sag-mcp.mjs`) wrapping the same
+command/observe loop as the npm scripts above, so an MCP client can drive and inspect a
+running instrument (dev server or Android shell) the same way a terminal does.
+
+Tools:
+
+- `sag_command({ commands, gapMs? })` — plays the synth. `commands` is a `SynthCommand`
+  object/array or its JSON string form. Spawns `scripts/sag-command.mjs`; target defaults
+  to the Android shell's loopback endpoint (`http://127.0.0.1:8765/__sag/command`),
+  overridable with `SAG_ENDPOINT` (e.g. `http://127.0.0.1:5173/__sag/command` for the dev
+  server).
+- `sag_observe({ windowSeconds? })` — fetches `SAG_OBSERVE_URL`
+  (default `http://127.0.0.1:8765/__sag/observe?tail=500`), writes it to a temp JSONL
+  file, and reuses `scripts/sag-observe.mjs`'s own verdict logic over it via its
+  `SAG_OBSERVE_LOG` override.
+- `sag_health()` — GETs `SAG_HEALTH_URL` (default `http://127.0.0.1:8765/__sag/health`).
+
 ## How this codebase is written
 
 Three habits explain most of what looks unusual:

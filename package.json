@@ -17,7 +17,8 @@
     "test": "vitest run",
     "observe": "node scripts/sag-observe.mjs",
     "command": "node scripts/sag-command.mjs",
-    "geometry": "node scripts/sag-geometry.mjs"
+    "geometry": "node scripts/sag-geometry.mjs",
+    "mcp": "node scripts/sag-mcp.mjs"
   },
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
@@ -30,6 +31,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",

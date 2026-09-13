@@ -31,7 +31,10 @@ import { readFileSync, existsSync } from 'node:fs';
  * downstream of anything measurable from a page.
  */
 
-const LOG = '.sag/audio-observed.jsonl';
+// Overridable so `scripts/sag-mcp.mjs` can point this at a temp file holding a fetched
+// window of observations rather than the local dev server's own append-only log — the
+// interpretation logic below is what it wants to reuse, not the log's location.
+const LOG = process.env.SAG_OBSERVE_LOG ?? '.sag/audio-observed.jsonl';
 const SIGNAL_FLOOR = 0.001;
 const windowSeconds = process.argv[2] === undefined ? null : Number(process.argv[2]);
 
