@@ -20,8 +20,29 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DebugApp } from './clients/debug';
 import { SynthApp } from './clients/synth/SynthApp';
-import { isDebugSurface } from './clients/surface-route';
+import { hashForSurface, isDebugSurface, surfaceFromIntent } from './clients/surface-route';
+import { onNativeIntent } from './app/native-bridge';
 import './index.css';
+
+/**
+ * A native deep link can choose the surface.
+ *
+ * `onNativeIntent` was exported and nothing ever registered a listener, so every VIEW
+ * intent the Android shell forwarded reached the page, found no handler, and was logged
+ * as "onIntent received with no listener registered". That is the whole reason this
+ * exists.
+ *
+ * A RELOAD, not a re-render, for the reason stated below: this file mounts exactly one
+ * surface on import and is not reactive to hash changes, so setting the hash on its own
+ * would change the address bar and nothing else. Guarded against reloading when the
+ * requested surface is the one already showing, which would otherwise be a loop.
+ */
+onNativeIntent((uri) => {
+  const target = hashForSurface(surfaceFromIntent(uri));
+  if (isDebugSurface(window.location.hash) === isDebugSurface(target)) return;
+  window.location.hash = target;
+  window.location.reload();
+});
 
 const Surface = isDebugSurface(window.location.hash) ? DebugApp : SynthApp;
 

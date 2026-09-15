@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getEngine } from '../engine';
+import { useAudioObservation } from '../use-audio-observation';
 import { VirtualKeyboard } from '../debug/VirtualKeyboard';
 import { controlForPath, fullNameOf } from '../../core/controls';
 import { getParam } from '../../core/params';
@@ -62,7 +63,13 @@ const PAD_Y_TARGETS: readonly ParamPath[] = WIRED_MOD_DESTINATIONS.filter(
 const DETUNE_SPEC = PARAM_SPECS['voice.oscillators.0.detune'];
 
 export function SynthApp() {
-  const { dispatcher, runtime } = getEngine();
+  const { dispatcher, runtime, observer, instanceId } = getEngine();
+
+  // The instrument reports too, not just the debug wall. This surface is the one being
+  // played when the question is "is it crackling on the phone", and it emitted nothing
+  // at all until now -- so render_capacity and underrun_ratio, which exist precisely to
+  // answer that, had never produced a reading on a device.
+  useAudioObservation(runtime, observer, instanceId);
 
   const [state, setState] = useState(() => dispatcher.getState());
   const [contextState, setContextState] = useState(() => runtime.getContextState());

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UNMAPPED_PARAMS, unsupportedOscillatorFeatures } from '../../runtime';
 import { DEFAULT_PRESET_ID } from '../../core/state';
+import { useAudioObservation } from '../use-audio-observation';
 import { getEngine } from '../engine';
 import { clampOctave, isMusicalKey, noteForKey } from './keyboard';
 import { VirtualKeyboard } from './VirtualKeyboard';
@@ -176,28 +177,7 @@ export function DebugApp() {
     return () => cancelAnimationFrame(frame);
   }, [runtime]);
 
-  /**
-   * Ship a measurement of the master bus to the dev server, twice a second.
-   *
-   * Separate from the meter loop above on purpose. That one runs on `requestAnimationFrame`
-   * because it drives a display and should stop when the tab is hidden; this one runs on a
-   * timer because a synth that goes quiet when backgrounded is exactly the thing worth
-   * recording, and rAF would fall silent at the same moment as the evidence.
-   *
-   * 500 ms is chosen against what it must catch — a note's decay, a graph that stopped, a
-   * second engine appearing. Fast enough to see any of those, slow enough that the buffer
-   * holds a hundred seconds of history at its ceiling.
-   */
-  useEffect(() => {
-    const id = setInterval(() => {
-      observer.observe({
-        ...runtime.observeAudio(),
-        instance_id: instanceId,
-        observed_at: Date.now(),
-      });
-    }, 500);
-    return () => clearInterval(id);
-  }, [runtime, observer, instanceId]);
+  useAudioObservation(runtime, observer, instanceId);
 
   /**
    * Resume the context on any qualifying gesture, for as long as it is not running.
