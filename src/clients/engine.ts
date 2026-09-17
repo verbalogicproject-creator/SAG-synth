@@ -16,6 +16,7 @@ import { createEngine } from '../app/create-engine';
 import { connectHotCommandBridge } from '../app/hot-command-bridge';
 import { HttpSagObserver } from '../app/http-observer';
 import { nativeChannel, NativeSagObserver } from '../app/native-bridge';
+import { releaseNotesWhenHidden } from '../app/release-on-hide';
 import { MemorySagJournal } from '../core/sag/events';
 import type { Dispatcher } from '../app/dispatcher';
 
@@ -64,6 +65,8 @@ export type EngineHandle = {
    * synth that has gone quiet.
    */
   instanceId: string;
+  /** Detaches the release-on-hide listeners; null where there is no document. */
+  releaseOnHide: (() => void) | null;
 };
 
 type EngineSlot = typeof globalThis & { [ENGINE_KEY]?: EngineHandle | null };
@@ -75,6 +78,7 @@ function slot(): EngineSlot {
 function disposeEngine(): void {
   const live = slot()[ENGINE_KEY];
   if (live == null) return;
+  live.releaseOnHide?.();
   live.dispatcher.dispose();
   if (live.observer instanceof HttpSagObserver) live.observer.dispose();
   slot()[ENGINE_KEY] = null;
@@ -102,7 +106,15 @@ export function getEngine(): EngineHandle {
     observer: nativeChannel() ? new NativeSagObserver() : new HttpSagObserver(),
     instanceId: crypto.randomUUID().slice(0, 8),
     dispatcher: createEngine({ runtime, overrides: { journal } }),
+    releaseOnHide: null,
   };
+  // Swiping to the background mid-press never delivers pointerup, so a held note stayed
+  // stuck for the life of the process. See app/release-on-hide.ts.
+  if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+    built.releaseOnHide = releaseNotesWhenHidden({ window, document }, (command) =>
+      built.dispatcher.dispatch(command),
+    );
+  }
   slot()[ENGINE_KEY] = built;
   return built;
 }
