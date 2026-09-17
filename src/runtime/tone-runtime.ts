@@ -1684,7 +1684,30 @@ export class ToneRuntime implements Runtime {
       sumSquares += sample * sample;
     }
 
+    let mean = 0;
+    let crossings = 0;
+    for (let i = 0; i < wave.length; i += 1) mean += wave[i]!;
+    mean = wave.length === 0 ? 0 : mean / wave.length;
+    for (let i = 1; i < wave.length; i += 1) {
+      if ((wave[i - 1]! - mean < 0) !== (wave[i]! - mean < 0)) crossings += 1;
+    }
+    const sampleRate = this.getSampleRate();
+    const signal: Partial<SynthAudioObservedEvent> =
+      crossings >= 2 && wave.length > 0 ? { signal_hz: (crossings / 2) * (sampleRate / wave.length) } : {};
+
+    const voiceDetail = [...this.voices].map(([id, nodes]) => ({
+      id: String(id),
+      frequency_hz: Number(nodes.frequency.value),
+      amp: Number(nodes.amp.value),
+      filter_hz: Number(nodes.filter.frequency.value),
+      slots: nodes.slots.length,
+    }));
+
     return {
+      ...signal,
+      dc_offset: mean,
+      master_volume_db: this.master.volume.value,
+      voice_detail: voiceDetail,
       context_state: this.getContextState(),
       // `getLevel()` floors denormals and returns -Infinity for silence, which is right
       // in memory and unrepresentable in JSON — it serialises to null regardless. Mapping

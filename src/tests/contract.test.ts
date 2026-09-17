@@ -505,6 +505,10 @@ describe('SAG substrate matches the declared KINDs', () => {
       'output_latency',
       'render_capacity',
       'underrun_ratio',
+      'signal_hz',
+      'dc_offset',
+      'master_volume_db',
+      'voice_detail',
       'note',
     ]);
   });

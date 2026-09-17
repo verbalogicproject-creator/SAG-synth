@@ -193,6 +193,10 @@ export const SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS = [
   'output_latency',
   'render_capacity',
   'underrun_ratio',
+  'signal_hz',
+  'dc_offset',
+  'master_volume_db',
+  'voice_detail',
   'note',
 ] as const;
 
@@ -270,6 +274,34 @@ export interface SynthAudioObservedEvent {
    * says how close to the edge, this says how often it went over.
    */
   underrun_ratio?: number;
+
+  /**
+   * What the signal IS, not just how loud it is.
+   *
+   * Added when the phone reported a steady -25 dB master level while nothing could be
+   * heard. A level cannot distinguish an audible tone from a DC offset or a subsonic or
+   * ultrasonic signal a phone speaker cannot reproduce; these can.
+   *
+   * `signal_hz` is half the zero-crossing rate of the analyser window -- a fundamental
+   * estimate that is exact for a clean periodic wave and rough for a rich one, and
+   * absent when the window has fewer than two crossings. `dc_offset` is the window mean:
+   * a value near `peak` means the "level" is DC, which no speaker plays.
+   */
+  signal_hz?: number;
+  dc_offset?: number;
+  /** The master `Tone.Volume` setting, dB -- upstream of the limiter and the clip. */
+  master_volume_db?: number;
+  /**
+   * One entry per built voice: its pitch, where its envelopes are right now, and its
+   * filter cutoff. A voice that is built but closed reads `amp` 0; a stuck one does not.
+   */
+  voice_detail?: readonly {
+    readonly id: string;
+    readonly frequency_hz: number;
+    readonly amp: number;
+    readonly filter_hz: number;
+    readonly slots: number;
+  }[];
 
   /** Free-text marker for human-driven diagnosis, e.g. "after unlock tap". */
   note?: string;
