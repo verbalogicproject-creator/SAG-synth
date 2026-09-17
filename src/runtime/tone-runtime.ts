@@ -1708,6 +1708,7 @@ export class ToneRuntime implements Runtime {
       dc_offset: mean,
       master_volume_db: this.master.volume.value,
       voice_detail: voiceDetail,
+      context_time: Tone.getContext().currentTime,
       context_state: this.getContextState(),
       // `getLevel()` floors denormals and returns -Infinity for silence, which is right
       // in memory and unrepresentable in JSON — it serialises to null regardless. Mapping

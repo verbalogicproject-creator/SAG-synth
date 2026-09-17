@@ -509,6 +509,7 @@ describe('SAG substrate matches the declared KINDs', () => {
       'dc_offset',
       'master_volume_db',
       'voice_detail',
+      'context_time',
       'note',
     ]);
   });

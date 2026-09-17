@@ -197,6 +197,7 @@ export const SYNTH_AUDIO_OBSERVED_OPTIONAL_SLOTS = [
   'dc_offset',
   'master_volume_db',
   'voice_detail',
+  'context_time',
   'note',
 ] as const;
 
@@ -302,6 +303,14 @@ export interface SynthAudioObservedEvent {
     readonly filter_hz: number;
     readonly slots: number;
   }[];
+
+  /**
+   * `AudioContext.currentTime`, seconds. Two observations give the audio clock's rate
+   * against `observed_at`: at ~1.0 the render thread keeps real time, well below it the
+   * thread is falling behind -- the load signal this browser does not otherwise publish
+   * (`renderCapacity` is absent in Chrome and WebView on the phone this was measured on).
+   */
+  context_time?: number;
 
   /** Free-text marker for human-driven diagnosis, e.g. "after unlock tap". */
   note?: string;
