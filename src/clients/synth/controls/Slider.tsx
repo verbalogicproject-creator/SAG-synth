@@ -26,6 +26,7 @@ export function Slider({
   onChange,
   state = 'live',
   reason,
+  accessory,
 }: ControlProps) {
   if (spec.kind !== 'number') {
     throw new Error(`Slider drew "${path}", which is a ${spec.kind}. Widget choice is declared.`);
@@ -37,7 +38,10 @@ export function Slider({
   return (
     <div style={styles.wrap}>
       <div style={styles.head}>
-        <span style={styles.label}>{label}</span>
+        <span style={styles.labelRow}>
+          <span style={styles.label}>{label}</span>
+          {accessory}
+        </span>
         <span style={{ ...styles.value, color: tint }}>{formatValue(current, spec)}</span>
       </div>
       <input
@@ -59,7 +63,8 @@ export function Slider({
 
 const styles = {
   wrap: { display: 'block', width: '100%' },
-  head: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
+  head: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  labelRow: { display: 'flex', alignItems: 'center', gap: '0.4rem' },
   label: {
     fontFamily: FONT.display,
     fontSize: '0.65rem',

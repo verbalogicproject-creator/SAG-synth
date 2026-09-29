@@ -21,11 +21,17 @@ export interface RuntimeNoteOn {
   velocity: Unit;
   /** Glide time in seconds, taken from the patch at dispatch time. */
   portamento: number;
+  /**
+   * The synth channel this note plays on (C5). Absent: the live patch. Voice ids are per
+   * channel — voice 0 of one channel and voice 0 of another are different voices.
+   */
+  trackId?: string;
 }
 
 export interface RuntimeNoteOff {
   voiceId: VoiceId;
   note: NoteName;
+  trackId?: string;
 }
 
 export interface TransportControl {
@@ -49,8 +55,11 @@ export interface RuntimeAdapter {
   noteOn(request: RuntimeNoteOn): void;
   noteOff(request: RuntimeNoteOff): void;
 
-  /** Release a voice the allocator decided to reclaim. Core decides; runtime executes. */
-  steal(voiceId: VoiceId): void;
+  /**
+   * Release a voice the allocator decided to reclaim. Core decides; runtime executes.
+   * `trackId` names the channel whose pool it belongs to; absent means the live patch.
+   */
+  steal(voiceId: VoiceId, trackId?: string): void;
 
   /** Rebuild tracks, tempo, swing, loop, and scheduled parts from the song document. */
   applySong(song: Song): void;
@@ -82,7 +91,8 @@ export type Runtime = RuntimeAdapter & RuntimeReadout;
 export class NullRuntime implements Runtime {
   readonly calls: Array<{ method: string; arg?: unknown }> = [];
 
-  private activeVoices = new Map<VoiceId, VoiceSlot>();
+  /** Keyed by `voiceKey`: voice ids repeat across channels. */
+  private activeVoices = new Map<string, VoiceSlot>();
   private playhead: Beats = 0;
   private disposed = false;
 
@@ -101,7 +111,7 @@ export class NullRuntime implements Runtime {
 
   noteOn(request: RuntimeNoteOn): void {
     this.record('noteOn', request);
-    this.activeVoices.set(request.voiceId, {
+    this.activeVoices.set(voiceKey(request.voiceId, request.trackId), {
       voiceId: request.voiceId,
       note: request.note,
       velocity: request.velocity,
@@ -111,12 +121,13 @@ export class NullRuntime implements Runtime {
 
   noteOff(request: RuntimeNoteOff): void {
     this.record('noteOff', request);
-    this.activeVoices.delete(request.voiceId);
+    this.activeVoices.delete(voiceKey(request.voiceId, request.trackId));
   }
 
-  steal(voiceId: VoiceId): void {
-    this.record('steal', voiceId);
-    this.activeVoices.delete(voiceId);
+  steal(voiceId: VoiceId, trackId?: string): void {
+    // The live patch records the bare id, as before C5, so older assertions still read it.
+    this.record('steal', trackId === undefined ? voiceId : { voiceId, trackId });
+    this.activeVoices.delete(voiceKey(voiceId, trackId));
   }
 
   applySong(song: Song): void {
@@ -170,4 +181,8 @@ export class NullRuntime implements Runtime {
     this.playhead = 0;
     this.disposed = false;
   }
+}
+
+function voiceKey(voiceId: VoiceId, trackId: string | undefined): string {
+  return `${trackId ?? ''}#${voiceId}`;
 }

@@ -16,6 +16,7 @@
 import type { PresetSummary, SongSummary } from './commands';
 import type { Song, SynthPreset } from './types';
 import type { SynthCommandAppliedEvent } from './sag/events';
+import { parseSession, type SessionDoc } from './session';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -70,6 +71,14 @@ export interface PersistencePort {
   saveAutosave(song: Song): Promise<void>;
   loadAutosave(): Promise<Song | null>;
 
+  /**
+   * The session (C3b): the live sound and the song, put back at startup. Read through
+   * `parseSession` — migrated and validated — so an older build's session still loads and
+   * an unreadable one comes back as null rather than half a session.
+   */
+  saveSession(session: SessionDoc): Promise<void>;
+  loadSession(): Promise<SessionDoc | null>;
+
   /** Durable journal append. "Emitted" means this resolved — never "a backend saw it". */
   appendJournal(events: readonly SynthCommandAppliedEvent[]): Promise<void>;
   readJournal(fromSeq?: number): Promise<readonly SynthCommandAppliedEvent[]>;
@@ -85,6 +94,7 @@ export class MemoryPersistence implements PersistencePort {
   private presets = new Map<string, SynthPreset>();
   private songs = new Map<string, Song>();
   private autosaveSlot: Song | null = null;
+  private sessionSlot: unknown = null;
   private journal: SynthCommandAppliedEvent[] = [];
   private ackedSeq = -1;
 
@@ -156,6 +166,21 @@ export class MemoryPersistence implements PersistencePort {
     return Promise.resolve(this.autosaveSlot ? structuredClone(this.autosaveSlot) : null);
   }
 
+  saveSession(session: SessionDoc): Promise<void> {
+    this.sessionSlot = structuredClone(session);
+    return Promise.resolve();
+  }
+
+  loadSession(): Promise<SessionDoc | null> {
+    // Parsed like the durable twin, so a test can plant an old-shaped session here.
+    return Promise.resolve(this.sessionSlot === null ? null : parseSession(structuredClone(this.sessionSlot)));
+  }
+
+  /** Test affordance: store a raw document exactly as some past build might have. */
+  plantSession(raw: unknown): void {
+    this.sessionSlot = raw;
+  }
+
   appendJournal(events: readonly SynthCommandAppliedEvent[]): Promise<void> {
     this.journal.push(...events.map((event) => structuredClone(event)));
     return Promise.resolve();
@@ -179,6 +204,7 @@ export class MemoryPersistence implements PersistencePort {
     this.songs.clear();
     this.journal.length = 0;
     this.autosaveSlot = null;
+    this.sessionSlot = null;
     this.ackedSeq = -1;
   }
 }

@@ -7,11 +7,14 @@
  * it dispatches, then the curve redraws from the patch like it always did. There is no
  * second source of truth about an envelope, which is the only reason this was safe to add.
  *
- * **A handle is not a point on the path.** It looks like one, and treating it as one is the
- * trap: the three times share the width in proportion to each other
- * (`part / total * budget`), so moving one breakpoint's x moves every other breakpoint too.
- * Dragging the path would mean solving for a value that produces a requested pixel, with a
- * different answer depending on the other three. So each handle is a HANDLE FOR ITS OWN
+ * **Time is drawn on a fixed axis** (Eyal, 2026-09-18: "when i change decay it only controls
+ * the decay"). The widths used to be shares of their TOTAL, so a longer decay squeezed the
+ * attack and hold on screen even though the sound never changed. Now each stage's width is a
+ * function of its own seconds and of the axis, never of another stage — see `stageWidth`.
+ *
+ * **A handle is not a point on the path.** It looks like one, and the axis is compressive
+ * (a log knee), so a requested pixel maps to seconds non-linearly. So each handle is a
+ * HANDLE FOR ITS OWN
  * PARAMETER, using `Knob`'s gesture: screen-pixel travel from where the finger went down,
  * added to the track position the value had at that moment, committed through `fromTrack`.
  *
@@ -24,15 +27,14 @@
  * viewBox without being clipped at the edges. Positioned by percentage, so they track the
  * curve at any width.
  *
- * Times are drawn on a shared scale derived from the specs rather than assumed: an envelope
- * whose attack can reach 20 s and one capped at 2 s should not draw the same picture for
- * the same number.
+ * The axis is derived from the ranges rather than assumed: an envelope whose attack can
+ * reach 20 s and one set to 2 s should not draw the same picture for the same number.
  */
 
 import { useRef } from 'react';
 import { fromTrack, stepOf, toTrack } from '../../../core/scale';
 import { PARAM_SPECS } from '../../../core/schemas';
-import type { ParamPath, ParamValue } from '../../../core/types';
+import type { DecayCurve, ParamPath, ParamValue } from '../../../core/types';
 import { COLOR, FONT, TOUCH_MIN } from '../tokens';
 
 const WIDTH = 240;
@@ -53,8 +55,12 @@ export interface EnvelopeCurveProps {
   decay: number;
   sustain: number;
   release: number;
-  /** Longest a single stage can be, from the spec. Sets the horizontal scale. */
-  maxStage: number;
+  /**
+   * The travel of each time stage in seconds — the spec's range, or the short range the
+   * player picked. Sets both the drawn axis (a stage at its maximum fills its whole slot)
+   * and how far a handle drag moves the value. Omitted stages use their spec's maximum.
+   */
+  ranges?: Partial<Record<TimeStage, number>>;
   /** Amber when the envelope is drawn for a control the current shape ignores. */
   dimmed?: boolean;
   label?: string;
@@ -64,6 +70,54 @@ export interface EnvelopeCurveProps {
    */
   stages?: readonly [ParamPath, ParamPath, ParamPath, ParamPath];
   onChange?: (path: ParamPath, value: ParamValue) => void;
+  /**
+   * AHDSR (schema_version 5): the hold, drawn as a plateau at the peak between the attack and
+   * the decay — on the SAME time scale as the other stages. The first version scaled it
+   * against its own 0.5 s range, and the first screenshot showed a 30 ms hold drawn as most of
+   * the width beside a 60 ms decay drawn as a sliver: two scales, one picture, a lie. One
+   * axis for all four times now (`stageWidth`): the same seconds draw the same width.
+   */
+  hold?: number;
+  /** Present means the hold is draggable, like `stages`. */
+  holdPath?: ParamPath;
+  /** The decay's shape, so the picture curves the way the sound does. */
+  decayCurve?: DecayCurve;
+}
+
+export type TimeStage = 'attack' | 'hold' | 'decay' | 'release';
+
+/**
+ * The knee of the time axis, in seconds. Below it a stage draws nearly linearly; above it,
+ * logarithmically. A psytrance pluck lives at 0–100 ms and a pad at seconds, on one editor,
+ * and a linear axis that fits 2 s draws a 30 ms hold as one pixel. 5 ms keeps the click
+ * region readable without flattening the long end.
+ */
+export const TIME_KNEE = 0.005;
+
+/**
+ * How wide a stage of `seconds` draws, in units of the axis scale. The whole point of the
+ * function is its signature: it takes ONE stage's seconds and that stage's range, and
+ * nothing about the other stages, so changing the decay cannot move the attack or the hold.
+ * Monotonic, zero at zero, and the same for the same seconds in any stage.
+ */
+export function stageWidth(seconds: number, range: number): number {
+  const clamped = Math.min(Math.max(seconds, 0), Math.max(range, 0));
+  return Math.log1p(clamped / TIME_KNEE);
+}
+
+/** Samples along the decay segment, so a shaped decay draws as a curve and not a line. */
+const DECAY_SAMPLES = 12;
+
+/**
+ * How far along its fall a decay is, 0 (peak) .. 1 (sustain), at fraction `x` of its time.
+ * The drawing's approximation of what the runtime schedules: Tone's exponential approach
+ * reaches ~99.5% of the way (then a short linear ramp closes it), `logarithmic` is
+ * `1 − (1 − x^3)` from `core/ahdsr.ts`, linear is linear.
+ */
+function decayProgress(shape: DecayCurve, x: number): number {
+  if (shape === 'linear') return x;
+  if (shape === 'logarithmic') return Math.pow(x, 3);
+  return 1 - Math.exp(-5.3 * x);
 }
 
 /** One drag: which pointer, where it went down, and the track each axis started from. */
@@ -80,53 +134,96 @@ export function EnvelopeCurve({
   decay,
   sustain,
   release,
-  maxStage,
+  ranges = {},
   dimmed = false,
   label = 'envelope',
   stages,
   onChange,
+  hold = 0,
+  holdPath,
+  decayCurve = 'linear',
 }: EnvelopeCurveProps) {
   const inner = WIDTH - PAD * 2;
   const floor = HEIGHT - PAD;
   const ceiling = PAD;
 
-  // Sustain is a LEVEL and has no duration, so it gets a fixed quarter of the width. The
-  // three real times share the rest in proportion to how much of their range they use —
-  // a decay at 10% of its maximum draws a tenth of the time budget whatever that maximum
-  // happens to be.
-  const held = inner * 0.25;
+  // Sustain is a LEVEL and has no duration, so it gets a fixed fifth of the width. The four
+  // times share the rest on ONE axis: each has a slot as wide as its range would draw, and
+  // the scale is set so all four slots at their maximum exactly fill it. A stage's width is
+  // then `scale * stageWidth(its own seconds)` — no total, no normalisation, so a stage moves
+  // only itself and what comes after it. The ranges ARE the zoom: short mode (2 s) spreads a
+  // pluck wider than long mode (20 s) does.
+  const held = inner * 0.2;
   const budget = inner - held;
-  const fractions = [attack, decay, release].map((seconds) =>
-    maxStage <= 0 ? 0 : Math.min(Math.max(seconds / maxStage, 0), 1),
-  );
-  const total = fractions.reduce((sum, part) => sum + part, 0);
-  // An all-zero envelope is a legitimate patch (a click), so share the width evenly rather
-  // than dividing by zero and drawing nothing.
-  const scaled = fractions.map((part) => (total === 0 ? budget / 3 : (part / total) * budget));
+  const rangeOf = (stage: TimeStage, path: ParamPath | undefined) => {
+    const given = ranges[stage];
+    if (given !== undefined) return given;
+    const spec = path === undefined ? undefined : PARAM_SPECS[path];
+    return spec?.kind === 'number' ? spec.max : stage === 'hold' ? 0.5 : 20;
+  };
+  const range = {
+    attack: rangeOf('attack', stages?.[0] ?? 'voice.envelope.attack'),
+    hold: rangeOf('hold', holdPath ?? 'voice.envelope.hold'),
+    decay: rangeOf('decay', stages?.[1] ?? 'voice.envelope.decay'),
+    release: rangeOf('release', stages?.[3] ?? 'voice.envelope.release'),
+  };
+  const slots = stageWidth(range.attack, range.attack) + stageWidth(range.hold, range.hold) +
+    stageWidth(range.decay, range.decay) + stageWidth(range.release, range.release);
+  const scale = slots > 0 ? budget / slots : 0;
+  const scaled = [
+    scale * stageWidth(attack, range.attack),
+    scale * stageWidth(hold, range.hold),
+    scale * stageWidth(decay, range.decay),
+    scale * stageWidth(release, range.release),
+  ];
 
   const level = Math.min(Math.max(sustain, 0), 1);
   const sustainY = floor - (floor - ceiling) * level;
 
   const x0 = PAD;
   const x1 = x0 + (scaled[0] ?? 0);
-  const x2 = x1 + (scaled[1] ?? 0);
+  const xHold = x1 + (scaled[1] ?? 0);
+  const x2 = xHold + (scaled[2] ?? 0);
   const x3 = x2 + held;
-  const x4 = x3 + (scaled[2] ?? 0);
+  const x4 = x3 + (scaled[3] ?? 0);
 
-  const path = `M ${x0} ${floor} L ${x1} ${ceiling} L ${x2} ${sustainY} L ${x3} ${sustainY} L ${x4} ${floor}`;
+  const decayPoints = Array.from({ length: DECAY_SAMPLES }, (_unused, i) => {
+    const x = (i + 1) / DECAY_SAMPLES;
+    const y = ceiling + (sustainY - ceiling) * decayProgress(decayCurve, x);
+    return `L ${xHold + (x2 - xHold) * x} ${y}`;
+  }).join(' ');
+
+  const path = `M ${x0} ${floor} L ${x1} ${ceiling} L ${xHold} ${ceiling} ${decayPoints} L ${x3} ${sustainY} L ${x4} ${floor}`;
   const tint = dimmed ? COLOR.ignored : COLOR.accent;
 
   const gesture = useRef<Gesture | null>(null);
   const extraPointers = useRef(new Set<number>());
 
+  /**
+   * A path's spec with its travel narrowed to the chosen range, so a handle in short mode
+   * moves 0–2 s across the same finger travel that long mode spends on 0–20 s.
+   */
+  const rangeFor = new Map<ParamPath, number>();
+  if (stages !== undefined) {
+    rangeFor.set(stages[0], range.attack);
+    rangeFor.set(stages[1], range.decay);
+    rangeFor.set(stages[3], range.release);
+  }
+  if (holdPath !== undefined) rangeFor.set(holdPath, range.hold);
+  const specOf = (path: ParamPath) => {
+    const spec = PARAM_SPECS[path];
+    const max = rangeFor.get(path);
+    return spec.kind === 'number' && max !== undefined ? { ...spec, max: Math.min(spec.max, max) } : spec;
+  };
+
   /** The current value of a stage path, as a 0..1 track position. */
   const trackOf = (path: ParamPath, value: number): number => {
-    const spec = PARAM_SPECS[path];
+    const spec = specOf(path);
     return spec.kind === 'number' ? toTrack(value, spec) : 0;
   };
 
   const commit = (path: ParamPath, track: number) => {
-    const spec = PARAM_SPECS[path];
+    const spec = specOf(path);
     if (spec.kind !== 'number' || onChange === undefined) return;
     onChange(path, fromTrack(Math.min(Math.max(track, 0), 1), spec));
   };
@@ -142,6 +239,7 @@ export function EnvelopeCurve({
       ? []
       : [
           { key: 'attack', cx: x1, cy: ceiling, x: stages[0], value: attack },
+          ...(holdPath === undefined ? [] : [{ key: 'hold', cx: xHold, cy: ceiling, x: holdPath, value: hold }]),
           { key: 'decay', cx: x2, cy: sustainY, x: stages[1], value: decay, y: stages[2], yValue: sustain },
           { key: 'release', cx: x4, cy: floor, x: stages[3], value: release },
         ];
@@ -199,11 +297,11 @@ export function EnvelopeCurve({
     event.preventDefault();
 
     if (horizontal !== 0) {
-      const spec = PARAM_SPECS[handle.x];
+      const spec = specOf(handle.x);
       if (spec.kind === 'number') commit(handle.x, trackOf(handle.x, handle.value) + horizontal * stepOf(spec) / (spec.max - spec.min || 1));
     }
     if (vertical !== 0 && handle.y !== undefined) {
-      const spec = PARAM_SPECS[handle.y];
+      const spec = specOf(handle.y);
       if (spec.kind === 'number') {
         commit(handle.y, trackOf(handle.y, handle.yValue ?? 0) + vertical * stepOf(spec) / (spec.max - spec.min || 1));
       }
@@ -217,7 +315,7 @@ export function EnvelopeCurve({
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label={`${label}: attack ${attack}s, decay ${decay}s, sustain ${level}, release ${release}s`}
+        aria-label={`${label}: attack ${attack}s, hold ${hold}s, decay ${decay}s ${decayCurve}, sustain ${level}, release ${release}s`}
         style={styles.svg}
       >
         <rect x={0} y={0} width={WIDTH} height={HEIGHT} fill={COLOR.surfaceLowest} rx={4} />

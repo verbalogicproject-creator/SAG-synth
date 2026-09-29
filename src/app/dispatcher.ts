@@ -35,10 +35,12 @@ import {
   type SynthCommand,
 } from '../core/commands';
 import { allocate, applyAllocation, releaseNote } from '../core/allocate';
+import { channelKind, soundFor } from '../core/channels';
 import { applyToHistory, emittedRevision, initialHistory, type HistoryState } from '../core/history';
 import { validateCommand } from '../core/schemas';
 import {
   initialTransientState,
+  type ChannelTransient,
   type EngineState,
   type TransientState,
 } from '../core/state';
@@ -164,6 +166,10 @@ export class Dispatcher {
     return {
       heldNotes: new Map(this.transient.heldNotes),
       voices: [...this.transient.voices],
+      channels: new Map([...this.transient.channels].map(([trackId, pool]) => [
+        trackId,
+        { heldNotes: new Map(pool.heldNotes), voices: [...pool.voices] },
+      ])),
       noteCounter: this.transient.noteCounter,
     };
   }
@@ -252,45 +258,72 @@ export class Dispatcher {
     startedAt: number | undefined,
   ): CommandResult {
     const state = this.history.present;
+    const trackId = (command as { trackId?: string }).trackId;
+    const pool = this.poolFor(state, trackId);
+    if (pool === null) {
+      return this.finish(envelope, {
+        status: 'rejected',
+        error: `track "${trackId}" is not a synth channel — a note needs a sound to play`,
+      }, state.revision, startedAt);
+    }
+    const channel = trackId === undefined ? {} : { trackId };
 
     if (command.type === 'noteOn') {
+      const voice = soundFor(state, trackId).voice;
       const request = {
         note: command.note,
         velocity: command.velocity,
         order: this.transient.noteCounter,
       };
-      const allocation = allocate(
-        this.transient.voices,
-        state.patch.voice.polyphony,
-        state.patch.voice.stealPolicy,
-        request,
-      );
+      const allocation = allocate(pool.voices, voice.polyphony, voice.stealPolicy, request);
       // Steal first: the runtime must release the old note before the slot is reused,
       // or the stolen voice's release tail plays over the new note on the same id.
-      if (allocation.stolen !== undefined) this.runtime.steal(allocation.stolen.voiceId);
+      if (allocation.stolen !== undefined) {
+        this.runtime.steal(allocation.stolen.voiceId, ...(trackId === undefined ? [] : [trackId]));
+      }
       this.runtime.noteOn({
         voiceId: allocation.voiceId,
         note: command.note,
         velocity: command.velocity,
-        portamento: state.patch.voice.portamento,
+        portamento: voice.portamento,
+        ...channel,
       });
 
-      this.transient.voices = applyAllocation(this.transient.voices, allocation, request);
-      this.transient.heldNotes.set(command.note, request);
+      pool.voices = applyAllocation(pool.voices, allocation, request);
+      pool.heldNotes.set(command.note, request);
       this.transient.noteCounter += 1;
     } else if (command.type === 'noteOff') {
-      const { voices, released } = releaseNote(this.transient.voices, command.note);
+      const { voices, released } = releaseNote(pool.voices, command.note);
       // A note-off for a note that was already stolen is a no-op, not an error: the key
       // is genuinely still down, the voice just went to someone else.
       if (released !== undefined) {
-        this.runtime.noteOff({ voiceId: released.voiceId, note: released.note });
+        this.runtime.noteOff({ voiceId: released.voiceId, note: released.note, ...channel });
       }
-      this.transient.voices = voices;
-      this.transient.heldNotes.delete(command.note);
+      pool.voices = voices;
+      pool.heldNotes.delete(command.note);
     }
 
     // Hot-path commands never advance revision, so the emitted one is the current one.
     return this.finish(envelope, { status: 'applied' }, this.history.present.revision, startedAt);
+  }
+
+  /**
+   * The voice pool a note plays in: the live patch's (no `trackId`), or that synth
+   * channel's, created on first use. `null` when the track is not a synth channel.
+   *
+   * The live pool is `this.transient` itself — it has the same two fields — so the
+   * pre-C5 path mutates exactly what it always did.
+   */
+  private poolFor(state: EngineState, trackId: string | undefined): ChannelTransient | null {
+    if (trackId === undefined) return this.transient;
+    const track = state.song.tracks.find((candidate) => candidate.id === trackId);
+    if (track === undefined || channelKind(track) !== 'synth') return null;
+    let pool = this.transient.channels.get(trackId);
+    if (pool === undefined) {
+      pool = { heldNotes: new Map(), voices: [] };
+      this.transient.channels.set(trackId, pool);
+    }
+    return pool;
   }
 
   /** The transient commands that are not hot path: they drive the runtime and nothing else. */
@@ -305,6 +338,12 @@ export class Dispatcher {
       }
       this.transient.voices = [];
       this.transient.heldNotes.clear();
+      for (const [trackId, pool] of this.transient.channels) {
+        for (const voice of pool.voices) {
+          this.runtime.noteOff({ voiceId: voice.voiceId, note: voice.note, trackId });
+        }
+      }
+      this.transient.channels.clear();
       // `noteCounter` is NOT reset. It is the ordering key the 'oldest' steal policy
       // sorts on, and rewinding it would make notes played after a panic look older
       // than notes played before one.

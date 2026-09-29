@@ -34,9 +34,12 @@
  *
  * ---
  *
- * **Last value wins, per path, and nothing is ever dropped.** The pending map is keyed by
- * path, so a drag on the cutoff collapses to its most recent value while a simultaneous
- * change to something else survives alongside it. The final value of a gesture is always
+ * **Last value wins, per path PER CHANNEL, and nothing is ever dropped.** The pending map
+ * is keyed by channel and path together (C5c), so a drag on the cutoff collapses to its most
+ * recent value while a simultaneous change to something else survives alongside it — and a
+ * value still pending when the player switches channel lands on the channel it was dragged
+ * on, not on the one now selected. The target is captured when the change happens, which is
+ * the only moment it is unambiguous. The final value of a gesture is always
  * dispatched, at worst one frame later — which is invisible next to the 100 ms `lookAhead`
  * every parameter write is already scheduled behind.
  *
@@ -59,8 +62,11 @@ import type { ParamPath, ParamValue } from '../../core/types';
 export type ScheduleFlush = (flush: () => void) => void;
 
 export interface ParamCoalescer {
-  /** Record a change. Dispatched on the next scheduled flush, latest value per path. */
-  change(path: ParamPath, value: ParamValue): void;
+  /**
+   * Record a change. Dispatched on the next scheduled flush, latest value per path per
+   * channel. `trackId` is the channel it was made on; absent means the live patch.
+   */
+  change(path: ParamPath, value: ParamValue, trackId?: string): void;
   /**
    * Dispatch everything pending immediately.
    *
@@ -73,18 +79,30 @@ export interface ParamCoalescer {
   readonly pending: number;
 }
 
+/** What one pending change is: where it goes, and what it is. */
+interface Pending {
+  path: ParamPath;
+  value: ParamValue;
+  trackId?: string;
+}
+
+/** Channel and path together. A channel's drag and the live patch's never collide. */
+function keyOf(path: ParamPath, trackId: string | undefined): string {
+  return `${trackId ?? ''}|${path}`;
+}
+
 const nextFrame: ScheduleFlush = (flush) => {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
   else setTimeout(flush, 16);
 };
 
 export function createParamCoalescer(
-  dispatch: (path: ParamPath, value: ParamValue) => void,
+  dispatch: (path: ParamPath, value: ParamValue, trackId?: string) => void,
   schedule: ScheduleFlush = nextFrame,
 ): ParamCoalescer {
   // A Map, so iteration order is insertion order: paths are dispatched in the order they
   // were first touched during the frame, which is the order the player moved them in.
-  const waiting = new Map<ParamPath, ParamValue>();
+  const waiting = new Map<string, Pending>();
   let scheduled = false;
 
   const flush = (): void => {
@@ -93,14 +111,14 @@ export function createParamCoalescer(
     // Drained BEFORE dispatching. A dispatch synchronously re-renders and could call
     // `change` again; draining first means that lands in the NEXT frame rather than being
     // silently discarded by the clear below it.
-    const batch = [...waiting];
+    const batch = [...waiting.values()];
     waiting.clear();
-    for (const [path, value] of batch) dispatch(path, value);
+    for (const change of batch) dispatch(change.path, change.value, change.trackId);
   };
 
   return {
-    change(path, value) {
-      waiting.set(path, value);
+    change(path, value, trackId) {
+      waiting.set(keyOf(path, trackId), { path, value, ...(trackId === undefined ? {} : { trackId }) });
       if (scheduled) return;
       scheduled = true;
       schedule(flush);

@@ -91,29 +91,19 @@ describe('the reasons a player reads', () => {
     expect(ignoredReason(patch, 'voice.oscillators.0.spread')).toBe('no unison on a pwm');
   });
 
-  it('finally says something about lfo sync', () => {
-    // The decoy found on 2026-07-31: four toggles that changed no sound and reported
-    // nothing. The runtime now reports them; this is the half a player can see.
+  it('no longer marks lfo sync or a synced rate: both run against the transport since C3', () => {
+    // For four versions these were decoys, then honest amber notes. Cycle 2 C3 implemented
+    // them (Tone.LFO.sync()), so marking them now would be the opposite lie.
     const patch = patchWith((p) => {
       p.voice.lfos = [
-        { id: 'l0', enabled: true, type: 'sine', frequency: 4, sync: true, retrigger: true },
+        { id: 'l0', enabled: true, type: 'sine', frequency: '16n', sync: true, retrigger: true },
       ];
     });
 
-    expect(ignoredReason(patch, 'voice.lfos.0.sync')).toContain('transport');
-    expect(ignoredReason(patch, 'voice.lfos.0.retrigger')).toContain('shared');
-    // The rate itself is honoured — it is a real 4 Hz — so it must NOT be marked.
+    expect(ignoredReason(patch, 'voice.lfos.0.sync')).toBeUndefined();
     expect(ignoredReason(patch, 'voice.lfos.0.frequency')).toBeUndefined();
-  });
-
-  it('marks a synced rate, which really does run at the wrong speed', () => {
-    const patch = patchWith((p) => {
-      p.voice.lfos = [
-        { id: 'l0', enabled: true, type: 'sine', frequency: '8n', sync: false, retrigger: false },
-      ];
-    });
-
-    expect(ignoredReason(patch, 'voice.lfos.0.frequency')).toContain('1 Hz');
+    // Retrigger is still not honoured — one generator serves every voice.
+    expect(ignoredReason(patch, 'voice.lfos.0.retrigger')).toContain('shared');
   });
 
   it('gives every note a real sentence, not a code', () => {

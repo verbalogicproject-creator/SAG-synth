@@ -95,6 +95,11 @@ export function applyToHistory(
   const result: ReduceResult = reduce(history.present, command, meta);
   if (result.status === 'rejected') return result;
 
+  // The restore is the baseline (see RestoreSessionCommand): nothing before it is undoable.
+  if (command.type === 'restoreSession') {
+    return { status: 'applied', history: { past: [], present: result.state, future: [] } };
+  }
+
   if (!advancesRevision(command)) {
     return {
       status: 'applied',

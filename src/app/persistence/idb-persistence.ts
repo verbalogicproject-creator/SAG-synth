@@ -14,6 +14,7 @@ import type { ListResult, PersistencePort, PersistenceWarning } from '../../core
 import type { Song, SynthPreset } from '../../core/types';
 import type { SynthCommandAppliedEvent } from '../../core/sag/events';
 import { PresetSchema, SongSchema, migratePreset, migrateSong } from '../../core/schemas';
+import { parseSession, type SessionDoc } from '../../core/session';
 
 /**
  * The autosave and meta stores hold exactly one row each. IndexedDB still needs a key,
@@ -21,6 +22,7 @@ import { PresetSchema, SongSchema, migratePreset, migrateSong } from '../../core
  * `Song` or on a bare number that would make a sensible in-line key.
  */
 const AUTOSAVE_KEY = 'autosave';
+const SESSION_KEY = 'session';
 const LAST_ACKED_SEQ_KEY = 'lastAckedSeq';
 
 interface SynthDbSchema extends DBSchema {
@@ -29,16 +31,23 @@ interface SynthDbSchema extends DBSchema {
   autosave: { key: typeof AUTOSAVE_KEY; value: Song };
   journal: { key: number; value: SynthCommandAppliedEvent };
   meta: { key: typeof LAST_ACKED_SEQ_KEY; value: number };
+  /** Version 2 (C3b). Holds whatever some build wrote; read through `parseSession`. */
+  session: { key: typeof SESSION_KEY; value: unknown };
 }
 
 function openSynthDb(name: string): Promise<IDBPDatabase<SynthDbSchema>> {
-  return openDB<SynthDbSchema>(name, 1, {
-    upgrade(db) {
-      db.createObjectStore('presets', { keyPath: 'id' });
-      db.createObjectStore('songs', { keyPath: 'id' });
-      db.createObjectStore('autosave');
-      db.createObjectStore('journal', { keyPath: 'seq' });
-      db.createObjectStore('meta');
+  // Version 2 adds the session store (C3b). Stepped on `oldVersion` so a phone holding a
+  // version-1 database gains the new store and keeps every row it already has.
+  return openDB<SynthDbSchema>(name, 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore('presets', { keyPath: 'id' });
+        db.createObjectStore('songs', { keyPath: 'id' });
+        db.createObjectStore('autosave');
+        db.createObjectStore('journal', { keyPath: 'seq' });
+        db.createObjectStore('meta');
+      }
+      if (oldVersion < 2) db.createObjectStore('session');
     },
   });
 }
@@ -179,6 +188,17 @@ export class IdbPersistence implements PersistencePort {
     const db = await this.db();
     const found = await db.get('autosave', AUTOSAVE_KEY);
     return found === undefined ? null : parseSong(structuredClone(found));
+  }
+
+  async saveSession(session: SessionDoc): Promise<void> {
+    const db = await this.db();
+    await db.put('session', structuredClone(session), SESSION_KEY);
+  }
+
+  async loadSession(): Promise<SessionDoc | null> {
+    const db = await this.db();
+    const found = await db.get('session', SESSION_KEY);
+    return found === undefined ? null : parseSession(structuredClone(found));
   }
 
   async appendJournal(events: readonly SynthCommandAppliedEvent[]): Promise<void> {

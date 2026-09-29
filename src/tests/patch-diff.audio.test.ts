@@ -75,7 +75,7 @@ function duckingPatch(amplitude: number): SynthPreset {
       // than averaging the whole swing away.
       lfos: [{ ...defaultLfo(), id: 'lfo-duck', frequency: 0.5 }],
       modRoutes: [route],
-      envelope: { attack: 0.01, decay: 0.01, sustain: 1, release: 0.5 },
+      envelope: { attack: 0.01, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.5 },
     },
   };
 }

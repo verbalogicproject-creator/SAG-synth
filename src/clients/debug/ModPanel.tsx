@@ -20,6 +20,8 @@ import {
   MODULATION_DESTINATIONS,
   UNWIRED_MOD_DESTINATIONS,
   WIRED_MOD_DESTINATIONS,
+  lfoSlotOf,
+  type ModSource,
   type ModDestination,
   type ParamPath,
   type ParamValue,
@@ -45,12 +47,14 @@ export interface ModPanelProps {
  * Stage 3's effects chain; offering them here would be offering a control that does
  * nothing, which is the decoy problem `voice.filter.frequency` already cost us.
  */
-const SOURCES: readonly { value: 'lfo.0' | 'lfo.1' | 'lfo.2' | 'lfo.3' | 'velocity'; label: string }[] = [
+const SOURCES: readonly { value: ModSource; label: string }[] = [
   { value: 'lfo.0', label: 'LFO 0' },
   { value: 'lfo.1', label: 'LFO 1' },
   { value: 'lfo.2', label: 'LFO 2' },
   { value: 'lfo.3', label: 'LFO 3' },
   { value: 'velocity', label: 'velocity' },
+  { value: 'env.amp', label: 'amp env' },
+  { value: 'env.filter', label: 'filter env' },
 ];
 
 /**
@@ -204,7 +208,10 @@ export function ModPanel({ state, onChange, onCommand }: ModPanelProps) {
               style={button}
             >
               {SOURCES.filter(
-                (source) => source.value === 'velocity' || Number(source.value.slice(4)) < lfos.length,
+                (source) => {
+                  const slot = lfoSlotOf(source.value);
+                  return slot === null || slot < lfos.length;
+                },
               ).map((source) => (
                 <option key={source.value} value={source.value}>
                   {source.label}

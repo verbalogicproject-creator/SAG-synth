@@ -50,20 +50,38 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * The command surface, verbatim from the frozen contract. 38 verbs.
+ * The command surface, verbatim from the frozen contract. 45 verbs.
  *
  * Went 34 -> 36 at schema_version 2 with `addRoute` / `removeRoute`, and 36 -> 38 at 3
- * with `addOscillator` / `removeOscillator`. There is
+ * with `addOscillator` / `removeOscillator`. 39 -> 43 with SAG-DAW slice 1 (2026-09-18):
+ * `updateNote` and `setTrackNotes` because a piano-roll drag and a pattern write are each
+ * one intent, and history has no grouping to make N commands into one undo step;
+ * `setTrackKick` and `setTrackDuck` because a kick voice and a note-triggered duck are
+ * track data no existing verb could carry. All four are additions — no verb was renamed
+ * or reshaped, so every journal already written still replays. There is
  * deliberately no `setRouteParam`: editing a live route goes through
  * `setParam('voice.modRoutes.<i>.<key>', ...)`, exactly as editing an LFO does. A third
  * verb would have been a second way to do one thing, and every verb here is also a wire
  * format the SDK has to keep supporting.
+ *
+ * 43 -> 45 with cycle 2 C3b (2026-09-19), persistence: `importPreset` puts a document into
+ * the library without loading it (a file import, undoable), and `restoreSession` puts the
+ * saved session back at startup as ONE entry that is also the undo baseline — three
+ * existing verbs in a row could not be either. Additions only; every journal still replays.
+ *
+ * Still 45 with cycle 2 C5a (2026-09-19), channels — but eleven SHAPES grew: `setParam`,
+ * `loadPreset`, `savePreset`, add/remove Oscillator/Lfo/Route, `noteOn` and `noteOff` take
+ * an OPTIONAL `trackId` naming the channel (song track) they act on. Absent, each verb does
+ * exactly what it did before, so every journal already written replays unchanged; present,
+ * the verb runs through the same reducer case against that track's `presetSnapshot`. A
+ * reshape, recorded as one: it is an optional field, not a changed meaning.
  */
 const FROZEN_COMMAND_TYPES = [
   // patch
   'loadPreset',
   'savePreset',
   'deletePreset',
+  'importPreset',
   'setParam',
   'addOscillator',
   'removeOscillator',
@@ -87,6 +105,10 @@ const FROZEN_COMMAND_TYPES = [
   'setPatternLength',
   'addNote',
   'removeNote',
+  'updateNote',
+  'setTrackNotes',
+  'setTrackKick',
+  'setTrackDuck',
   'setTempo',
   'setSwing',
   'setTimeSignature',
@@ -104,10 +126,12 @@ const FROZEN_COMMAND_TYPES = [
   // history
   'undo',
   'redo',
+  // session
+  'restoreSession',
 ];
 
 describe('command surface is frozen', () => {
-  it('declares exactly the 38 verbs in the contract, in order', () => {
+  it('declares exactly the 45 verbs in the contract, in order', () => {
     expect([...SYNTH_COMMAND_TYPES]).toEqual(FROZEN_COMMAND_TYPES);
   });
 
@@ -182,6 +206,15 @@ describe('command surface is frozen', () => {
 /** Open question Q2: setParam.path is a finite union, never an arbitrary string. */
 const FROZEN_FIXED_PARAM_PATHS = [
   'voice.envelope.attack',
+  // Added at 5: AHDSR — the hold and the decay shape of both envelopes.
+  'voice.envelope.hold',
+  'voice.envelope.decayCurve',
+  'voice.filterEnvelope.hold',
+  'voice.filterEnvelope.decayCurve',
+  // Added at 6: the filter envelope can follow the amp's stages.
+  'voice.filterEnvelope.linked',
+  // Added at 7: per-voice drive into the filter.
+  'voice.filter.drive',
   'voice.envelope.decay',
   'voice.envelope.sustain',
   'voice.envelope.release',

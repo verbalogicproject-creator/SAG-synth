@@ -152,7 +152,7 @@ describe('the nav covers the signal chain', () => {
     }
   });
 
-  it('splits the 119 the way the design says it does', () => {
+  it('splits the 125 the way the design says it does', () => {
     // Written out rather than summed so a wrong split is a wrong LINE, not a wrong total.
     // Sections read whole, so a new parameter joins its tab silently — these counts are
     // the only thing that makes that convenience notice.
@@ -160,8 +160,8 @@ describe('the nav covers the signal chain', () => {
 
     expect(counts).toEqual({
       'tab:osc': 27, // three slots of nine
-      'tab:adsr': 11, // seven amp + the four filter-envelope stages
-      'tab:filter': 31, // five filter + twenty LFO + six EQ
+      'tab:adsr': 16, // nine amp (AHDSR adds hold + decay curve) + the six filter-envelope stages + its amp link
+      'tab:filter': 32, // six filter (drive at 7) + twenty LFO + six EQ
       'tab:fx': 15, // twelve effects + three output
       settings: 3, // voicing
       bay: 32, // eight routes of four

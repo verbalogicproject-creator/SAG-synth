@@ -118,3 +118,15 @@ export function stepOf(spec: NumberSpec): number {
   if (spec.integer === true) return 1;
   return (spec.max - spec.min) / 100;
 }
+
+/**
+ * A Tone subdivision as a musician reads it: "16n" is 1/16, "8n." a dotted 1/8, "1n" a bar.
+ * For pickers; `formatValue` keeps printing the raw string, which is the contract's spelling.
+ */
+export function subdivisionLabel(subdivision: string): string {
+  const match = /^(\d+)n(\.?)(t?)$/.exec(subdivision);
+  if (match === null) return subdivision;
+  const [, denominator, dotted, triplet] = match;
+  const base = denominator === '1' ? '1 bar' : `1/${denominator}`;
+  return `${base}${dotted === '.' ? ' dotted' : ''}${triplet === 't' ? ' triplet' : ''}`;
+}

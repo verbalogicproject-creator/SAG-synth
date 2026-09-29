@@ -79,15 +79,27 @@ export interface VoiceSlot {
   order: number;
 }
 
-export interface TransientState {
+/** One synth channel's keys and voices (cycle 2, C5): each channel has its own pool. */
+export interface ChannelTransient {
   heldNotes: Map<NoteName, HeldNote>;
   voices: VoiceSlot[];
-  /** Increments on every note-on; supplies `HeldNote.order`. */
+}
+
+export interface TransientState {
+  /** The live patch's keys — every `noteOn` sent without a `trackId`. */
+  heldNotes: Map<NoteName, HeldNote>;
+  voices: VoiceSlot[];
+  /**
+   * Per synth channel, keyed by track id. A channel's notes allocate from that channel's
+   * polyphony and can never steal a voice from another channel or from the live patch.
+   */
+  channels: Map<string, ChannelTransient>;
+  /** Increments on every note-on, on any channel; supplies `HeldNote.order`. */
   noteCounter: number;
 }
 
 export function initialTransientState(): TransientState {
-  return { heldNotes: new Map(), voices: [], noteCounter: 0 };
+  return { heldNotes: new Map(), voices: [], channels: new Map(), noteCounter: 0 };
 }
 
 export interface AllocationResult {
@@ -185,11 +197,14 @@ export function defaultVoiceConfig(): VoiceConfig {
         pan: 0,
       },
     ],
-    envelope: { attack: 0.01, decay: 0.2, sustain: 0.4, release: 0.8 },
-    filter: { type: 'lowpass', Q: 1, rolloff: -24 },
+    // hold 0 + exponential decay: the ADSR this patch has always had (schema_version 5).
+    envelope: { attack: 0.01, hold: 0, decay: 0.2, decayCurve: 'exponential', sustain: 0.4, release: 0.8 },
+    filter: { type: 'lowpass', Q: 1, rolloff: -24, drive: 0 },
     filterEnvelope: {
       attack: 0.02,
+      hold: 0,
       decay: 0.3,
+      decayCurve: 'exponential',
       // Measured, not taste: at baseFrequency 300 with sustain 0.2 the filter settles at
       // 300 x 2^0.6 ~= 455Hz, which left the factory patch with ZERO energy above 1kHz
       // and half the loudness of a bare Tone MonoSynth. Phone speakers roll off hard
@@ -200,6 +215,7 @@ export function defaultVoiceConfig(): VoiceConfig {
       release: 0.5,
       baseFrequency: 800,
       octaves: 3,
+      linked: false,
     },
     lfos: [],
     modRoutes: [],
@@ -262,6 +278,82 @@ export function defaultPreset(): SynthPreset {
   };
 }
 
+export const PSY_ROLL_PRESET_ID = 'factory-psy-roll';
+
+/**
+ * A rolling psytrance bass, built from the recipes rather than from taste — every value
+ * below cites where it came from, and every one is a starting point for Eyal's ear, which
+ * is the only gate that can say it sounds right.
+ *
+ * - **Two layers in one voice.** The genre builds the bass from a sine sub plus a
+ *   filtered saw on top (myloops.net). Slot B is the sub at the note's own fundamental —
+ *   the pattern sits at G1 (~49 Hz), so the note IS the sub; there is no octave-down
+ *   layer to add. Slot A is the saw, "barely detuned — one or two unison voices".
+ * - **Click, hold, then gone before the next 16th.** Eyal's AHDSR recipe: amp A 0 (the
+ *   click — with the oscillator phase reset on every note, a zero attack is a clean, identical
+ *   transient), H 30 ms (the body behind it), D 60 ms exponential, S 0. The filter envelope
+ *   opens with the click and holds 15 ms before its 40 ms fall. At 145 BPM a 16th is 103 ms;
+ *   0 + 30 + 60 = 90 ms, so each note is gone before the next or the roll smears. Sustain 0
+ *   also stops the oscillators after A+H+D (the runtime's zero-sustain stop), so a rolling
+ *   bass costs nothing between notes.
+ * - **Cutoff 350 Hz, about an octave of envelope.** "Lowpass, cutoff 400 Hz–1 kHz, filter
+ *   envelope depth roughly an octave". Velocity adds up to one more octave, so the softer
+ *   first note after each kick is also darker — the roll's forward lean.
+ * - **Mud cut.** EQ −3 dB at 250 and 530 Hz, the 300–500 Hz region every source says to
+ *   clear. The EQ's lowest band is 250 Hz; a 30 Hz low-cut and 55–120 Hz shaping are
+ *   gaps the ear pass will judge.
+ * - **Everything wide or wet is off.** Chorus, delay and reverb would put the sub in
+ *   stereo and smear the gaps. Distortion is off too: the recipe saturates only the top
+ *   layer, above a 100–150 Hz high-pass, and this engine's single chain would drive the
+ *   sub with it. Whether that matters is for the ear.
+ * - **Polyphony 2, no portamento.** Poly-retrigger, "never legato"; two voices cover the
+ *   release tail of one note overlapping the next attack.
+ *
+ * Phone speakers roll off below ~500 Hz (see `defaultVoiceConfig`), so on the phone's own
+ * speaker this is mostly its saw harmonics. Judge it on headphones.
+ */
+export function psyRollPreset(): SynthPreset {
+  const voice = defaultVoiceConfig();
+  const effects = defaultEffectsConfig();
+  return {
+    id: PSY_ROLL_PRESET_ID,
+    name: 'Psy Roll',
+    schemaVersion: PRESET_SCHEMA_VERSION,
+    voice: {
+      ...voice,
+      oscillators: [
+        { ...voice.oscillators[0]!, id: 'osc-0', type: 'sawtooth', count: 2, spread: 8, level: 0.6 },
+        { ...voice.oscillators[0]!, id: 'osc-1', type: 'sine', count: 1, spread: 0, level: 0.7 },
+      ],
+      envelope: { attack: 0, hold: 0.03, decay: 0.06, decayCurve: 'exponential', sustain: 0, release: 0.03 },
+      filter: { type: 'lowpass', Q: 2, rolloff: -24, drive: 0 },
+      filterEnvelope: {
+        attack: 0,
+        hold: 0.015,
+        decay: 0.04,
+        decayCurve: 'exponential',
+        sustain: 0,
+        release: 0.03,
+        baseFrequency: 350,
+        octaves: 1.3,
+        linked: false,
+      },
+      polyphony: 2,
+      portamento: 0,
+      velocity: { toAmplitude: 0.6, toFilterOctaves: 1 },
+    },
+    effects: {
+      ...effects,
+      eq: { ...effects.eq, enabled: true, band0: { gain: -3 }, band1: { gain: -3 } },
+    },
+    createdAt: FACTORY_EPOCH_MS,
+    category: 'Bass',
+    author: 'SAG-synth',
+    factory: true,
+    description: 'Rolling psytrance bass: sine sub + barely detuned saw, gone before the next 16th.',
+  };
+}
+
 export function defaultTrack(preset: SynthPreset = defaultPreset()): SongTrack {
   return {
     id: DEFAULT_TRACK_ID,
@@ -296,13 +388,14 @@ export function defaultSong(): Song {
 
 export function initialEngineState(): EngineState {
   const preset = defaultPreset();
+  const psy = psyRollPreset();
   const song = defaultSong();
   return {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     revision: 0,
     patch: preset,
     song,
-    presets: { [preset.id]: preset },
+    presets: { [preset.id]: preset, [psy.id]: psy },
     songs: {},
     transport: { status: 'stopped' },
   };

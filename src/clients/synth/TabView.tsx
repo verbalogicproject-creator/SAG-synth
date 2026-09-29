@@ -18,6 +18,7 @@ import {
   EffectsGroup,
   EnvelopeGroup,
   LfoGroup,
+  ModRateGroup,
   OscillatorGroup,
   styles as groupStyles,
 } from './groups';
@@ -89,10 +90,24 @@ export function TabView({ tab, context, onCommand }: TabViewProps) {
           context={context}
           label="amp envelope"
           stages={AMP_STAGES}
-          extra={paths.filter((path) => !AMP_STAGES.includes(path as (typeof AMP_STAGES)[number]))}
+          hold="voice.envelope.hold"
+          curve="voice.envelope.decayCurve"
+          extra={paths.filter(
+            (path) =>
+              !AMP_STAGES.includes(path as (typeof AMP_STAGES)[number]) &&
+              path !== 'voice.envelope.hold' &&
+              path !== 'voice.envelope.decayCurve',
+          )}
         />
       ) : (
-        <EnvelopeGroup context={context} label="filter envelope" stages={FILTER_STAGES} />
+        <EnvelopeGroup
+          context={context}
+          label="filter envelope"
+          stages={FILTER_STAGES}
+          hold="voice.filterEnvelope.hold"
+          curve="voice.filterEnvelope.decayCurve"
+          link="voice.filterEnvelope.linked"
+        />
       );
     }
     // A slot family, so only the slots the patch holds are drawn — see LfoGroup.
@@ -106,6 +121,15 @@ export function TabView({ tab, context, onCommand }: TabViewProps) {
           onCommand={onCommand}
           outputPaths={paths.filter((path) => !path.startsWith('effects.'))}
         />
+      );
+    }
+    // The FILTER tab's own group leads with how often the cutoff moves.
+    if (tab.id === 'filter' && group.id === 'filter') {
+      return (
+        <>
+          <ModRateGroup context={context} onCommand={onCommand} />
+          <ControlGrid context={context} paths={paths} />
+        </>
       );
     }
     return <ControlGrid context={context} paths={paths} />;

@@ -13,6 +13,7 @@
  * surface and a screenshot.
  */
 
+import type { ReactNode } from 'react';
 import type { ControlId } from '../../../core/controls';
 import type { ParamSpec } from '../../../core/schemas';
 import type { ParamPath, ParamValue } from '../../../core/types';
@@ -52,6 +53,12 @@ export interface ControlProps {
   /** Why it is not live. Shown, not hidden behind a hover a phone does not have. */
   reason?: string;
   modulation?: ModulationReach;
+  /**
+   * Something the caller draws beside the label — the envelope's short/long range switch.
+   * It changes how the control is DRAWN (its travel), never what it writes: a narrowed
+   * travel is a subset of the spec, so every value it can produce still validates.
+   */
+  accessory?: ReactNode;
 }
 
 /**

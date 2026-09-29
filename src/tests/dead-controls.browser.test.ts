@@ -266,8 +266,17 @@ const actionButtons = () =>
 describe('every button on screen dispatches a command the engine accepts', () => {
   it('is refused by nothing the factory surface offers to press', async () => {
     const state = factoryState();
-    const sink: SynthCommand[] = [];
-    const onCommand = (command: SynthCommand) => sink.push(command);
+    // Grouped by PRESS. One press may dispatch several commands that build on each other —
+    // MOD RATE (C3) adds an LFO and then a route from it — and the dispatcher reduces them in
+    // order, so each press is replayed in order from the state it was pressed in. Checking
+    // each command alone against the base state would refuse the route for an LFO that the
+    // same press had just added.
+    const presses: SynthCommand[][] = [[]];
+    const onCommand = (command: SynthCommand) => presses.at(-1)!.push(command);
+    const press = async (button: HTMLElement) => {
+      presses.push([]);
+      await click(button);
+    };
 
     // The four tabs and everything nested in them.
     await act(async () => {
@@ -279,7 +288,7 @@ describe('every button on screen dispatches a command the engine accepts', () =>
     // the end: a button on the FILTER tab is detached from the document by the time the
     // walk reaches FX, and a detached node dispatches nothing.
     await sweepSurface(container, click, async () => {
-      for (const button of actionButtons()) await click(button);
+      for (const button of actionButtons()) await press(button);
     });
 
     // The bay is an overlay that `sweepSurface` cannot reach, and it is where the dead
@@ -290,19 +299,21 @@ describe('every button on screen dispatches a command the engine accepts', () =>
         createElement(RouteList, { context: surfaceContext(state, () => undefined), onCommand }),
       );
     });
-    for (const button of actionButtons()) await click(button);
+    for (const button of actionButtons()) await press(button);
 
-    expect(sink.length, 'nothing on the surface dispatched a command').toBeGreaterThan(0);
+    const dispatched = presses.flat().length;
+    expect(dispatched, 'nothing on the surface dispatched a command').toBeGreaterThan(0);
 
-    const refused = sink
-      .map((command, index) => {
-        const result = validateAndReduce(state, command, meta(`press-${index}`));
-        return result.status === 'applied'
-          ? null
-          : `${command.type} — ${result.status}: ${'error' in result ? result.error : ''}`;
-      })
-      .filter((entry): entry is string => entry !== null);
+    const refused: string[] = [];
+    presses.forEach((commands, p) => {
+      let current = state;
+      commands.forEach((command, index) => {
+        const result = validateAndReduce(current, command, meta(`press-${p}-${index}`));
+        if (result.status === 'applied') current = result.state;
+        else refused.push(`${command.type} — ${result.status}: ${'error' in result ? result.error : ''}`);
+      });
+    });
 
-    expect(refused, `${refused.length} of ${sink.length} presses were refused`).toEqual([]);
+    expect(refused, `${refused.length} of ${dispatched} commands were refused`).toEqual([]);
   });
 });

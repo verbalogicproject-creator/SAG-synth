@@ -154,3 +154,47 @@ describe('createParamCoalescer', () => {
     expect(calls).toEqual([1, 99]);
   });
 });
+
+describe('C5c — a channel is part of the key', () => {
+  it('keeps one drag per channel, and sends each to the channel it was made on', () => {
+    // The failure this prevents: a value still pending when the player taps another
+    // channel would flush onto the NEW channel, silently editing a sound nobody touched.
+    const { schedule, frame } = manualScheduler();
+    const sent: Array<{ path: string; value: ParamValue; trackId?: string }> = [];
+    const coalescer = createParamCoalescer(
+      (path, value, trackId) => sent.push({ path, value, ...(trackId === undefined ? {} : { trackId }) }),
+      schedule,
+    );
+
+    coalescer.change(CUTOFF, 1 as ParamValue, 'bass');
+    coalescer.change(CUTOFF, 2 as ParamValue, 'bass'); // same channel: collapses
+    coalescer.change(CUTOFF, 7 as ParamValue, 'lead'); // another channel: survives
+    coalescer.change(CUTOFF, 9 as ParamValue); // the live patch: survives too
+    expect(coalescer.pending).toBe(3);
+
+    frame();
+    expect(sent).toEqual([
+      { path: CUTOFF, value: 2, trackId: 'bass' },
+      { path: CUTOFF, value: 7, trackId: 'lead' },
+      { path: CUTOFF, value: 9 },
+    ]);
+  });
+
+  it('a value pending from one channel is not redirected by a later change on another', () => {
+    const { schedule, frame } = manualScheduler();
+    const sent: Array<{ value: ParamValue; trackId?: string }> = [];
+    const coalescer = createParamCoalescer(
+      (_path, value, trackId) => sent.push({ value, ...(trackId === undefined ? {} : { trackId }) }),
+      schedule,
+    );
+
+    coalescer.change(RESONANCE, 4 as ParamValue, 'bass');
+    coalescer.change(RESONANCE, 5 as ParamValue, 'lead');
+    frame();
+
+    expect(sent).toEqual([
+      { value: 4, trackId: 'bass' },
+      { value: 5, trackId: 'lead' },
+    ]);
+  });
+});

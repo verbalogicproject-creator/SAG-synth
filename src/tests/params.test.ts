@@ -120,7 +120,9 @@ function stateWithSlotsFilled(): EngineState {
 describe('getParam agrees with setParam', () => {
   it('covers every declared path — no path is silently unreachable', () => {
     // Guards the loop below against shrinking to nothing if PARAM_PATHS is restructured.
-    expect(PARAM_PATHS.length).toBe(119);
+    // 119 -> 123 at schema_version 5: hold and decay curve on both envelopes (AHDSR).
+    // 123 -> 124 at 6: the filter envelope's link to the amp. 125 at 7: filter drive.
+    expect(PARAM_PATHS.length).toBe(125);
   });
 
   it('reads back exactly what was written, for every declared path', () => {

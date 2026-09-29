@@ -257,6 +257,104 @@ describe('song commands', () => {
   });
 });
 
+describe('piano-roll and kick commands (SAG-DAW slice 1)', () => {
+  const KICK = { tune: 'G1', punch: 5, pitchDecay: 0.03, decay: 0.22, level: 0 };
+  const DUCK = { sourceTrackId: 'kick', depthDb: 3, attackMs: 1, releaseMs: 60 };
+
+  function withNotes(): EngineState {
+    return apply(initialEngineState(), {
+      type: 'setTrackNotes',
+      trackId: 'track-1',
+      notes: [
+        { noteId: 'b', time: 0.5, duration: 0.125, note: 'G1', velocity: 1 },
+        { noteId: 'a', time: 0.25, duration: 0.125, note: 'G1', velocity: 0.7 },
+      ],
+    });
+  }
+
+  function withKickTrack(state: EngineState = initialEngineState()): EngineState {
+    const added = apply(state, { type: 'addTrack', trackId: 'kick', name: 'Kick' });
+    return apply(added, { type: 'setTrackKick', trackId: 'kick', kick: KICK });
+  }
+
+  it('setTrackNotes replaces the whole list, sorted, in one revision', () => {
+    const before = initialEngineState();
+    const next = withNotes();
+    expect(next.song.tracks[0]!.notes.map((n) => n.noteId)).toEqual(['a', 'b']);
+    expect(next.revision).toBe(before.revision + 1);
+  });
+
+  it('setTrackNotes refuses duplicate ids even when the schema was skipped', () => {
+    const note = { noteId: 'x', time: 0, duration: 0.25, note: 'C4', velocity: 1 };
+    expect(
+      expectRejected(initialEngineState(), { type: 'setTrackNotes', trackId: 'track-1', notes: [note, note] }),
+    ).toContain('duplicate');
+  });
+
+  it('setTrackNotes does not alias the caller’s array', () => {
+    const notes = [{ noteId: 'x', time: 0, duration: 0.25, note: 'C4', velocity: 1 }];
+    const next = apply(initialEngineState(), { type: 'setTrackNotes', trackId: 'track-1', notes });
+    notes[0]!.velocity = 0;
+    expect(next.song.tracks[0]!.notes[0]!.velocity).toBe(1);
+  });
+
+  it('updateNote moves one note, keeps its identity, and re-sorts', () => {
+    const next = apply(withNotes(), {
+      type: 'updateNote',
+      trackId: 'track-1',
+      noteId: 'a',
+      patch: { time: 0.75, note: 'A1' },
+    });
+    expect(next.song.tracks[0]!.notes).toEqual([
+      { noteId: 'b', time: 0.5, duration: 0.125, note: 'G1', velocity: 1 },
+      { noteId: 'a', time: 0.75, duration: 0.125, note: 'A1', velocity: 0.7 },
+    ]);
+  });
+
+  it('updateNote rejects an unknown note', () => {
+    expect(
+      expectRejected(withNotes(), { type: 'updateNote', trackId: 'track-1', noteId: 'ghost', patch: { time: 1 } }),
+    ).toContain('no note');
+  });
+
+  it('setTrackKick makes the track a drum track; null removes the kick but not isDrum', () => {
+    const kicked = withKickTrack();
+    const track = kicked.song.tracks.find((t) => t.id === 'kick')!;
+    expect(track.isDrum).toBe(true);
+    expect(track.kick).toEqual(KICK);
+    const cleared = apply(kicked, { type: 'setTrackKick', trackId: 'kick', kick: null });
+    const after = cleared.song.tracks.find((t) => t.id === 'kick')!;
+    expect(after.kick).toBeUndefined();
+    expect(after.isDrum).toBe(true);
+  });
+
+  it('setTrackDuck accepts a drum source and refuses itself or a pitched source', () => {
+    const state = withKickTrack();
+    const ducked = apply(state, { type: 'setTrackDuck', trackId: 'track-1', duck: DUCK });
+    expect(ducked.song.tracks[0]!.duck).toEqual(DUCK);
+
+    expect(
+      expectRejected(state, { type: 'setTrackDuck', trackId: 'kick', duck: { ...DUCK, sourceTrackId: 'kick' } }),
+    ).toContain('own notes');
+    expect(
+      expectRejected(state, { type: 'setTrackDuck', trackId: 'kick', duck: { ...DUCK, sourceTrackId: 'track-1' } }),
+    ).toContain('not a drum track');
+    expect(
+      expectRejected(state, { type: 'setTrackDuck', trackId: 'track-1', duck: { ...DUCK, sourceTrackId: 'nope' } }),
+    ).toContain('no track');
+
+    const unducked = apply(ducked, { type: 'setTrackDuck', trackId: 'track-1', duck: null });
+    expect('duck' in unducked.song.tracks[0]!).toBe(false);
+  });
+
+  it('removing the kick track removes every duck keyed to it', () => {
+    const ducked = apply(withKickTrack(), { type: 'setTrackDuck', trackId: 'track-1', duck: DUCK });
+    const removed = apply(ducked, { type: 'removeTrack', trackId: 'kick' });
+    expect(removed.song.tracks).toHaveLength(1);
+    expect(removed.song.tracks[0]!.duck).toBeUndefined();
+  });
+});
+
 describe('transport commands', () => {
   it('play, stop and pause move the status', () => {
     let state = initialEngineState();
@@ -332,6 +430,38 @@ describe('F59 — replaying the journal reconstructs state exactly', () => {
     { command: { type: 'noteOff', note: 'C4' }, meta: meta('c11', 1010) },
     { command: { type: 'setSwing', amount: 0.2 }, meta: meta('c12', 1011) },
     { command: { type: 'saveSong', name: 'Session Song' }, meta: meta('c13', 1012) },
+    { command: { type: 'addTrack', trackId: 'kick', name: 'Kick' }, meta: meta('c14', 1013) },
+    {
+      command: {
+        type: 'setTrackKick',
+        trackId: 'kick',
+        kick: { tune: 'G1', punch: 5, pitchDecay: 0.03, decay: 0.22, level: 0 },
+      },
+      meta: meta('c15', 1014),
+    },
+    {
+      command: {
+        type: 'setTrackNotes',
+        trackId: 't2',
+        notes: [
+          { noteId: 'r1', time: 0.25, duration: 0.125, note: 'G1', velocity: 0.7 },
+          { noteId: 'r2', time: 0.5, duration: 0.125, note: 'G1', velocity: 1 },
+        ],
+      },
+      meta: meta('c16', 1015),
+    },
+    {
+      command: { type: 'updateNote', trackId: 't2', noteId: 'r2', patch: { velocity: 0.9 } },
+      meta: meta('c17', 1016),
+    },
+    {
+      command: {
+        type: 'setTrackDuck',
+        trackId: 't2',
+        duck: { sourceTrackId: 'kick', depthDb: 3, attackMs: 1, releaseMs: 60 },
+      },
+      meta: meta('c18', 1017),
+    },
   ];
 
   function run(): { state: EngineState; accepted: number } {
@@ -354,7 +484,7 @@ describe('F59 — replaying the journal reconstructs state exactly', () => {
 
   it('revision counts exactly the non-transient accepted commands', () => {
     const { state, accepted } = run();
-    // 13 commands, 4 of which are transient (noteOn, noteOff, seek, and none other here).
+    // 18 commands; the transient ones (noteOn, noteOff, seek) never advance revision.
     const transientCount = session.filter((s) =>
       ['noteOn', 'noteOff', 'seek', 'panic'].includes(s.command.type),
     ).length;
@@ -387,5 +517,25 @@ describe('validateAndReduce', () => {
     const result = validateAndReduce(initialEngineState(), { type: 'setTempo', bpm: 96 }, meta());
     expect(result.status).toBe('applied');
     if (result.status === 'applied') expect(result.state.song.bpm).toBe(96);
+  });
+});
+
+describe('addRoute with an envelope source (C3)', () => {
+  const envRoute = (source: 'env.amp' | 'env.filter' | 'lfo.2') => ({
+    type: 'addRoute' as const,
+    route: { id: `r-${source}`, enabled: true, source, destination: 'voice.filter.Q' as const, depth: 0.4 },
+  });
+
+  it('needs no LFO: an envelope belongs to every voice already', () => {
+    const state = initialEngineState();
+    expect(state.patch.voice.lfos).toHaveLength(0);
+    for (const source of ['env.amp', 'env.filter'] as const) {
+      const next = apply(state, envRoute(source));
+      expect(next.patch.voice.modRoutes.at(-1)?.source).toBe(source);
+    }
+  });
+
+  it('still refuses an LFO route to an empty slot — the check moved, it did not loosen', () => {
+    expect(expectRejected(initialEngineState(), envRoute('lfo.2'))).toContain('no LFO in that slot');
   });
 });

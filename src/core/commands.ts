@@ -16,7 +16,9 @@ import type {
   OscillatorConfig,
   Beats,
   Decibels,
+  DuckConfig,
   EffectId,
+  KickConfig,
   LFOConfig,
   ModRoute,
   NoteEvent,
@@ -41,17 +43,31 @@ export interface LoadPresetCommand {
   type: 'loadPreset';
   presetId?: string;
   preset?: SynthPreset;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface SavePresetCommand {
   type: 'savePreset';
   name: string;
   category?: PresetCategory;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface DeletePresetCommand {
   type: 'deletePreset';
   presetId: string;
+}
+
+/**
+ * Put a preset document into the library without loading it — a file the player imported
+ * (C3b). Undoable like any library edit. A factory id is refused: the shipped bundle is not
+ * something a file may overwrite.
+ */
+export interface ImportPresetCommand {
+  type: 'importPreset';
+  preset: SynthPreset;
 }
 
 /**
@@ -64,6 +80,8 @@ export interface SetParamCommand {
   type: 'setParam';
   path: ParamPath;
   value: ParamValue;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 /**
@@ -74,21 +92,29 @@ export interface SetParamCommand {
 export interface AddOscillatorCommand {
   type: 'addOscillator';
   config: OscillatorConfig;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface RemoveOscillatorCommand {
   type: 'removeOscillator';
   oscillatorId: string;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface AddLfoCommand {
   type: 'addLfo';
   config: LFOConfig;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface RemoveLfoCommand {
   type: 'removeLfo';
   lfoId: string;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 /**
@@ -100,11 +126,15 @@ export interface RemoveLfoCommand {
 export interface AddRouteCommand {
   type: 'addRoute';
   route: ModRoute;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface RemoveRouteCommand {
   type: 'removeRoute';
   routeId: string;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 export interface SetEffectEnabledCommand {
@@ -211,6 +241,50 @@ export interface RemoveNoteCommand {
   noteId: string;
 }
 
+/** The fields of a note a piano-roll gesture can change. Identity is not one of them. */
+export type NotePatch = Partial<Pick<NoteEvent, 'time' | 'duration' | 'note' | 'velocity'>>;
+
+/**
+ * Move, resize, re-pitch or re-velocity one note, as ONE command.
+ *
+ * `removeNote` + `addNote` would say the same thing in two journal rows and two undo
+ * steps, and a drag that had to be undone twice is a drag the player stops trusting.
+ */
+export interface UpdateNoteCommand {
+  type: 'updateNote';
+  trackId: string;
+  noteId: string;
+  patch: NotePatch;
+}
+
+/**
+ * Replace a track's whole note list.
+ *
+ * Exists because history has no grouping and is 100 deep (`MAX_HISTORY_DEPTH`): a
+ * one-bar psytrance pattern is 16 notes, four bars is 64, and writing it as `addNote`s
+ * would spend most of the undo stack on one button press. A pattern write, a velocity
+ * paint and a paste are each one intent, so each is one command.
+ */
+export interface SetTrackNotesCommand {
+  type: 'setTrackNotes';
+  trackId: string;
+  notes: NoteEvent[];
+}
+
+/** Give a drum track the built-in kick voice, or take it away with `null`. */
+export interface SetTrackKickCommand {
+  type: 'setTrackKick';
+  trackId: string;
+  kick: KickConfig | null;
+}
+
+/** Duck this track on another track's notes, or stop ducking with `null`. */
+export interface SetTrackDuckCommand {
+  type: 'setTrackDuck';
+  trackId: string;
+  duck: DuckConfig | null;
+}
+
 export interface SetTempoCommand {
   type: 'setTempo';
   bpm: number;
@@ -263,12 +337,16 @@ export interface NoteOnCommand {
   type: 'noteOn';
   note: NoteName;
   velocity: Unit;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 /** Hot path — see NoteOnCommand. */
 export interface NoteOffCommand {
   type: 'noteOff';
   note: NoteName;
+  /** C5: the channel (track) this is aimed at; absent = the live patch. */
+  trackId?: string;
 }
 
 /** All notes off, all voices released, transient state cleared. */
@@ -310,6 +388,26 @@ export interface RedoCommand {
 }
 
 // ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+
+/**
+ * The saved session, put back at startup (C3b): the live sound, the song, and the player's
+ * own presets — in ONE command, so it is one journal entry and one step.
+ *
+ * It is also the UNDO BASELINE. `applyToHistory` clears both stacks on it, so undo pressed
+ * right after launch cannot walk back past the restore to the factory sound — which the
+ * autosave would then have written over the player's work. Replay folds it through the same
+ * driver, so a replayed history has the same baseline.
+ */
+export interface RestoreSessionCommand {
+  type: 'restoreSession';
+  patch: SynthPreset;
+  song: Song;
+  presets: SynthPreset[];
+}
+
+// ---------------------------------------------------------------------------
 // The union
 // ---------------------------------------------------------------------------
 
@@ -318,6 +416,7 @@ export type SynthCommand =
   | LoadPresetCommand
   | SavePresetCommand
   | DeletePresetCommand
+  | ImportPresetCommand
   | SetParamCommand
   | AddOscillatorCommand
   | RemoveOscillatorCommand
@@ -341,6 +440,10 @@ export type SynthCommand =
   | SetPatternLengthCommand
   | AddNoteCommand
   | RemoveNoteCommand
+  | UpdateNoteCommand
+  | SetTrackNotesCommand
+  | SetTrackKickCommand
+  | SetTrackDuckCommand
   | SetTempoCommand
   | SetSwingCommand
   | SetTimeSignatureCommand
@@ -357,7 +460,9 @@ export type SynthCommand =
   | ImportMidiCommand
   // history
   | UndoCommand
-  | RedoCommand;
+  | RedoCommand
+  // session
+  | RestoreSessionCommand;
 
 export type SynthCommandType = SynthCommand['type'];
 
@@ -373,6 +478,7 @@ export const SYNTH_COMMAND_TYPES = [
   'loadPreset',
   'savePreset',
   'deletePreset',
+  'importPreset',
   'setParam',
   'addOscillator',
   'removeOscillator',
@@ -395,6 +501,10 @@ export const SYNTH_COMMAND_TYPES = [
   'setPatternLength',
   'addNote',
   'removeNote',
+  'updateNote',
+  'setTrackNotes',
+  'setTrackKick',
+  'setTrackDuck',
   'setTempo',
   'setSwing',
   'setTimeSignature',
@@ -409,6 +519,7 @@ export const SYNTH_COMMAND_TYPES = [
   'importMidi',
   'undo',
   'redo',
+  'restoreSession',
 ] as const satisfies readonly SynthCommandType[];
 
 /** Compile-time completeness: fails if SYNTH_COMMAND_TYPES is missing a union member. */

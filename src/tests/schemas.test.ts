@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   COMMAND_PAYLOAD_SCHEMAS,
   PresetSchema,
@@ -21,8 +22,24 @@ import { defaultPreset, defaultSong } from '../core/state';
 import { PRESET_SCHEMA_VERSION, SONG_SCHEMA_VERSION } from '../core/types';
 
 describe('every command has a schema', () => {
-  it('covers all 34 verbs with no orphans', () => {
+  it('covers every verb with no orphans', () => {
     expect(Object.keys(COMMAND_PAYLOAD_SCHEMAS).sort()).toEqual([...SYNTH_COMMAND_TYPES].sort());
+  });
+
+  it('converts every verb to JSON Schema — the agent bridge manifest is generated this way', () => {
+    // HANDOFF-SAG-DAW.md §5: the appfactory bridge publishes `z.toJSONSchema` of each
+    // payload. That was measured once, in another repo; a verb whose schema cannot convert
+    // would vanish from an agent's view with nothing here noticing. `superRefine`s are
+    // dropped by the conversion — the app-side rejection is what an agent recovers from.
+    const failed: string[] = [];
+    for (const [type, schema] of Object.entries(COMMAND_PAYLOAD_SCHEMAS)) {
+      try {
+        z.toJSONSchema(schema as z.ZodType);
+      } catch (error) {
+        failed.push(`${type}: ${(error as Error).message}`);
+      }
+    }
+    expect(failed).toEqual([]);
   });
 
   it('accepts a minimal valid payload for every verb', () => {
@@ -89,6 +106,22 @@ describe('every command has a schema', () => {
         note: { noteId: 'n-1', time: 0, duration: 0.5, note: 'C4', velocity: 0.8 },
       },
       removeNote: { type: 'removeNote', trackId: 't1', noteId: 'n-1' },
+      updateNote: { type: 'updateNote', trackId: 't1', noteId: 'n-1', patch: { time: 0.25, velocity: 0.7 } },
+      setTrackNotes: {
+        type: 'setTrackNotes',
+        trackId: 't1',
+        notes: [{ noteId: 'n-1', time: 0.25, duration: 0.125, note: 'G1', velocity: 0.7 }],
+      },
+      setTrackKick: {
+        type: 'setTrackKick',
+        trackId: 'kick',
+        kick: { tune: 'G1', punch: 5, pitchDecay: 0.03, decay: 0.22, level: 0 },
+      },
+      setTrackDuck: {
+        type: 'setTrackDuck',
+        trackId: 't1',
+        duck: { sourceTrackId: 'kick', depthDb: 3, attackMs: 1, releaseMs: 60 },
+      },
       setTempo: { type: 'setTempo', bpm: 128 },
       setSwing: { type: 'setSwing', amount: 0.2 },
       setTimeSignature: { type: 'setTimeSignature', n: 3 },
@@ -103,6 +136,8 @@ describe('every command has a schema', () => {
       importMidi: { type: 'importMidi', bytes: 'TVRoZAAAAAY=' },
       undo: { type: 'undo' },
       redo: { type: 'redo' },
+      importPreset: { type: 'importPreset', preset: { ...defaultPreset(), id: 'user-1', factory: false } },
+      restoreSession: { type: 'restoreSession', patch: defaultPreset(), song: defaultSong(), presets: [] },
     } satisfies Record<(typeof SYNTH_COMMAND_TYPES)[number], unknown>;
 
     for (const type of SYNTH_COMMAND_TYPES) {
@@ -400,5 +435,119 @@ describe('migration (F65 / F69)', () => {
     const futureSong = { ...defaultSong(), schemaVersion: 99 };
     const songResult = migrateSong(futureSong);
     expect(songResult.ok).toBe(false);
+  });
+});
+
+describe('schema_version 7 — per-voice filter drive', () => {
+  it('fills drive 0 — an exact bypass — and moves nothing else', () => {
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    doc.schemaVersion = 6;
+    delete doc.voice.filter.drive;
+    const result = migratePreset(doc);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const migrated = PresetSchema.parse(result.value);
+    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.voice.filter.drive).toBe(0);
+    expect(migrated).toEqual(defaultPreset());
+  });
+
+  it('keeps a drive the document already has', () => {
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    doc.schemaVersion = 6;
+    doc.voice.filter.drive = 0.4;
+    const result = migratePreset(doc);
+    expect(result.ok && (result.value as any).voice.filter.drive).toBe(0.4);
+  });
+
+  it('accepts the envelope sources on a route, and still refuses a made-up one', () => {
+    for (const source of ['env.amp', 'env.filter']) {
+      const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+      doc.voice.modRoutes = [{ id: 'r', enabled: true, source, destination: 'voice.filter.Q', depth: 0.5 }];
+      expect(PresetSchema.safeParse(doc).success, source).toBe(true);
+    }
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    doc.voice.modRoutes = [{ id: 'r', enabled: true, source: 'env.pitch', destination: 'voice.filter.Q', depth: 0.5 }];
+    expect(PresetSchema.safeParse(doc).success).toBe(false);
+  });
+});
+
+describe('schema_version 6 — the filter envelope can link to the amp', () => {
+  it('fills linked: false — what every v5 patch already did — and moves nothing else', () => {
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    doc.schemaVersion = 5;
+    delete doc.voice.filterEnvelope.linked;
+    const result = migratePreset(doc);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const migrated = PresetSchema.parse(result.value);
+    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.voice.filterEnvelope.linked).toBe(false);
+    expect(migrated).toEqual(defaultPreset());
+  });
+
+  it('keeps a link the document already has', () => {
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    doc.schemaVersion = 5;
+    doc.voice.filterEnvelope.linked = true;
+    const result = migratePreset(doc);
+    expect(result.ok && (result.value as any).voice.filterEnvelope.linked).toBe(true);
+  });
+
+  it('a v5 document that omits the link does not validate as v6 unmigrated', () => {
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    delete doc.voice.filterEnvelope.linked;
+    expect(PresetSchema.safeParse(doc).success).toBe(false);
+  });
+});
+
+describe('schema_version 5 — AHDSR migration', () => {
+  /** A v4 document: the shape every patch had before hold and decay curves. */
+  function v4Preset(): Record<string, unknown> {
+    const doc = structuredClone(defaultPreset()) as unknown as Record<string, any>;
+    doc.schemaVersion = 4;
+    for (const key of ['envelope', 'filterEnvelope']) {
+      delete doc.voice[key].hold;
+      delete doc.voice[key].decayCurve;
+    }
+    return doc;
+  }
+
+  it('fills hold 0 and an exponential decay — the ADSR the patch always had', () => {
+    const result = migratePreset(v4Preset());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const migrated = PresetSchema.parse(result.value);
+    // The chain walks on through 6 and 7, which only add the filter link (off) and drive (0).
+    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.voice.envelope).toMatchObject({ hold: 0, decayCurve: 'exponential' });
+    expect(migrated.voice.filterEnvelope).toMatchObject({ hold: 0, decayCurve: 'exponential' });
+    // And nothing else moved.
+    expect(migrated).toEqual(defaultPreset());
+  });
+
+  it('keeps a hold the document already has', () => {
+    const doc = v4Preset() as Record<string, any>;
+    doc.voice.envelope.hold = 0.04;
+    const result = migratePreset(doc);
+    expect(result.ok && (result.value as any).voice.envelope.hold).toBe(0.04);
+  });
+
+  it('migrates the preset inside every song track — which it never used to', () => {
+    const song = structuredClone(defaultSong()) as unknown as Record<string, any>;
+    song.tracks[0].presetSnapshot = v4Preset();
+    const result = migrateSong(song);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(SongSchema.safeParse(result.value).success).toBe(true);
+    expect((result.value as any).tracks[0].presetSnapshot.schemaVersion).toBe(7);
+  });
+
+  it('refuses a song whose track holds a preset from the future, and says which track', () => {
+    const song = structuredClone(defaultSong()) as unknown as Record<string, any>;
+    song.tracks[0].presetSnapshot.schemaVersion = 99;
+    const result = migrateSong(song);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('track 0');
   });
 });

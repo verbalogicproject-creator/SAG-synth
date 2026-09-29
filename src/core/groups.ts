@@ -90,10 +90,14 @@ export const SIGNAL_CHAIN: readonly Section[] = [
       // FilterConfig in types.ts for why there is no `voice.filter.frequency`.
       'voice.filterEnvelope.baseFrequency',
       'voice.filter.Q',
+      'voice.filter.drive',
       'voice.filter.rolloff',
       'voice.filterEnvelope.octaves',
+      'voice.filterEnvelope.linked',
       'voice.filterEnvelope.attack',
+      'voice.filterEnvelope.hold',
       'voice.filterEnvelope.decay',
+      'voice.filterEnvelope.decayCurve',
       'voice.filterEnvelope.sustain',
       'voice.filterEnvelope.release',
     ],
@@ -104,7 +108,9 @@ export const SIGNAL_CHAIN: readonly Section[] = [
     summary: 'The volume contour of a single note, and how hard you played it.',
     paths: [
       'voice.envelope.attack',
+      'voice.envelope.hold',
       'voice.envelope.decay',
+      'voice.envelope.decayCurve',
       'voice.envelope.sustain',
       'voice.envelope.release',
       'voice.amplitude',
@@ -243,8 +249,11 @@ export function sectionPaths(id: SectionId): ParamPath[] {
  * hole. The gate checks that anyway, because "cannot drift" is a claim, not a fact.
  */
 const FILTER_ENVELOPE_STAGES: readonly ParamPath[] = [
+  'voice.filterEnvelope.linked',
   'voice.filterEnvelope.attack',
+  'voice.filterEnvelope.hold',
   'voice.filterEnvelope.decay',
+  'voice.filterEnvelope.decayCurve',
   'voice.filterEnvelope.sustain',
   'voice.filterEnvelope.release',
 ];

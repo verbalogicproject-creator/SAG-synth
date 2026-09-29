@@ -36,6 +36,11 @@ declare global {
       postResult(json: string): void;
       observe(json: string): void;
       log(line: string): void;
+      /**
+       * C3b, app-specific in the SAG shell: write a file to Download/SAG/. Optional — an
+       * older shell does not have it, and `saveFile` in app/files.ts falls back.
+       */
+      saveFile?(name: string, mime: string, base64: string): string;
     };
     /**
      * The shell's half of the channel: it calls INTO the page rather than emitting a DOM

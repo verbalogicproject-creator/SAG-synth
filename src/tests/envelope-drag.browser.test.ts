@@ -2,10 +2,12 @@
  * src/tests/envelope-drag.browser.test.ts — the handles move their own parameter, and only it.
  *
  * The design decision this file defends: a handle is a HANDLE FOR ITS OWN PARAMETER, not a
- * point on the path. The three times share the drawn width in proportion to each other, so
- * a handle that tried to honour a requested pixel position would have to solve for a value
- * whose answer depends on the other two — and dragging attack would silently rewrite decay
- * and release to keep the picture consistent.
+ * point on the path. The time axis is compressive (a log knee), so a requested pixel maps to
+ * seconds non-linearly, and a handle that tried to honour one would be solving the axis
+ * instead of moving a value.
+ *
+ * The axis itself is gated at the bottom: since 2026-09-18 it is fixed, so changing one
+ * stage moves only that stage and the ones after it.
  *
  * So the assertion is not "the curve looks right". It is that one drag produces `setParam`
  * at exactly one address, and that the other three stages are never written. That is the
@@ -60,7 +62,7 @@ async function draw(writes: Write[]): Promise<void> {
         decay: 1,
         sustain: 0.5,
         release: 1,
-        maxStage: 20,
+        ranges: { attack: 20, decay: 20, release: 20 },
         stages: STAGES,
         onChange: (path: ParamPath, value: ParamValue) => writes.push({ path, value }),
       }),
@@ -160,10 +162,129 @@ describe('the envelope handles', () => {
           decay: 1,
           sustain: 0.5,
           release: 1,
-          maxStage: 20,
+          ranges: { attack: 20, decay: 20, release: 20 },
         }),
       );
     });
     expect(container.querySelectorAll('[role="slider"]')).toHaveLength(0);
+  });
+});
+
+describe('the AHDSR hold handle (schema_version 5)', () => {
+  it('is drawn when a hold path is given, and dragging it writes only the hold', async () => {
+    const writes: Write[] = [];
+    await act(async () => {
+      root.render(
+        createElement(EnvelopeCurve, {
+          attack: 0,
+          decay: 1,
+          sustain: 0.5,
+          release: 1,
+          ranges: { attack: 20, decay: 20, release: 20 },
+          stages: STAGES,
+          hold: 0.1,
+          holdPath: 'voice.envelope.hold',
+          decayCurve: 'logarithmic',
+          onChange: (path: ParamPath, value: ParamValue) => writes.push({ path, value }),
+        }),
+      );
+    });
+    expect(handle('hold'), 'no hold handle').not.toBeNull();
+    await drag('hold', 40, 0);
+    expect(writes.length).toBeGreaterThan(0);
+    expect(new Set(writes.map((w) => w.path))).toEqual(new Set(['voice.envelope.hold']));
+    expect(writes.at(-1)!.value as number).toBeGreaterThan(0.1);
+  });
+
+  it('is absent without a hold path — the ADSR curve is unchanged', async () => {
+    await draw([]);
+    expect(handle('hold')).toBeNull();
+  });
+});
+
+describe('the AHDSR curve tells the truth about time', () => {
+  /** Draw the Psy Roll's amp envelope, with one override, and read where the handles sit. */
+  async function handlesFor(overrides: Record<string, unknown> = {}) {
+    await act(async () => {
+      root.render(
+        createElement(EnvelopeCurve, {
+          attack: 0.01,
+          decay: 0.06,
+          sustain: 0,
+          release: 0.03,
+          ranges: { attack: 2, decay: 2, release: 2 },
+          stages: STAGES,
+          hold: 0.03,
+          holdPath: 'voice.envelope.hold',
+          decayCurve: 'exponential',
+          onChange: () => {},
+          ...overrides,
+        }),
+      );
+    });
+    const x = (name: string) => {
+      const box = handle(name).getBoundingClientRect();
+      return box.left + box.width / 2;
+    };
+    return { attack: x('attack'), hold: x('hold'), decay: x('decay'), release: x('release') };
+  }
+
+  it('changing the decay moves only the decay and what follows it — Eyal, 2026-09-18', async () => {
+    // The ask this axis exists for: "when i change decay it only controlls the decay". The
+    // widths used to be shares of their total, so a longer decay squeezed attack and hold.
+    const short = await handlesFor({ decay: 0.06 });
+    const long = await handlesFor({ decay: 1.5 });
+    expect(long.attack).toBeCloseTo(short.attack, 3);
+    expect(long.hold).toBeCloseTo(short.hold, 3);
+    expect(long.decay - short.decay, 'a longer decay should draw longer').toBeGreaterThan(20);
+  });
+
+  it('changing the attack leaves the hold and decay widths alone', async () => {
+    const a = await handlesFor({ attack: 0.005 });
+    const b = await handlesFor({ attack: 0.8 });
+    expect(b.hold - b.attack).toBeCloseTo(a.hold - a.attack, 3);
+    expect(b.decay - b.hold).toBeCloseTo(a.decay - a.hold, 3);
+  });
+
+  it('one scale for every stage: the same seconds draw the same width, longer draws wider', async () => {
+    // Found by the first screenshot of the AHDSR editor: a 30 ms hold drawn as most of the
+    // width beside a 60 ms decay drawn as a sliver, because the hold was scaled against its
+    // own 0.5 s range. Hold and release are both 30 ms in the Psy Roll; decay is 60.
+    const x = await handlesFor();
+    const holdWidth = x.hold - x.attack;
+    const decayWidth = x.decay - x.hold;
+    expect(holdWidth).toBeGreaterThan(4);
+    expect(decayWidth).toBeGreaterThan(holdWidth);
+
+    const release = await handlesFor({ hold: 0.03, release: 0.03, sustain: 0 });
+    // Release runs from the end of the sustain segment to the last handle; the sustain
+    // segment's width is fixed, so compare release against the hold directly.
+    const releaseOnly = await handlesFor({ release: 0 });
+    expect(release.release - releaseOnly.release).toBeCloseTo(holdWidth, 1);
+  });
+
+  it('the short range is a zoom: the same pluck draws wider in 2 s than in 20 s', async () => {
+    const zoomed = await handlesFor({ ranges: { attack: 2, decay: 2, release: 2 } });
+    const wide = await handlesFor({ ranges: { attack: 20, decay: 20, release: 20 } });
+    expect(zoomed.decay - zoomed.hold).toBeGreaterThan(wide.decay - wide.hold);
+  });
+
+  it('in the short range a full drag reaches 2 s, not 20', async () => {
+    const writes: Write[] = [];
+    await act(async () => {
+      root.render(
+        createElement(EnvelopeCurve, {
+          attack: 0,
+          decay: 1,
+          sustain: 0.5,
+          release: 1,
+          ranges: { attack: 2, decay: 2, release: 2 },
+          stages: STAGES,
+          onChange: (path: ParamPath, value: ParamValue) => writes.push({ path, value }),
+        }),
+      );
+    });
+    await drag('attack', 400, 0);
+    expect(writes.at(-1)!.value).toBe(2);
   });
 });

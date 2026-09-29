@@ -130,9 +130,29 @@ export interface OscillatorConfig {
   pan: number;
 }
 
+/**
+ * The shape of the decay stage.
+ *
+ * - `exponential` — Tone's own decay (`exponentialApproachValueAtTime`), fast then slow. The
+ *   value every patch had before schema_version 5, so a migrated patch sounds the same.
+ * - `linear` — a straight line to sustain.
+ * - `logarithmic` — slow then fast: the level stays up and then falls away, which on a
+ *   psytrance bass reads as more body behind the click.
+ */
+export const DECAY_CURVES = ['linear', 'exponential', 'logarithmic'] as const;
+export type DecayCurve = (typeof DECAY_CURVES)[number];
+
+/**
+ * AHDSR since schema_version 5: attack, then HOLD at the peak, then decay (with a chosen
+ * curve) to sustain, then release. Eyal's psytrance bass: attack 0 gives the click, a
+ * 20–80 ms hold gives it body, and the decay slope is the character. `hold: 0` with an
+ * exponential decay is exactly the ADSR every earlier patch had.
+ */
 export interface EnvelopeConfig {
   attack: Seconds;
+  hold: Seconds;
   decay: Seconds;
+  decayCurve: DecayCurve;
   sustain: Unit;
   release: Seconds;
 }
@@ -162,11 +182,26 @@ export interface FilterConfig {
   type: FilterType;
   Q: number;
   rolloff: FilterRolloff;
+  /**
+   * schema_version 7: per-voice saturation BEFORE the filter, 0..1. The psytrance recipe
+   * drives the oscillators into the filter so the resonance has harmonics to bite on. At 0
+   * the stage is an exact bypass (a unity dry leg, the shaper's leg at 0), which is what
+   * makes the migration sound-identical.
+   */
+  drive: Unit;
 }
 
 export interface FilterEnvelopeConfig extends EnvelopeConfig {
   baseFrequency: number;
   octaves: number;
+  /**
+   * schema_version 6: the filter contour follows the AMP envelope's six stage values
+   * (attack, hold, decay, decayCurve, sustain, release) instead of its own. Its own values
+   * stay stored and come back on unlink — a link is a routing choice, not an edit. Cutoff
+   * and amount are the filter's and are never linked. Resolved by `effectiveFilterEnvelope`
+   * (`core/ahdsr.ts`), which is the only place that decides it.
+   */
+  linked: boolean;
 }
 
 /**
@@ -266,7 +301,30 @@ void _slotsMatchCap;
  * on the route would let a patch claim a unipolar generator is bipolar — not a
  * configuration, just a claim the runtime would have to reconcile.
  */
-export type ModSource = `lfo.${LfoIndex}` | 'velocity';
+export type ModSource = `lfo.${LfoIndex}` | 'velocity' | EnvelopeSource;
+
+/**
+ * The two AHDSR contours as mod sources (cycle 2, C3 — Eyal's "assignable envelopes").
+ * Per voice and unipolar, exactly like velocity: each sounding note has its own contour,
+ * and a contour runs 0..1 and only ever adds. `env.amp` includes the note's velocity,
+ * because that is the contour the note is heard at; `env.filter` is the one the filter
+ * RUNS, so a linked filter envelope reports the amp's shape.
+ */
+export type EnvelopeSource = 'env.amp' | 'env.filter';
+
+/** The LFO slot a source reads, or null for a per-voice source. */
+export function lfoSlotOf(source: ModSource): number | null {
+  return source.startsWith('lfo.') ? Number(source.slice('lfo.'.length)) : null;
+}
+
+/**
+ * Per voice (velocity, the envelopes) vs one shared generator (an LFO). The runtime
+ * wires the two with different topologies and `reachOf` gives them different polarity;
+ * both read this, so a new source cannot be one kind in one place and the other elsewhere.
+ */
+export function isPerVoiceSource(source: ModSource): boolean {
+  return lfoSlotOf(source) === null;
+}
 
 /**
  * KIND-synth_mod_route §3.3, verbatim. How a normalised depth becomes real travel.
@@ -644,6 +702,11 @@ export interface MasterConfig {
 export type PresetCategory = 'Bass' | 'Lead' | 'Pad' | 'Keys' | 'Drum' | 'FX';
 
 /**
+ * 5 — the AHDSR bump. Both envelopes gain `hold` and `decayCurve`. The migration fills
+ * `hold: 0` and `decayCurve: 'exponential'` — Tone's own decay — so every earlier patch
+ * sounds exactly as it did (F65), and a build that does not know `hold` refuses a v5 patch
+ * rather than silently dropping the click.
+ *
  * 4 — the signed-depth bump. A route's `depth` widens from `0..1` to `−1..1`.
  *
  * **The migration is the identity, and the version still moves.** Every v3 depth is a
@@ -662,7 +725,7 @@ export type PresetCategory = 'Bass' | 'Lead' | 'Pad' | 'Keys' | 'Drum' | 'FX';
  * requires more than slot preservation at 3: a v2 patch and its migrated form must SOUND
  * the same, because the arity changed underneath a voice that still renders one buffer.
  */
-export const PRESET_SCHEMA_VERSION = 4;
+export const PRESET_SCHEMA_VERSION = 7;
 
 export interface SynthPreset {
   /** KIND slot `patch_id`. */
@@ -726,6 +789,50 @@ export interface SongTrack {
   solo: boolean;
   /** F70 — MIDI channel 10 imports flag this instead of mapping to pitched synthesis. */
   isDrum?: boolean;
+  /**
+   * The built-in kick voice, for a drum track. Every note on the track fires it, whatever
+   * its pitch — the pitch is the kick's `tune`, not the note's, because a kick tuned to
+   * the song's key is a property of the kick rather than of each hit.
+   *
+   * A drum track still carries `presetSnapshot` (F68 makes it required) and ignores it.
+   * Making the snapshot optional for drums would be a reshape of every saved song; an
+   * unused preset costs a few hundred bytes.
+   */
+  kick?: KickConfig;
+  /**
+   * Note-triggered ducking: every note on `sourceTrackId` dips this track's level.
+   *
+   * Scheduled gain automation, not a compressor. Web Audio's DynamicsCompressorNode has
+   * no sidechain input (spec issue #246), and the kick's note times are already known
+   * exactly, so a scheduled dip lands on the sample where a follower would lag its own
+   * smoothing. It is what a psytrance "sidechain" is actually asked to do: 2–4 dB, the
+   * fastest attack, back at 0 dB before the first bass 16th.
+   */
+  duck?: DuckConfig;
+}
+
+/** A synthesised kick: one sine whose pitch falls `punch` octaves onto `tune`. */
+export interface KickConfig {
+  /** The fundamental the pitch sweep lands on. Tune it to the bass's key. */
+  tune: NoteName;
+  /** How many octaves above `tune` the sweep starts. More is clickier. */
+  punch: number;
+  /** How long the sweep takes to land. */
+  pitchDecay: Seconds;
+  /** Amplitude decay. Longer is boomier; psytrance wants it gone before the first 16th of bass. */
+  decay: Seconds;
+  level: Decibels;
+}
+
+export interface DuckConfig {
+  /** The track whose notes trigger the dip — a drum track, never this one. */
+  sourceTrackId: string;
+  /** How far the level dips, as a positive number of dB. */
+  depthDb: Decibels;
+  /** Time to reach full depth. */
+  attackMs: number;
+  /** Time to recover to 0 dB after full depth. */
+  releaseMs: number;
 }
 
 export interface TempoEvent {
@@ -866,20 +973,26 @@ type RouteParamValueMap = {
 interface FixedParamValueMap {
 
   'voice.envelope.attack': Seconds;
+  'voice.envelope.hold': Seconds;
   'voice.envelope.decay': Seconds;
+  'voice.envelope.decayCurve': DecayCurve;
   'voice.envelope.sustain': Unit;
   'voice.envelope.release': Seconds;
 
   'voice.filter.type': FilterType;
   'voice.filter.Q': number;
+  'voice.filter.drive': Unit;
   'voice.filter.rolloff': FilterRolloff;
 
   'voice.filterEnvelope.attack': Seconds;
+  'voice.filterEnvelope.hold': Seconds;
   'voice.filterEnvelope.decay': Seconds;
+  'voice.filterEnvelope.decayCurve': DecayCurve;
   'voice.filterEnvelope.sustain': Unit;
   'voice.filterEnvelope.release': Seconds;
   'voice.filterEnvelope.baseFrequency': number;
   'voice.filterEnvelope.octaves': number;
+  'voice.filterEnvelope.linked': boolean;
 
   'voice.polyphony': number;
   'voice.portamento': Seconds;
@@ -948,4 +1061,11 @@ export const LIMITS = {
   swing: { min: 0, max: 1 },
   trackVolume: { min: -60, max: 12 },
   masterVolume: { min: -60, max: 6 },
+  kickPunch: { min: 0, max: 8 },
+  kickPitchDecay: { min: 0.001, max: 0.5 },
+  kickDecay: { min: 0.01, max: 2 },
+  kickLevel: { min: -60, max: 12 },
+  duckDepthDb: { min: 0, max: 24 },
+  duckAttackMs: { min: 0.1, max: 50 },
+  duckReleaseMs: { min: 1, max: 500 },
 } as const;

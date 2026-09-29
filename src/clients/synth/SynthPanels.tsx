@@ -12,7 +12,7 @@
  * being reachable and a parameter cannot be added without landing somewhere.
  */
 
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { NAV_TABS } from '../../core/groups';
 import type { SynthCommand } from '../../core/commands';
 import type { EngineState } from '../../core/state';
@@ -27,7 +27,12 @@ export interface SynthPanelsProps {
   onCommand: (command: SynthCommand) => void;
 }
 
-export function SynthPanels({ state, onChange, onCommand }: SynthPanelsProps) {
+/**
+ * Memoised: `SynthApp` re-renders for things that are not this component's business (the
+ * audio-context poll, the velocity slider, the keyboard's held notes), and every one of
+ * those used to redraw every control on the tab.
+ */
+export const SynthPanels = memo(function SynthPanels({ state, onChange, onCommand }: SynthPanelsProps) {
   const [active, setActive] = useState(0);
   const tab = NAV_TABS[Math.min(active, NAV_TABS.length - 1)]!;
 
@@ -65,7 +70,7 @@ export function SynthPanels({ state, onChange, onCommand }: SynthPanelsProps) {
       </div>
     </div>
   );
-}
+});
 
 const styles = {
   shell: {

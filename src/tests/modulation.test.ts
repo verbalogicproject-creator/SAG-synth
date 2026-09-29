@@ -128,6 +128,15 @@ describe('modulationLoad — what the routes ask of each destination', () => {
     expect(load?.overflows).toBe(false);
   });
 
+  it('treats the envelopes as unipolar too, exactly like velocity (C3)', () => {
+    for (const source of ['env.amp', 'env.filter'] as const) {
+      const [up] = modulationLoad(stateWith([route({ destination: 'voice.pan', depth: 0.5, source })]));
+      expect(up?.reach, source).toEqual({ min: 0, max: expect.closeTo(1, 6) });
+      const [down] = modulationLoad(stateWith([route({ destination: 'voice.pan', depth: -0.5, source })]));
+      expect(down?.reach, source).toEqual({ min: expect.closeTo(-1, 6), max: 0 });
+    }
+  });
+
   it('does not flag a single amplitude duck — it only ever attenuates', () => {
     const [load] = modulationLoad(stateWith([route({ destination: 'voice.amplitude', depth: 0.5 })]));
 

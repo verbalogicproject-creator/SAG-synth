@@ -2,23 +2,22 @@
  * src/clients/synth/controls/RateControl.tsx — an LFO rate, which is two things.
  *
  * `voice.lfos.N.frequency` holds either a number of hertz or a transport subdivision, and
- * the value's own type says which. So does this control: a number draws a knob, a string
- * draws the subdivision it is set to.
+ * the value's own type says which. So does this control: a number draws a knob with a way
+ * to lock it to the tempo, a string draws the note-length picker with a way back to hertz.
  *
- * **The subdivision side is not offered, and that is deliberate.** `syncLfos` reports
- * `lfo.syncedFrequency` and falls back to 1 Hz, because a subdivision means nothing
- * without a transport and v0.1.0 drives none. Drawing a picker for it would be building a
- * control that validates, journals, replays and makes the wrong sound — so a patch that
- * already carries one is shown, told the truth, and given a way back to hertz.
- *
- * When the transport lands at v0.3.0 this grows a picker from
- * `spec.subdivisions` and the note comes out. Nothing else changes.
+ * Until cycle 2 C3 the subdivision side was refused: a subdivision meant nothing without a
+ * transport, the runtime ran it at 1 Hz, and a picker would have been a control that made
+ * the wrong sound. C3 locks such an LFO to the transport (`Tone.LFO.sync()`), so the picker
+ * exists now — with the one sentence a player needs: it moves while the sequencer plays.
  */
 
-import { formatValue, fromTrack, stepOf, toTrack } from '../../../core/scale';
+import { formatValue, fromTrack, stepOf, subdivisionLabel, toTrack } from '../../../core/scale';
 import { COLOR, FONT, TOUCH_MIN } from '../tokens';
 import { Knob } from './Knob';
 import { sagAttributes, type ControlProps } from './types';
+
+/** What "lock to tempo" picks first: the psytrance rolling-bass rate. */
+const FIRST_SUBDIVISION = '16n';
 
 export function RateControl(props: ControlProps) {
   const { id, path, label, spec, value, onChange } = props;
@@ -35,15 +34,28 @@ export function RateControl(props: ControlProps) {
     return (
       <div style={styles.wrap}>
         <span style={styles.label}>{label}</span>
-        <span style={styles.synced}>{value}</span>
-        <span style={styles.reason}>
-          synced rates need a transport — this LFO is running at 1 Hz
-        </span>
-        <button
+        <select
           {...sagAttributes({ id, path })}
+          value={value}
+          aria-label={`${label}: note length`}
+          onChange={(event) => onChange(path, event.target.value)}
+          style={styles.select}
+        >
+          {/* A stored value outside the list (a triplet from an imported patch) is still
+              drawn as itself rather than silently shown as the first option. */}
+          {(spec.subdivisions.includes(value) ? spec.subdivisions : [value, ...spec.subdivisions]).map(
+            (subdivision) => (
+              <option key={subdivision} value={subdivision}>
+                {subdivisionLabel(subdivision)}
+              </option>
+            ),
+          )}
+        </select>
+        <span style={styles.note}>locked to the sequencer — moves while it plays</span>
+        <button
           type="button"
           onClick={() => onChange(path, 1)}
-          style={styles.revert}
+          style={styles.switch}
           aria-label={`${label}: switch to hertz`}
         >
           use Hz
@@ -52,7 +64,19 @@ export function RateControl(props: ControlProps) {
     );
   }
 
-  return <Knob {...props} spec={asNumber} value={typeof value === 'number' ? value : 1} />;
+  return (
+    <div style={styles.wrap}>
+      <Knob {...props} spec={asNumber} value={typeof value === 'number' ? value : 1} />
+      <button
+        type="button"
+        onClick={() => onChange(path, FIRST_SUBDIVISION)}
+        style={styles.switch}
+        aria-label={`${label}: lock to tempo`}
+      >
+        tempo
+      </button>
+    </div>
+  );
 }
 
 /** Re-exported so the kit's scaling helpers are visibly the ones in use. */
@@ -73,15 +97,26 @@ const styles = {
     textTransform: 'uppercase',
     color: COLOR.textDim,
   },
-  synced: { fontFamily: FONT.mono, fontSize: '1rem', color: COLOR.ignored },
-  reason: {
+  select: {
+    minHeight: TOUCH_MIN,
+    minWidth: 96,
+    padding: '0 0.4rem',
+    background: COLOR.surfaceHigh,
+    color: COLOR.accent,
+    border: `1px solid ${COLOR.border}`,
+    borderRadius: 4,
+    fontFamily: FONT.mono,
+    fontSize: '0.8rem',
+  },
+  note: {
     fontFamily: FONT.display,
     fontSize: '0.6rem',
-    color: COLOR.ignored,
+    color: COLOR.textDim,
     textAlign: 'center',
   },
-  revert: {
+  switch: {
     minHeight: TOUCH_MIN,
+    minWidth: TOUCH_MIN,
     padding: '0 0.6rem',
     background: 'transparent',
     color: COLOR.text,

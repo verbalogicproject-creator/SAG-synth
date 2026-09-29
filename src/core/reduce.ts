@@ -19,6 +19,7 @@ import {
   MAX_ROUTES,
   SONG_SCHEMA_VERSION,
   STEPS_PER_BEAT,
+  lfoSlotOf,
   type Beats,
   type EffectId,
   type NoteEvent,
@@ -33,6 +34,7 @@ import {
   type EngineState,
 } from './state';
 import { advancesRevision, type SynthCommand } from './commands';
+import { isChannelPath } from './channels';
 import { PARAM_SPECS, SongSchema, migrateSong, validateCommand } from './schemas';
 import type { MidiImportPort } from './ports';
 
@@ -92,9 +94,83 @@ function findTrack(song: Song, trackId: string): SongTrack | undefined {
   return song.tracks.find((track) => track.id === trackId);
 }
 
+/** Beat order, ties by id — the one order every note list is kept in. */
+function sortNotes(notes: NoteEvent[]): NoteEvent[] {
+  return notes.sort((a, b) => a.time - b.time || a.noteId.localeCompare(b.noteId));
+}
+
+function withoutDuck(track: SongTrack): SongTrack {
+  const { duck: _removed, ...rest } = track;
+  return rest;
+}
+
 /** Replace one track by id, leaving every other track object untouched. */
 function mapTrack(song: Song, trackId: string, fn: (track: SongTrack) => SongTrack): Song {
   return { ...song, tracks: song.tracks.map((track) => (track.id === trackId ? fn(track) : track)) };
+}
+
+/**
+ * The patch verbs a channel can be the target of (C5). Everything else ignores `trackId`
+ * — it is not even on their shapes.
+ */
+const CHANNEL_VERBS = new Set<SynthCommand['type']>([
+  'setParam',
+  'loadPreset',
+  'savePreset',
+  'addOscillator',
+  'removeOscillator',
+  'addLfo',
+  'removeLfo',
+  'addRoute',
+  'removeRoute',
+]);
+
+function channelTarget(command: SynthCommand): string | null {
+  if (!CHANNEL_VERBS.has(command.type)) return null;
+  const trackId = (command as { trackId?: string }).trackId;
+  return trackId === undefined ? null : trackId;
+}
+
+/**
+ * A patch verb aimed at a channel (C5). The channel is CONTEXT, not a second implementation:
+ * the verb runs through the very same case below against a view of the state whose `patch`
+ * is the track's `presetSnapshot`, and whatever patch comes out is written back into the
+ * track. So "set the cutoff" means one thing whichever sound it lands on, and a fix to a
+ * verb fixes it for every channel at once.
+ *
+ * What does NOT move: the live `state.patch` (still the target of every verb sent without a
+ * `trackId`) and the shared FX chain — until C7's inserts, `effects.*` belongs to the master
+ * bus, so aiming one at a channel is refused rather than quietly written somewhere the
+ * runtime never reads.
+ */
+function reduceOnChannel(state: EngineState, command: SynthCommand, trackId: string, meta: ReduceMeta): ReduceResult {
+  const track = findTrack(state.song, trackId);
+  if (track === undefined) return { status: 'rejected', error: `no track with id "${trackId}"` };
+  if (track.isDrum === true) {
+    return { status: 'rejected', error: `track "${trackId}" is a kick channel — it has no synth patch to edit` };
+  }
+  if (command.type === 'setParam' && !isChannelPath(command.path)) {
+    return {
+      status: 'rejected',
+      error: `"${command.path}" belongs to the shared master bus until inserts (C7) — send it without a trackId`,
+    };
+  }
+
+  const { trackId: _channel, ...bare } = command as SynthCommand & { trackId?: string };
+  // A preset is a sound plus its FX, and until C7 the FX a channel is heard through is the
+  // shared bus — so a preset saved from a channel captures the bus, not the snapshot's own
+  // (unplayed) `effects`. That is what `stateForChannel` shows the panels, too.
+  const view = command.type === 'savePreset'
+    ? { ...track.presetSnapshot, effects: state.patch.effects }
+    : track.presetSnapshot;
+  const result = reduce({ ...state, patch: view }, bare as SynthCommand, meta);
+  if (result.status !== 'applied') return result;
+
+  const sound = result.state.patch;
+  // A saved or loaded preset becomes the channel's named sound; an edit keeps the name.
+  const presetId = command.type === 'savePreset' || command.type === 'loadPreset' ? sound.id : track.presetId;
+  const song = mapTrack(state.song, trackId, (current) => ({ ...current, presetSnapshot: sound, presetId }));
+  return { ...result, state: { ...result.state, patch: state.patch, song } };
 }
 
 /** The half-open beat window a grid step occupies. */
@@ -117,6 +193,9 @@ export function reduce(
     state: advancesRevision(command) ? { ...next, revision: next.revision + 1 } : next,
     ...(warnings && warnings.length > 0 ? { warnings } : {}),
   });
+
+  const channel = channelTarget(command);
+  if (channel !== null) return reduceOnChannel(state, command, channel, meta);
 
   switch (command.type) {
     // -- patch ------------------------------------------------------------
@@ -142,6 +221,32 @@ export function reduce(
         ...state,
         patch: saved,
         presets: { ...state.presets, [saved.id]: saved },
+      });
+    }
+
+    case 'importPreset': {
+      const existing = state.presets[command.preset.id];
+      if (existing?.factory === true) {
+        return rejected(`preset "${command.preset.id}" is a factory preset and cannot be replaced`);
+      }
+      const imported: SynthPreset = { ...structuredClone(command.preset), factory: false };
+      return applied({ ...state, presets: { ...state.presets, [imported.id]: imported } });
+    }
+
+    case 'restoreSession': {
+      // The factory bundle comes from this build, never from storage: a saved copy of a
+      // factory preset is an older build's opinion of it. So only non-factory ids are
+      // taken from the saved library, and one that collides with a factory id is dropped.
+      const presets = { ...state.presets };
+      for (const preset of command.presets) {
+        if (presets[preset.id]?.factory === true) continue;
+        presets[preset.id] = { ...structuredClone(preset), factory: false };
+      }
+      return applied({
+        ...state,
+        patch: structuredClone(command.patch),
+        song: structuredClone(command.song),
+        presets,
       });
     }
 
@@ -270,8 +375,8 @@ export function reduce(
       // capped at MAX_LFOS, not a fixed-length one. A route pointing at an empty slot
       // would validate cleanly and then modulate nothing. Rejecting it here puts the
       // failure in the journal instead of leaving it silent in the audio graph.
-      if (command.route.source !== 'velocity') {
-        const slot = Number(command.route.source.slice('lfo.'.length));
+      const slot = lfoSlotOf(command.route.source);
+      if (slot !== null) {
         if (state.patch.voice.lfos[slot] === undefined) {
           return rejected(`route source "${command.route.source}" has no LFO in that slot`);
         }
@@ -419,10 +524,14 @@ export function reduce(
       if (findTrack(state.song, command.trackId) === undefined) {
         return rejected(`no track with id "${command.trackId}"`);
       }
+      // A duck keyed to the removed track would point at nothing and dip on nothing —
+      // harmless to the audio, but a dangling reference the next reader has to explain.
       return applied(
         withSong(state, {
           ...state.song,
-          tracks: state.song.tracks.filter((track) => track.id !== command.trackId),
+          tracks: state.song.tracks
+            .filter((track) => track.id !== command.trackId)
+            .map((track) => (track.duck?.sourceTrackId === command.trackId ? withoutDuck(track) : track)),
         }),
       );
     }
@@ -515,6 +624,67 @@ export function reduce(
           })),
         ),
       );
+    }
+
+    case 'updateNote': {
+      const track = findTrack(state.song, command.trackId);
+      if (track === undefined) return rejected(`no track with id "${command.trackId}"`);
+      if (!track.notes.some((note) => note.noteId === command.noteId)) {
+        return rejected(`no note with id "${command.noteId}" on track "${command.trackId}"`);
+      }
+      const notes = sortNotes(
+        track.notes.map((note) => (note.noteId === command.noteId ? { ...note, ...command.patch } : note)),
+      );
+      return applied(withSong(state, mapTrack(state.song, command.trackId, (t) => ({ ...t, notes }))));
+    }
+
+    case 'setTrackNotes': {
+      if (findTrack(state.song, command.trackId) === undefined) {
+        return rejected(`no track with id "${command.trackId}"`);
+      }
+      // The schema already refuses duplicates; the reducer refuses them again because it
+      // is also reached by replay of journals written by other builds, like `addNote`.
+      const ids = new Set(command.notes.map((note) => note.noteId));
+      if (ids.size !== command.notes.length) return rejected('duplicate noteId in setTrackNotes');
+      const notes = sortNotes(structuredClone(command.notes));
+      return applied(withSong(state, mapTrack(state.song, command.trackId, (t) => ({ ...t, notes }))));
+    }
+
+    case 'setTrackKick': {
+      if (findTrack(state.song, command.trackId) === undefined) {
+        return rejected(`no track with id "${command.trackId}"`);
+      }
+      // Giving a track a kick makes it a drum track. Taking the kick away leaves `isDrum`
+      // alone: a MIDI channel-10 import was a drum track before it had a kick.
+      return applied(
+        withSong(
+          state,
+          mapTrack(state.song, command.trackId, (track) => {
+            if (command.kick === null) {
+              const { kick: _removed, ...rest } = track;
+              return rest;
+            }
+            return { ...track, isDrum: true, kick: { ...command.kick } };
+          }),
+        ),
+      );
+    }
+
+    case 'setTrackDuck': {
+      const track = findTrack(state.song, command.trackId);
+      if (track === undefined) return rejected(`no track with id "${command.trackId}"`);
+      if (command.duck === null) {
+        return applied(withSong(state, mapTrack(state.song, command.trackId, withoutDuck)));
+      }
+      const sourceId = command.duck.sourceTrackId;
+      if (sourceId === command.trackId) return rejected('a track cannot duck on its own notes');
+      const source = findTrack(state.song, sourceId);
+      if (source === undefined) return rejected(`no track with id "${sourceId}" to duck on`);
+      if (source.isDrum !== true) {
+        return rejected(`track "${sourceId}" is not a drum track; ducking follows a kick, not a melody`);
+      }
+      const duck = { ...command.duck };
+      return applied(withSong(state, mapTrack(state.song, command.trackId, (t) => ({ ...t, duck }))));
     }
 
     case 'setTempo':

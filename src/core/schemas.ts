@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import {
+  DECAY_CURVES,
   LIMITS,
   LFO_RATE_HZ_MAX,
   LFO_RATE_HZ_MIN,
@@ -53,6 +54,13 @@ export const NoteNameSchema = z
 
 export const IdSchema = z.string().min(1).max(128);
 
+/**
+ * C5: the channel a patch verb or a live note is aimed at. Optional everywhere it appears —
+ * absent means the live patch, exactly as before channels existed, so every journal and
+ * agent written earlier still validates and means what it meant.
+ */
+const TrackTarget = { trackId: IdSchema.optional() };
+
 export const WAVE_SHAPES = [
   'sine',
   'triangle',
@@ -91,7 +99,7 @@ export const LfoShapeSchema = z.enum(LFO_SHAPES);
  * KIND-synth_mod_route §3.1. Four LFO slots plus velocity; polarity is the source's
  * property, so there is nothing per-route to declare.
  */
-export const MOD_SOURCES = ['lfo.0', 'lfo.1', 'lfo.2', 'lfo.3', 'velocity'] as const;
+export const MOD_SOURCES = ['lfo.0', 'lfo.1', 'lfo.2', 'lfo.3', 'velocity', 'env.amp', 'env.filter'] as const;
 export const ModSourceSchema = z.enum(MOD_SOURCES);
 
 /**
@@ -181,9 +189,14 @@ export const OscillatorConfigSchema = z.object({
   pan: z.number().min(-1).max(1),
 });
 
+/** Hold tops out at half a second: past that it is a sustain level, not a transient. */
+export const MAX_HOLD_SECONDS = 0.5;
+
 export const EnvelopeConfigSchema = z.object({
   attack: positive().max(20),
+  hold: positive().max(MAX_HOLD_SECONDS),
   decay: positive().max(20),
+  decayCurve: z.enum(DECAY_CURVES),
   sustain: unit(),
   release: positive().max(20),
 });
@@ -192,11 +205,13 @@ export const FilterConfigSchema = z.object({
   type: FilterTypeSchema,
   Q: z.number().min(0).max(30),
   rolloff: FilterRolloffSchema,
+  drive: unit(),
 });
 
 export const FilterEnvelopeConfigSchema = EnvelopeConfigSchema.extend({
   baseFrequency: z.number().min(20).max(20000),
   octaves: z.number().min(-8).max(8),
+  linked: z.boolean(),
 });
 
 export const LFOConfigSchema = z.object({
@@ -332,6 +347,21 @@ export const NoteEventSchema = z.object({
   velocity: unit(),
 });
 
+export const KickConfigSchema = z.object({
+  tune: NoteNameSchema,
+  punch: z.number().min(LIMITS.kickPunch.min).max(LIMITS.kickPunch.max),
+  pitchDecay: z.number().min(LIMITS.kickPitchDecay.min).max(LIMITS.kickPitchDecay.max),
+  decay: z.number().min(LIMITS.kickDecay.min).max(LIMITS.kickDecay.max),
+  level: z.number().min(LIMITS.kickLevel.min).max(LIMITS.kickLevel.max),
+});
+
+export const DuckConfigSchema = z.object({
+  sourceTrackId: IdSchema,
+  depthDb: z.number().min(LIMITS.duckDepthDb.min).max(LIMITS.duckDepthDb.max),
+  attackMs: z.number().min(LIMITS.duckAttackMs.min).max(LIMITS.duckAttackMs.max),
+  releaseMs: z.number().min(LIMITS.duckReleaseMs.min).max(LIMITS.duckReleaseMs.max),
+});
+
 export const SongTrackSchema = z.object({
   id: IdSchema,
   name: z.string().min(1).max(200),
@@ -348,6 +378,8 @@ export const SongTrackSchema = z.object({
   muted: z.boolean(),
   solo: z.boolean(),
   isDrum: z.boolean().optional(),
+  kick: KickConfigSchema.optional(),
+  duck: DuckConfigSchema.optional(),
 });
 
 export const TempoEventSchema = z.object({
@@ -554,12 +586,15 @@ const routeParamSpecs = Object.fromEntries(
  */
 export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   'voice.envelope.attack': num(0, 20, 's'),
+  'voice.envelope.hold': num(0, MAX_HOLD_SECONDS, 's'),
   'voice.envelope.decay': num(0, 20, 's'),
+  'voice.envelope.decayCurve': { kind: 'enum', values: DECAY_CURVES },
   'voice.envelope.sustain': num(0, 1),
   'voice.envelope.release': num(0, 20, 's'),
 
   'voice.filter.type': { kind: 'enum', values: FILTER_TYPES },
   'voice.filter.Q': modNum(0, 30, undefined, true, 'linear'),
+  'voice.filter.drive': num(0, 1),
   // Four legal slopes, not a range. FILTER_ROLLOFFS already existed; the spec simply
   // was not using it, so `setParam('voice.filter.rolloff', -50)` validated cleanly.
   'voice.filter.rolloff': {
@@ -572,7 +607,10 @@ export const PARAM_SPECS: Record<ParamPath, ParamSpec> = {
   },
 
   'voice.filterEnvelope.attack': num(0, 20, 's'),
+  'voice.filterEnvelope.hold': num(0, MAX_HOLD_SECONDS, 's'),
   'voice.filterEnvelope.decay': num(0, 20, 's'),
+  'voice.filterEnvelope.decayCurve': { kind: 'enum', values: DECAY_CURVES },
+  'voice.filterEnvelope.linked': { kind: 'boolean' },
   'voice.filterEnvelope.sustain': num(0, 1),
   'voice.filterEnvelope.release': num(0, 20, 's'),
   // The live cutoff. `voice.filter.frequency` used to sit beside this and do nothing —
@@ -695,6 +733,7 @@ export const LoadPresetPayloadSchema = z
     type: z.literal('loadPreset'),
     presetId: IdSchema.optional(),
     preset: PresetSchema.optional(),
+    ...TrackTarget,
   })
   .superRefine(oneOf('presetId', 'preset'));
 
@@ -702,6 +741,12 @@ export const SavePresetPayloadSchema = z.object({
   type: z.literal('savePreset'),
   name: z.string().min(1).max(200),
   category: PresetCategorySchema.optional(),
+  ...TrackTarget,
+});
+
+export const ImportPresetPayloadSchema = z.object({
+  type: z.literal('importPreset'),
+  preset: PresetSchema,
 });
 
 export const DeletePresetPayloadSchema = z.object({
@@ -714,6 +759,7 @@ export const SetParamPayloadSchema = z
     type: z.literal('setParam'),
     path: ParamPathSchema,
     value: z.union([z.number(), z.boolean(), z.string()]),
+    ...TrackTarget,
   })
   .superRefine((value, ctx) => {
     // zod v4 still runs this refinement when `path` already failed its own check, so
@@ -728,32 +774,38 @@ export const SetParamPayloadSchema = z
 export const AddOscillatorPayloadSchema = z.object({
   type: z.literal('addOscillator'),
   config: OscillatorConfigSchema,
+  ...TrackTarget,
 });
 
 export const RemoveOscillatorPayloadSchema = z.object({
   type: z.literal('removeOscillator'),
   oscillatorId: IdSchema,
+  ...TrackTarget,
 });
 
 export const AddLfoPayloadSchema = z.object({
   type: z.literal('addLfo'),
   config: LFOConfigSchema,
+  ...TrackTarget,
 });
 
 export const RemoveLfoPayloadSchema = z.object({
   type: z.literal('removeLfo'),
   lfoId: IdSchema,
+  ...TrackTarget,
 });
 
 /** F71 lives here: `ModRouteSchema.destination` is the declared vocabulary, nothing wider. */
 export const AddRoutePayloadSchema = z.object({
   type: z.literal('addRoute'),
   route: ModRouteSchema,
+  ...TrackTarget,
 });
 
 export const RemoveRoutePayloadSchema = z.object({
   type: z.literal('removeRoute'),
   routeId: IdSchema,
+  ...TrackTarget,
 });
 
 export const SetEffectEnabledPayloadSchema = z.object({
@@ -877,6 +929,55 @@ export const RemoveNotePayloadSchema = z.object({
   noteId: IdSchema,
 });
 
+export const UpdateNotePayloadSchema = z
+  .object({
+    type: z.literal('updateNote'),
+    trackId: IdSchema,
+    noteId: IdSchema,
+    patch: z
+      .object({
+        time: positive(),
+        duration: z.number().positive().finite(),
+        note: NoteNameSchema,
+        velocity: unit(),
+      })
+      .partial()
+      .strict(),
+  })
+  .superRefine((value, ctx) => {
+    if (Object.keys(value.patch).length === 0) {
+      ctx.addIssue({ code: 'custom', message: 'patch must change at least one field', path: ['patch'] });
+    }
+  });
+
+export const SetTrackNotesPayloadSchema = z
+  .object({
+    type: z.literal('setTrackNotes'),
+    trackId: IdSchema,
+    notes: z.array(NoteEventSchema).max(4096),
+  })
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, note] of value.notes.entries()) {
+      if (seen.has(note.noteId)) {
+        ctx.addIssue({ code: 'custom', message: `duplicate noteId "${note.noteId}"`, path: ['notes', index] });
+      }
+      seen.add(note.noteId);
+    }
+  });
+
+export const SetTrackKickPayloadSchema = z.object({
+  type: z.literal('setTrackKick'),
+  trackId: IdSchema,
+  kick: KickConfigSchema.nullable(),
+});
+
+export const SetTrackDuckPayloadSchema = z.object({
+  type: z.literal('setTrackDuck'),
+  trackId: IdSchema,
+  duck: DuckConfigSchema.nullable(),
+});
+
 export const SetTempoPayloadSchema = z.object({
   type: z.literal('setTempo'),
   bpm: z.number().min(LIMITS.bpm.min).max(LIMITS.bpm.max),
@@ -919,17 +1020,26 @@ export const NoteOnPayloadSchema = z.object({
   type: z.literal('noteOn'),
   note: NoteNameSchema,
   velocity: unit(),
+  ...TrackTarget,
 });
 
 export const NoteOffPayloadSchema = z.object({
   type: z.literal('noteOff'),
   note: NoteNameSchema,
+  ...TrackTarget,
 });
 
 export const PanicPayloadSchema = z.object({ type: z.literal('panic') });
 
 export const UndoPayloadSchema = z.object({ type: z.literal('undo') });
 export const RedoPayloadSchema = z.object({ type: z.literal('redo') });
+
+export const RestoreSessionPayloadSchema = z.object({
+  type: z.literal('restoreSession'),
+  patch: PresetSchema,
+  song: SongSchema,
+  presets: z.array(PresetSchema),
+});
 
 /** Base64, RFC 4648 alphabet with optional padding. */
 export const Base64Schema = z
@@ -957,6 +1067,7 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   loadPreset: LoadPresetPayloadSchema,
   savePreset: SavePresetPayloadSchema,
   deletePreset: DeletePresetPayloadSchema,
+  importPreset: ImportPresetPayloadSchema,
   setParam: SetParamPayloadSchema,
   addOscillator: AddOscillatorPayloadSchema,
   removeOscillator: RemoveOscillatorPayloadSchema,
@@ -979,6 +1090,10 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   setPatternLength: SetPatternLengthPayloadSchema,
   addNote: AddNotePayloadSchema,
   removeNote: RemoveNotePayloadSchema,
+  updateNote: UpdateNotePayloadSchema,
+  setTrackNotes: SetTrackNotesPayloadSchema,
+  setTrackKick: SetTrackKickPayloadSchema,
+  setTrackDuck: SetTrackDuckPayloadSchema,
   setTempo: SetTempoPayloadSchema,
   setSwing: SetSwingPayloadSchema,
   setTimeSignature: SetTimeSignaturePayloadSchema,
@@ -993,6 +1108,7 @@ export const COMMAND_PAYLOAD_SCHEMAS = {
   importMidi: ImportMidiPayloadSchema,
   undo: UndoPayloadSchema,
   redo: RedoPayloadSchema,
+  restoreSession: RestoreSessionPayloadSchema,
 } satisfies Record<(typeof SYNTH_COMMAND_TYPES)[number], z.ZodType>;
 
 export type CommandValidation =
@@ -1195,7 +1311,63 @@ export function migratePreset(raw: unknown): MigrationResult<unknown> {
   if (doc.schemaVersion === 3) {
     doc.schemaVersion = 4;
   }
+  if (doc.schemaVersion === 4) {
+    migratePresetV4ToV5(doc);
+    doc.schemaVersion = 5;
+  }
+  if (doc.schemaVersion === 5) {
+    migratePresetV5ToV6(doc);
+    doc.schemaVersion = 6;
+  }
+  if (doc.schemaVersion === 6) {
+    migratePresetV6ToV7(doc);
+    doc.schemaVersion = 7;
+  }
   return { ok: true, value: doc };
+}
+
+/**
+ * 4 -> 5: ADSR becomes AHDSR. Both envelopes get `hold: 0` and `decayCurve: 'exponential'`
+ * — no hold, and the decay Tone's envelope has always run — so the migrated patch issues
+ * exactly the automation calls it did before and sounds the same (F65; gated by rendering
+ * both). Filled only where missing, like every step: a field already present is the
+ * document's, not the migration's.
+ */
+function migratePresetV4ToV5(doc: Record<string, unknown>): void {
+  const voice = doc.voice as Record<string, unknown> | undefined;
+  if (voice === undefined || typeof voice !== 'object') return;
+  for (const key of ['envelope', 'filterEnvelope'] as const) {
+    const envelope = voice[key] as Record<string, unknown> | undefined;
+    if (envelope === undefined || typeof envelope !== 'object') continue;
+    if (envelope.hold === undefined) envelope.hold = 0;
+    if (envelope.decayCurve === undefined) envelope.decayCurve = 'exponential';
+  }
+}
+
+/**
+ * 5 -> 6: the filter envelope can follow the amp envelope. Filled `linked: false`, which
+ * is what every v5 patch already did, so nothing changes sound (F65).
+ */
+function migratePresetV5ToV6(doc: Record<string, unknown>): void {
+  const voice = doc.voice as Record<string, unknown> | undefined;
+  if (voice === undefined || typeof voice !== 'object') return;
+  const envelope = voice.filterEnvelope as Record<string, unknown> | undefined;
+  if (envelope === undefined || typeof envelope !== 'object') return;
+  if (envelope.linked === undefined) envelope.linked = false;
+}
+
+/**
+ * 6 -> 7: per-voice filter drive. Filled 0, which the runtime builds as an exact bypass, so
+ * nothing changes sound (F65). The envelope mod sources arrive at 7 too; they need no
+ * migration (no v6 route names them), and an older build refuses a route that does,
+ * because its source enum does not know the name — refused, never misread.
+ */
+function migratePresetV6ToV7(doc: Record<string, unknown>): void {
+  const voice = doc.voice as Record<string, unknown> | undefined;
+  if (voice === undefined || typeof voice !== 'object') return;
+  const filter = voice.filter as Record<string, unknown> | undefined;
+  if (filter === undefined || typeof filter !== 'object') return;
+  if (filter.drive === undefined) filter.drive = 0;
 }
 
 /** F69 — same contract for songs, with `swing` defaulted to 0 on legacy documents. */
@@ -1214,6 +1386,23 @@ export function migrateSong(raw: unknown): MigrationResult<unknown> {
       ok: false,
       error: `song schemaVersion ${version} is newer than this build understands (${SONG_SCHEMA_VERSION})`,
     };
+  }
+
+  // Every track carries a whole preset (F68), and that preset has its own schema version.
+  // This used to be skipped, so a saved song holding a preset one version behind failed
+  // `SongSchema` the day the preset shape moved on — which schema_version 5 makes today.
+  if (Array.isArray(doc.tracks)) {
+    const tracks: unknown[] = [];
+    for (const [index, track] of doc.tracks.entries()) {
+      if (typeof track !== 'object' || track === null || !('presetSnapshot' in track)) {
+        tracks.push(track);
+        continue;
+      }
+      const migrated = migratePreset((track as { presetSnapshot: unknown }).presetSnapshot);
+      if (!migrated.ok) return { ok: false, error: `track ${index}: ${migrated.error}` };
+      tracks.push({ ...(track as object), presetSnapshot: migrated.value });
+    }
+    doc.tracks = tracks;
   }
   return { ok: true, value: doc };
 }

@@ -9,7 +9,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { deleteDB, openDB } from 'idb';
 import { IdbPersistence } from '../app/persistence';
-import { defaultPreset, defaultSong } from '../core/state';
+import { defaultPreset, defaultSong, initialEngineState } from '../core/state';
+import { sessionOf } from '../core/session';
 import { PRESET_SCHEMA_VERSION } from '../core/types';
 import type { SynthCommandAppliedEvent } from '../core/sag/events';
 
@@ -90,7 +91,12 @@ describe('IdbPersistence — presets', () => {
     const good = defaultPreset();
     await persistence.savePreset(good);
 
-    const raw = await openDB(dbName, 1);
+    // Opened through the port FIRST, then raw at whatever version is current. Raw-opening
+    // at a hard-coded 1 raced the port's own open: since the database went to version 2
+    // (C3b) a raw v1 open that won created an empty v1 database, its write threw, and the
+    // port's upgrade waited forever on the connection that never closed.
+    await persistence.loadLastAckedSeq();
+    const raw = await openDB(dbName);
     await raw.put('presets', { id: 'corrupt-1', name: 'broken', voice: {}, effects: {} });
     raw.close();
 
@@ -118,7 +124,12 @@ describe('IdbPersistence — presets', () => {
     const persistence = new IdbPersistence(dbName);
     // Force-open the same database outside the port to write a document the port
     // itself would never produce — simulating data from a stale build.
-    const raw = await openDB(dbName, 1);
+    // Opened through the port FIRST, then raw at whatever version is current. Raw-opening
+    // at a hard-coded 1 raced the port's own open: since the database went to version 2
+    // (C3b) a raw v1 open that won created an empty v1 database, its write threw, and the
+    // port's upgrade waited forever on the connection that never closed.
+    await persistence.loadLastAckedSeq();
+    const raw = await openDB(dbName);
     await raw.put('presets', { id: 'corrupt-1', name: 'broken', voice: {}, effects: {} });
     raw.close();
 
@@ -133,7 +144,12 @@ describe('IdbPersistence — presets', () => {
     delete legacy.schemaVersion;
     legacy.id = 'legacy-1';
 
-    const raw = await openDB(dbName, 1);
+    // Opened through the port FIRST, then raw at whatever version is current. Raw-opening
+    // at a hard-coded 1 raced the port's own open: since the database went to version 2
+    // (C3b) a raw v1 open that won created an empty v1 database, its write threw, and the
+    // port's upgrade waited forever on the connection that never closed.
+    await persistence.loadLastAckedSeq();
+    const raw = await openDB(dbName);
     await raw.put('presets', legacy);
     raw.close();
 
@@ -190,7 +206,12 @@ describe('IdbPersistence — songs', () => {
     const good = defaultSong();
     await persistence.saveSong(good);
 
-    const raw = await openDB(dbName, 1);
+    // Opened through the port FIRST, then raw at whatever version is current. Raw-opening
+    // at a hard-coded 1 raced the port's own open: since the database went to version 2
+    // (C3b) a raw v1 open that won created an empty v1 database, its write threw, and the
+    // port's upgrade waited forever on the connection that never closed.
+    await persistence.loadLastAckedSeq();
+    const raw = await openDB(dbName);
     await raw.put('songs', { id: 'corrupt-song', name: 'broken' });
     raw.close();
 
@@ -214,7 +235,12 @@ describe('IdbPersistence — songs', () => {
   it('F64: a corrupt stored song loads as null, never partially', async () => {
     const dbName = uniqueDbName();
     const persistence = new IdbPersistence(dbName);
-    const raw = await openDB(dbName, 1);
+    // Opened through the port FIRST, then raw at whatever version is current. Raw-opening
+    // at a hard-coded 1 raced the port's own open: since the database went to version 2
+    // (C3b) a raw v1 open that won created an empty v1 database, its write threw, and the
+    // port's upgrade waited forever on the connection that never closed.
+    await persistence.loadLastAckedSeq();
+    const raw = await openDB(dbName);
     await raw.put('songs', { id: 'corrupt-song', name: 'broken' });
     raw.close();
 
@@ -317,6 +343,39 @@ describe('IdbPersistence — lastAckedSeq', () => {
 
     await Promise.all([persistence.saveLastAckedSeq(3), persistence.saveLastAckedSeq(12)]);
     await expect(persistence.loadLastAckedSeq()).resolves.toBe(12);
+    persistence.dispose();
+  });
+});
+
+describe('IdbPersistence — the session store (version 2, C3b)', () => {
+  it('saves and loads a session', async () => {
+    const persistence = new IdbPersistence(uniqueDbName());
+    const session = sessionOf(initialEngineState(), 42);
+    await persistence.saveSession(session);
+    expect((await persistence.loadSession())?.savedAt).toBe(42);
+    persistence.dispose();
+  });
+
+  it('upgrades a version-1 database in place, keeping its rows', async () => {
+    const dbName = uniqueDbName();
+    // A version-1 database exactly as Phase 2 created it, holding one preset.
+    const v1 = await openDB(dbName, 1, {
+      upgrade(db) {
+        db.createObjectStore('presets', { keyPath: 'id' });
+        db.createObjectStore('songs', { keyPath: 'id' });
+        db.createObjectStore('autosave');
+        db.createObjectStore('journal', { keyPath: 'seq' });
+        db.createObjectStore('meta');
+      },
+    });
+    await v1.put('presets', { ...defaultPreset(), id: 'kept', name: 'Kept', factory: false });
+    v1.close();
+
+    const persistence = new IdbPersistence(dbName);
+    expect((await persistence.loadPreset('kept'))?.name).toBe('Kept');
+    expect(await persistence.loadSession()).toBeNull();
+    await persistence.saveSession(sessionOf(initialEngineState(), 7));
+    expect((await persistence.loadSession())?.savedAt).toBe(7);
     persistence.dispose();
   });
 });

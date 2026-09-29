@@ -11,7 +11,7 @@
 
 import { controlForPath } from '../../core/controls';
 import type { ParamPath } from '../../core/types';
-import { renderControl } from './controls';
+import { renderControl, type ControlProps } from './controls';
 import { propsFor, type SurfaceContext } from './controlProps';
 import { COLOR } from './tokens';
 
@@ -20,9 +20,15 @@ export interface ControlGridProps {
   paths: readonly ParamPath[];
   /** Names are shortened against this set — defaults to the grid's own paths. */
   within?: readonly ParamPath[];
+  /**
+   * A last word on one control's props before it draws — how the envelope narrows a stage's
+   * travel to its short range and puts the range switch beside the label. Layout-level only:
+   * identity, value and the change handler are the registry's and the patch's.
+   */
+  adjust?: (props: ControlProps) => ControlProps;
 }
 
-export function ControlGrid({ context, paths, within }: ControlGridProps) {
+export function ControlGrid({ context, paths, within, adjust }: ControlGridProps) {
   const scope = within ?? paths;
 
   return (
@@ -31,7 +37,7 @@ export function ControlGrid({ context, paths, within }: ControlGridProps) {
         const wide = controlForPath(path)?.widget === 'slider';
         return (
           <div key={path} style={wide ? styles.wide : styles.cell}>
-            {renderControl(propsFor(context, path, scope))}
+            {renderControl(adjust === undefined ? propsFor(context, path, scope) : adjust(propsFor(context, path, scope)))}
           </div>
         );
       })}

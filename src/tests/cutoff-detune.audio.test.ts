@@ -43,18 +43,18 @@ function atCutoff(hz: number, shape: 'sawtooth' | 'sine' = 'sawtooth'): SynthPre
       amplitude: 1,
       pan: 0,
       oscillators: [{ ...slot, type: shape, count: 1, detune: 0, spread: 0, level: 1, pan: 0 }],
-      envelope: { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 },
+      envelope: { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.1 },
       // `toFilterOctaves: 0` so the base under test is the ONLY thing setting the cutoff.
       // With it non-zero, note-on adds velocity × octaves cents on top and every expected
       // value below would carry a hidden term.
       velocity: { ...base.voice.velocity, toFilterOctaves: 0 },
       filterEnvelope: {
-        attack: 0.001,
-        decay: 0.001,
+        attack: 0.001, hold: 0,
+        decay: 0.001, decayCurve: 'exponential',
         sustain: 1,
         release: 0.1,
         baseFrequency: hz,
-        octaves: 0,
+        octaves: 0, linked: false,
       },
       filter: { ...base.voice.filter, type: 'lowpass', rolloff: -24 },
     },

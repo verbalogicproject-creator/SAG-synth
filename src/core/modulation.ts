@@ -18,7 +18,7 @@
  * is not evidence.
  */
 
-import { FULL_DEPTH_DUCK_DB, FULL_DEPTH_OCTAVES, MODULATION_DESTINATIONS } from './types';
+import { FULL_DEPTH_DUCK_DB, FULL_DEPTH_OCTAVES, MODULATION_DESTINATIONS, isPerVoiceSource } from './types';
 import type { ModCurve, ModDestination, ModRoute, ModSource } from './types';
 import { PARAM_SPECS } from './schemas';
 import { getParam } from './params';
@@ -104,10 +104,10 @@ function reachOf(
   let up = 0;
   let down = 0;
   for (const [source, sum] of bySource) {
-    if (source === 'velocity') {
-      // Unipolar (KIND §3.1): velocity runs 0..1 and only ever travels one way. Which way
-      // is now the sign's business, and `rewireRoutes` doubles the scaler to keep the
-      // total distance the same as a bipolar source's.
+    if (isPerVoiceSource(source)) {
+      // Unipolar (KIND §3.1): velocity and the envelopes run 0..1 and only ever travel one
+      // way. Which way is the sign's business, and `rewireRoutes` doubles the scaler to keep
+      // the total distance the same as a bipolar source's.
       if (sum >= 0) up += sum * 2;
       else down += -sum * 2;
     } else {

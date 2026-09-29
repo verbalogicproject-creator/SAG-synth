@@ -20,6 +20,7 @@
  * Layer rule D2: core, zod only. A fact about a patch, not about Tone.
  */
 
+import { LINKED_FILTER_PATHS } from './ahdsr';
 import type { ParamPath, SynthPreset } from './types';
 
 export interface IgnoredNote {
@@ -57,18 +58,19 @@ export function ignoredIn(patch: SynthPreset): IgnoredNote[] {
   patch.voice.lfos.forEach((lfo, index) => {
     const at = (key: string) => `voice.lfos.${index}.${key}` as ParamPath;
 
-    if (typeof lfo.frequency === 'string') {
-      notes.push({ path: at('frequency'), reason: 'a synced rate needs a transport — running at 1 Hz' });
-    }
-    if (lfo.sync) {
-      notes.push({ path: at('sync'), reason: 'needs a transport, which nothing drives yet' });
-    }
     if (lfo.retrigger) {
       // One generator serves every voice, so a per-note phase reset would restart the
       // modulation for every sounding note at once — audibly wrong on a held chord.
       notes.push({ path: at('retrigger'), reason: 'one LFO is shared by every voice' });
     }
   });
+
+  if (patch.voice.filterEnvelope.linked) {
+    // Stored, and back the moment the link is off — but not what the filter runs now.
+    for (const path of LINKED_FILTER_PATHS) {
+      notes.push({ path, reason: 'linked to the amp envelope — unlink to use this' });
+    }
+  }
 
   return notes.sort((a, b) => a.path.localeCompare(b.path));
 }

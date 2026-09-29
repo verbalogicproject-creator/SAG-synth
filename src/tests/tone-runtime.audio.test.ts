@@ -109,7 +109,7 @@ describe('ToneRuntime — it makes a sound', () => {
     const data = await render((runtime) => {
       runtime.applyPatch(
         patchWith((patch) => {
-          patch.voice.envelope = { attack: 0.4, decay: 0.1, sustain: 0.9, release: 0.3 };
+          patch.voice.envelope = { attack: 0.4, hold: 0, decay: 0.1, decayCurve: 'exponential', sustain: 0.9, release: 0.3 };
         }),
       );
       runtime.noteOn({ voiceId: 0, note: 'C4', velocity: 0.8, portamento: 0 });
@@ -127,7 +127,7 @@ describe('ToneRuntime — it makes a sound', () => {
     // dispatches in real time — so an offline render cannot schedule a release into the
     // future. Instead: release immediately in one render, not at all in the other, and
     // compare the same window well past the release tail.
-    const short = { attack: 0.01, decay: 0.05, sustain: 0.8, release: 0.05 };
+    const short = { attack: 0.01, hold: 0, decay: 0.05, decayCurve: 'exponential' as const, sustain: 0.8, release: 0.05 };
 
     const released = await render((runtime) => {
       runtime.applyPatch(patchWith((patch) => (patch.voice.envelope = short)));
@@ -220,7 +220,7 @@ describe('ToneRuntime — the filter', () => {
         patchWith((patch) => {
           // A fast, flat amp envelope so what the window measures is the FILTER, not
           // the amp contour decaying underneath it.
-          patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+          patch.voice.envelope = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.1 };
           mutate(patch);
         }),
       );
@@ -231,12 +231,12 @@ describe('ToneRuntime — the filter', () => {
   /** A static cutoff: no envelope sweep, so the filter sits exactly where it is put. */
   function staticCutoff(patch: SynthPreset, hz: number): void {
     patch.voice.filterEnvelope = {
-      attack: 0.001,
-      decay: 0.001,
+      attack: 0.001, hold: 0,
+      decay: 0.001, decayCurve: 'exponential',
       sustain: 1,
       release: 0.001,
       baseFrequency: hz,
-      octaves: 0,
+      octaves: 0, linked: false,
     };
   }
 
@@ -290,12 +290,12 @@ describe('ToneRuntime — the filter', () => {
   it('the filter envelope sweeps: the attack is darker than the sustain', async () => {
     const data = await renderFiltered((patch) => {
       patch.voice.filterEnvelope = {
-        attack: 0.35,
-        decay: 0.01,
+        attack: 0.35, hold: 0,
+        decay: 0.01, decayCurve: 'exponential',
         sustain: 1,
         release: 0.1,
         baseFrequency: 200,
-        octaves: 5,
+        octaves: 5, linked: false,
       };
     });
 
@@ -314,14 +314,14 @@ describe('ToneRuntime — the filter', () => {
     // ignored entirely and a fast envelope is substituted, which a negative probe
     // proved. Holding the attack fixed and varying only `octaves` cannot pass vacuously:
     // the wide sweep MUST move more than the pinned one.
-    const envelope = { attack: 0.3, decay: 0.01, sustain: 1, release: 0.1 };
+    const envelope = { attack: 0.3, hold: 0, decay: 0.01, decayCurve: 'exponential' as const, sustain: 1, release: 0.1 };
 
     const [pinned, wide] = await Promise.all([
       renderFiltered((patch) => {
-        patch.voice.filterEnvelope = { ...envelope, baseFrequency: 400, octaves: 0 };
+        patch.voice.filterEnvelope = { ...envelope, baseFrequency: 400, octaves: 0, linked: false };
       }),
       renderFiltered((patch) => {
-        patch.voice.filterEnvelope = { ...envelope, baseFrequency: 400, octaves: 5 };
+        patch.voice.filterEnvelope = { ...envelope, baseFrequency: 400, octaves: 5, linked: false };
       }),
     ]);
 
@@ -372,7 +372,7 @@ describe('ToneRuntime — readouts', () => {
 });
 
 describe('effects chain and master stage (Stage 3)', () => {
-  const FLAT = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+  const FLAT = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential' as const, sustain: 1, release: 0.1 };
 
   /** One held note through a patch whose effects section is set by `mutate`. */
   function renderFx(
@@ -386,7 +386,7 @@ describe('effects chain and master stage (Stage 3)', () => {
           patch.voice.filterEnvelope = {
             ...FLAT,
             baseFrequency: 1200,
-            octaves: 0,
+            octaves: 0, linked: false,
           };
           mutate(patch);
         }),
@@ -565,7 +565,7 @@ describe('effects chain and master stage (Stage 3)', () => {
   it('delay puts energy after the note stops', async () => {
     // The clearest signature of a delay, and one no other effect in the chain produces:
     // sound where there would otherwise be silence.
-    const short = { attack: 0.002, decay: 0.05, sustain: 0, release: 0.02 };
+    const short = { attack: 0.002, hold: 0, decay: 0.05, decayCurve: 'exponential' as const, sustain: 0, release: 0.02 };
     const [dry, wet] = await Promise.all([
       render((runtime) => {
         runtime.applyPatch(
@@ -593,7 +593,7 @@ describe('effects chain and master stage (Stage 3)', () => {
   });
 
   it('reverb extends the tail without the discrete repeats a delay gives', async () => {
-    const short = { attack: 0.002, decay: 0.05, sustain: 0, release: 0.02 };
+    const short = { attack: 0.002, hold: 0, decay: 0.05, decayCurve: 'exponential' as const, sustain: 0, release: 0.02 };
     const [dry, wet] = await Promise.all([
       render((runtime) => {
         runtime.applyPatch(
@@ -633,7 +633,7 @@ describe('effects chain and master stage (Stage 3)', () => {
     // That is the honest explanation for a top band that seems dead, and it is a property
     // of the signal rather than a defect in the band.
     const open = (patch: SynthPreset) => {
-      patch.voice.filterEnvelope = { ...FLAT, baseFrequency: 16000, octaves: 0 };
+      patch.voice.filterEnvelope = { ...FLAT, baseFrequency: 16000, octaves: 0, linked: false };
       patch.effects.eq.enabled = true;
     };
 
@@ -1018,14 +1018,14 @@ describe('polyphony and stealing, end to end (Stage 2e)', () => {
           preset: patchWith((patch) => {
             // A short, percussive note so separate onsets stay separable, and no release
             // tail smearing one note's decay across the next one's attack.
-            patch.voice.envelope = { attack: 0.002, decay: 0.06, sustain: 0, release: 0.02 };
+            patch.voice.envelope = { attack: 0.002, hold: 0, decay: 0.06, decayCurve: 'exponential', sustain: 0, release: 0.02 };
             patch.voice.filterEnvelope = {
-              attack: 0.002,
-              decay: 0.06,
+              attack: 0.002, hold: 0,
+              decay: 0.06, decayCurve: 'exponential',
               sustain: 0,
               release: 0.02,
               baseFrequency: 2000,
-              octaves: 0,
+              octaves: 0, linked: false,
             };
             patchMutate?.(patch);
           }),
@@ -1148,14 +1148,14 @@ describe('polyphony and stealing, end to end (Stage 2e)', () => {
       (patch) => {
         patch.voice.polyphony = 1;
         // Sustained, so there is something to measure the pitch of.
-        patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+        patch.voice.envelope = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.1 };
         patch.voice.filterEnvelope = {
-          attack: 0.005,
-          decay: 0.01,
+          attack: 0.005, hold: 0,
+          decay: 0.01, decayCurve: 'exponential',
           sustain: 1,
           release: 0.1,
           baseFrequency: 8000,
-          octaves: 0,
+          octaves: 0, linked: false,
         };
       },
     );
@@ -1208,7 +1208,7 @@ describe('polyphony and stealing, end to end (Stage 2e)', () => {
 });
 
 describe('ToneRuntime — velocity response (Stage 2d)', () => {
-  const FLAT = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+  const FLAT = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential' as const, sustain: 1, release: 0.1 };
 
   function renderVelocity(options: {
     velocity: number;
@@ -1223,7 +1223,7 @@ describe('ToneRuntime — velocity response (Stage 2d)', () => {
           patch.voice.filterEnvelope = {
             ...FLAT,
             baseFrequency: 700,
-            octaves: 0,
+            octaves: 0, linked: false,
           };
           patch.voice.velocity = {
             toAmplitude: options.toAmplitude ?? 1,
@@ -1344,7 +1344,7 @@ describe('ToneRuntime — velocity response (Stage 2d)', () => {
     // its velocity through a separate path.
     const routed = (patch: SynthPreset) => {
       patch.voice.envelope = { ...FLAT };
-      patch.voice.filterEnvelope = { ...FLAT, baseFrequency: 500, octaves: 0 };
+      patch.voice.filterEnvelope = { ...FLAT, baseFrequency: 500, octaves: 0, linked: false };
       patch.voice.velocity = { toAmplitude: 0, toFilterOctaves: 0 };
       patch.voice.modRoutes = [
         {
@@ -1396,7 +1396,8 @@ describe('ToneRuntime — velocity response (Stage 2d)', () => {
     // 4 voices x (synth + gain + panner + velocity) + master/analyser/meter. No LFOs and
     // no routes in the factory patch, so nothing else is built.
     // 4 voices x 7 fixed nodes + 4 oscillator slots x 4 + master/analyser/meter.
-    expect(nodeCount).toBe(4 * 7 + 4 * 4 + 3);
+    // 11 fixed per voice since the drive stage (schema_version 7) added four.
+    expect(nodeCount).toBe(4 * 11 + 4 * 4 + 3);
   });
 });
 
@@ -1407,14 +1408,14 @@ describe('ToneRuntime — oscillator mapping (Stage 2c)', () => {
         patchWith((patch) => {
           // Flat amp and a pinned, wide-open filter, so what the spectrum shows is the
           // OSCILLATOR and not a contour moving underneath it.
-          patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+          patch.voice.envelope = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.1 };
           patch.voice.filterEnvelope = {
-            attack: 0.005,
-            decay: 0.01,
+            attack: 0.005, hold: 0,
+            decay: 0.01, decayCurve: 'exponential',
             sustain: 1,
             release: 0.1,
             baseFrequency: 12000,
-            octaves: 0,
+            octaves: 0, linked: false,
           };
           mutate(patch);
         }),
@@ -1489,14 +1490,14 @@ describe('ToneRuntime — oscillator mapping (Stage 2c)', () => {
         const runtime = new ToneRuntime();
         runtime.applyPatch(
           patchWith((patch) => {
-            patch.voice.envelope = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+            patch.voice.envelope = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.1 };
             patch.voice.filterEnvelope = {
-              attack: 0.005,
-              decay: 0.01,
+              attack: 0.005, hold: 0,
+              decay: 0.01, decayCurve: 'exponential',
               sustain: 1,
               release: 0.1,
               baseFrequency: 2000,
-              octaves: 0,
+              octaves: 0, linked: false,
             };
             mutate(patch);
           }),
@@ -1831,35 +1832,40 @@ describe('ToneRuntime — the unmapped-parameter list stays honest', () => {
   });
 });
 
-describe('ToneRuntime — v0.1.0 honesty', () => {
-  it('records the transport calls it cannot service instead of pretending', async () => {
-    let reported: readonly string[] = [];
+describe('ToneRuntime — honesty about what it cannot do', () => {
+  it('services the transport now, and still reports what a song asks for that slice 1 simplifies', async () => {
+    let plain: readonly string[] = [];
+    let multi: readonly string[] = [];
     await Tone.Offline(
       () => {
         const runtime = new ToneRuntime();
         runtime.applySong(defaultSong());
         runtime.transport.play();
         runtime.transport.seek(4);
-        reported = runtime.getUnimplemented();
+        plain = runtime.getUnimplemented();
+
+        // An imported drum track with no kick voice is a thing this stage cannot play, and
+        // says so. The two pitched tracks beside it are ordinary channels.
+        const song = defaultSong();
+        const second = { ...song.tracks[0]!, id: 'second', volume: -6 };
+        const drums = { ...song.tracks[0]!, id: 'drums', isDrum: true, notes: [{ noteId: 'd', time: 0, duration: 0.25, note: 'C1', velocity: 1 }] };
+        runtime.applySong({ ...song, tracks: [...song.tracks, second, drums] });
+        multi = runtime.getUnimplemented();
       },
       0.05,
       1,
       SR,
     );
 
-    // Silently no-opping would let a caller believe the sequencer works; throwing would
-    // take the engine down mid-dispatch. Recording does neither.
-    //
-    // `applySong.transport` rather than `applySong`: Stage 3 made that method PARTIAL. It
-    // now applies the master volume and limiter threshold, which live on the song and have
-    // no other path to the runtime, while song PLAYBACK still needs Tone.Transport. The
-    // narrower name is the honest one — a caller learns the sequencer is missing without
-    // being told the mixer is too.
-    expect([...reported].sort()).toEqual([
-      'applySong.transport',
-      'transport.play',
-      'transport.seek',
-    ]);
+    // Recording rather than throwing or pretending is still the rule (v0.1.0); what changed
+    // in SAG-DAW slice 1 is that play/seek/applySong are no longer on the list at all.
+    // `getUnimplemented()` going empty for a plain song is the acceptance signal
+    // HANDOFF-SAG-DAW.md §4.2 named.
+    expect(plain).toEqual([]);
+    // C5b closed two of these: a second pitched track is a CHANNEL with its own sound now,
+    // and a moved fader is written to that channel's strip. A drum track carrying notes and
+    // no kick voice is still a thing this stage cannot play, and still says so.
+    expect([...multi].sort()).toEqual(['applySong.drumWithoutKick']);
   });
 
   it('applySong is partial, not absent — the master stage really is applied', async () => {
@@ -1887,7 +1893,7 @@ describe('ToneRuntime — v0.1.0 honesty', () => {
 // ---------------------------------------------------------------------------
 
 describe('ToneRuntime — modulation routing', () => {
-  const FLAT_AMP = { attack: 0.005, decay: 0.01, sustain: 1, release: 0.1 };
+  const FLAT_AMP = { attack: 0.005, hold: 0, decay: 0.01, decayCurve: 'exponential' as const, sustain: 1, release: 0.1 };
 
   /**
    * One held note, sounded through a patch carrying one LFO and one route.
@@ -1913,12 +1919,12 @@ describe('ToneRuntime — modulation routing', () => {
             patch.voice.envelope = { ...FLAT_AMP };
             // A pinned filter, so the only thing moving the cutoff is the route.
             patch.voice.filterEnvelope = {
-              attack: 0.005,
-              decay: 0.01,
+              attack: 0.005, hold: 0,
+              decay: 0.01, decayCurve: 'exponential',
               sustain: 1,
               release: 0.1,
               baseFrequency: options.baseFrequency ?? 800,
-              octaves: 0,
+              octaves: 0, linked: false,
             };
             patch.voice.lfos = [
               {
@@ -2391,7 +2397,7 @@ describe('ToneRuntime — modulation routing', () => {
     // is the LFO side: one generator and one scaler serve the whole pool however many
     // voices sound. The slot side is the one that MULTIPLIES, which is why it is counted
     // separately and measured in its own gate rather than folded in here.
-    expect(nodeCount).toBe(1 + 1 + 8 * 7 + 8 * 4 + 3);
+    expect(nodeCount).toBe(1 + 1 + 8 * 11 + 8 * 4 + 3);
   });
 
   it('reports a declared destination it cannot yet wire, rather than dropping it', async () => {
@@ -2422,12 +2428,10 @@ describe('ToneRuntime — modulation routing', () => {
     expect(reported).toContain('route.destination.effects.delay.wet');
   });
 
-  it('reports lfo.sync, which for four versions did nothing and said nothing', async () => {
-    // The sixth decoy. `sync` locks an LFO's phase to Tone.Transport, which v0.1.0 does
-    // not drive, so it has never done anything — and unlike `retrigger` and a synced
-    // frequency beside it, it was never reported either. Four toggles, one per LFO, that
-    // validated, journalled, replayed, changed no sound and did not appear under Known
-    // gaps. Found by the gate that draws all 119 controls.
+  it('no longer reports lfo.sync or a synced rate: both are implemented since cycle 2 C3', async () => {
+    // Once the sixth decoy (a toggle that did nothing and said nothing), then an honest
+    // gap. C3 implemented it with `Tone.LFO.sync()`, proven by `lfo-sync.audio.test.ts`,
+    // so reporting it now would be a false gap.
     let reported: readonly string[] = [];
     await Tone.Offline(
       () => {
@@ -2436,6 +2440,7 @@ describe('ToneRuntime — modulation routing', () => {
           patchWith((patch) => {
             patch.voice.lfos = [
               { id: 'l0', enabled: true, type: 'sine', frequency: 5, sync: true, retrigger: false },
+              { id: 'l1', enabled: true, type: 'sine', frequency: '16n', sync: false, retrigger: false },
             ];
           }),
         );
@@ -2446,7 +2451,8 @@ describe('ToneRuntime — modulation routing', () => {
       SR,
     );
 
-    expect(reported).toContain('lfo.sync');
+    expect(reported).not.toContain('lfo.sync');
+    expect(reported).not.toContain('lfo.syncedFrequency');
   });
 
   it('stays quiet about sync when the patch never asked for it', async () => {

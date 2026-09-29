@@ -16,6 +16,15 @@
  * stepper is not, because it needs the preset browser and drawing it now would be a
  * control that does nothing.
  *
+ * **The selected channel is surface state, and it is the subject of every edit (C5c).**
+ * A channel is a song track; which one is being edited is not — it is where the player is
+ * looking, so it lives here and is remembered in localStorage as a convenience, never as
+ * truth. Everything downstream is unchanged by it: the panels are handed a state whose
+ * `patch` IS that channel's sound (`stateForChannel`), and every voice-scoped command
+ * leaves here carrying the channel's id. FX and master stay shared until C7, so their
+ * addresses go out bare — the same rule the reducer refuses on, read from one function
+ * (`isChannelPath`) so a knob can never send what the reducer would refuse.
+ *
  * The footer offers two play surfaces over the same three commands. `VirtualKeyboard`
  * sends discrete notes; `XYPad` sends a note plus a detune, so a press between two keys
  * sounds between two keys. Neither needs anything the engine does not already take.
@@ -27,11 +36,16 @@ import { useAudioObservation } from '../use-audio-observation';
 import { VirtualKeyboard } from '../debug/VirtualKeyboard';
 import { controlForPath, fullNameOf } from '../../core/controls';
 import { getParam } from '../../core/params';
+import { channelKind, isChannelPath, resolveChannel, stateForChannel } from '../../core/channels';
 import { PARAM_SPECS } from '../../core/schemas';
 import { WIRED_MOD_DESTINATIONS, type ParamPath, type ParamValue } from '../../core/types';
 import type { SynthCommand } from '../../core/commands';
 import { SynthPanels } from './SynthPanels';
+import { ChannelBar } from './ChannelBar';
+import { KickPanel } from './KickPanel';
+import { SeqView } from './roll/SeqView';
 import { RouteList } from './RouteList';
+import { LibrarySheet } from './LibrarySheet';
 import { XYPad } from './XYPad';
 import { surfaceContext } from './controlProps';
 import { createParamCoalescer, type ParamCoalescer } from './param-coalescer';
@@ -62,6 +76,35 @@ const PAD_Y_TARGETS: readonly ParamPath[] = WIRED_MOD_DESTINATIONS.filter(
 /** The pad's detune is written to the oscillators, so it obeys their declared range. */
 const DETUNE_SPEC = PARAM_SPECS['voice.oscillators.0.detune'];
 
+/**
+ * Which whole commands carry the selected channel. Exactly the patch verbs core accepts a
+ * `trackId` on, minus the two that are about the LIBRARY rather than about a sound:
+ * `importPreset` puts a document in the library and `deletePreset` takes one out, and
+ * neither belongs to a channel.
+ */
+const CHANNEL_COMMANDS = new Set<SynthCommand['type']>([
+  'loadPreset',
+  'savePreset',
+  'addOscillator',
+  'removeOscillator',
+  'addLfo',
+  'removeLfo',
+  'addRoute',
+  'removeRoute',
+]);
+
+/** Where the selected channel is remembered. A convenience, never a source of truth. */
+const CHANNEL_KEY = 'sag.synth.channel';
+
+function readRemembered(): string | null {
+  try {
+    return localStorage.getItem(CHANNEL_KEY);
+  } catch {
+    // Private mode, or storage disabled — the surface just starts on the first channel.
+    return null;
+  }
+}
+
 export function SynthApp() {
   const { dispatcher, runtime, observer, instanceId } = getEngine();
 
@@ -82,8 +125,6 @@ export function SynthApp() {
    * to report and this surface then had to learn again.
    */
   const [unlockError, setUnlockError] = useState('');
-  /** Output level in dB, polled. The only honest answer to "is it making a sound". */
-  const [level, setLevel] = useState(Number.NEGATIVE_INFINITY);
   const [octave, setOctave] = useState(3);
 
   /**
@@ -104,6 +145,30 @@ export function SynthApp() {
    * `groups.ts` says the same thing in the declaration.
    */
   const [bayOpen, setBayOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
+  /**
+   * Which view fills the middle: the synth's panels or the sequencer. A view switch, not a
+   * surface: surfaces reload the page, and the loop must keep playing while you go and
+   * turn the cutoff under it.
+   */
+  const [view, setView] = useState<'synth' | 'seq'>('synth');
+
+  /**
+   * Which channel is being edited. Remembered across launches, but never trusted: a
+   * remembered id whose track is gone (deleted, or a different song restored) falls back to
+   * the first synth channel rather than leaving the surface pointing at nothing.
+   */
+  const [remembered, setRemembered] = useState<string | null>(() => readRemembered());
+  const selectChannel = useCallback((trackId: string) => {
+    setRemembered(trackId);
+    try {
+      localStorage.setItem(CHANNEL_KEY, trackId);
+    } catch {
+      // Private mode, or storage disabled. The selection still works for this session.
+    }
+  }, []);
+  const getPlayhead = useCallback(() => runtime.getPlayhead(), [runtime]);
 
   /**
    * The keyboard folds away, because on a phone it is a third of the screen.
@@ -128,11 +193,28 @@ export function SynthApp() {
    */
   const [held, setHeld] = useState<ReadonlySet<string>>(new Set());
 
+  /**
+   * The channel every edit and every played note is aimed at, as a ref so the dispatch
+   * callbacks need not be rebuilt on every selection change — and so a callback captured by
+   * a control mid-gesture still reads the channel that was selected when it started.
+   *
+   * `undefined` means "the live patch": no channel selected, or a kick channel is, which
+   * has no synth patch for a voice address to land on.
+   */
+  const editTarget = useRef<string | undefined>(undefined);
+
   useEffect(
     () =>
       dispatcher.subscribe(() => {
         setState(dispatcher.getState());
-        setHeld(new Set(dispatcher.getTransient().heldNotes.keys()));
+        // From the pool the keys are actually playing into. Since C5a a note carrying a
+        // `trackId` is held in that CHANNEL's pool, not the live patch's — so reading the
+        // live one here left every key unlit the moment C5c started aiming the keyboard at
+        // a channel. The keys made sound and looked dead.
+        const transient = dispatcher.getTransient();
+        const target = editTarget.current;
+        const pool = target === undefined ? transient : transient.channels.get(target);
+        setHeld(new Set(pool === undefined ? [] : pool.heldNotes.keys()));
       }),
     [dispatcher],
   );
@@ -142,8 +224,10 @@ export function SynthApp() {
   // tab is backgrounded. A flag would say "running" with no way back.
   useEffect(() => {
     const timer = setInterval(() => {
+      // Same string twice is a React bail-out, so this renders only on a real change. The
+      // level used to be set here too, and changed on every poll while sound played — four
+      // whole-app renders a second, on the main thread the transport's clock runs on.
       setContextState(runtime.getContextState());
-      setLevel(runtime.getLevel());
     }, 250);
     return () => clearInterval(timer);
   }, [runtime]);
@@ -169,8 +253,8 @@ export function SynthApp() {
    */
   const coalescer = useRef<ParamCoalescer | null>(null);
   if (coalescer.current === null) {
-    coalescer.current = createParamCoalescer((path, value) => {
-      dispatcher.dispatch({ type: 'setParam', path, value });
+    coalescer.current = createParamCoalescer((path, value, trackId) => {
+      dispatcher.dispatch({ type: 'setParam', path, value, ...(trackId === undefined ? {} : { trackId }) });
     });
   }
 
@@ -185,21 +269,59 @@ export function SynthApp() {
     };
   }, []);
 
-  const onChange = useCallback((path: ParamPath, value: ParamValue) => {
-    coalescer.current?.change(path, value);
-  }, []);
+  /**
+   * A voice address is written to the selected channel; an FX or master address is written
+   * to the shared bus. The coalescer is told which, so a drag still in flight when the
+   * player switches channel lands where it was dragged.
+   */
+  const onChange = useCallback(
+    (path: ParamPath, value: ParamValue) => {
+      const target = isChannelPath(path) ? editTarget.current : undefined;
+      coalescer.current?.change(path, value, target);
+    },
+    [],
+  );
 
+  /**
+   * The same rule for whole commands. Only the verbs core accepts a `trackId` on are
+   * aimed — read from `CHANNEL_COMMANDS` rather than decided at each call site, because a
+   * verb aimed at a channel that cannot take one is a refusal the player would see as a
+   * dead button.
+   */
   const onCommand = useCallback(
+    (command: SynthCommand) => {
+      const aimed =
+        CHANNEL_COMMANDS.has(command.type) && editTarget.current !== undefined
+          ? { ...command, trackId: editTarget.current }
+          : command;
+      return dispatcher.dispatch(aimed as SynthCommand);
+    },
+    [dispatcher],
+  );
+
+  /** Commands that must reach the engine as they are — the channel bar's own verbs. */
+  const onSongCommand = useCallback(
     (command: SynthCommand) => dispatcher.dispatch(command),
     [dispatcher],
   );
 
   const noteOn = useCallback(
-    (note: string) => dispatcher.dispatch({ type: 'noteOn', note, velocity }),
+    (note: string) =>
+      dispatcher.dispatch({
+        type: 'noteOn',
+        note,
+        velocity,
+        ...(editTarget.current === undefined ? {} : { trackId: editTarget.current }),
+      }),
     [dispatcher, velocity],
   );
   const noteOff = useCallback(
-    (note: string) => dispatcher.dispatch({ type: 'noteOff', note }),
+    (note: string) =>
+      dispatcher.dispatch({
+        type: 'noteOff',
+        note,
+        ...(editTarget.current === undefined ? {} : { trackId: editTarget.current }),
+      }),
     [dispatcher],
   );
 
@@ -278,6 +400,16 @@ export function SynthApp() {
     [dispatcher],
   );
 
+  const channel = resolveChannel(state, remembered);
+  const channelId = channel?.id ?? null;
+  const onKick = channel !== undefined && channelKind(channel) === 'kick';
+  /** What the panels read: the same state, with the selected channel's sound as `patch`. */
+  const channelState = stateForChannel(state, onKick ? null : channelId);
+  // Assigned during render, read by the dispatch callbacks: they are stable across renders
+  // on purpose, so the current selection reaches them through the ref rather than by
+  // rebuilding every control's handler each time the player taps a different chip.
+  editTarget.current = onKick || channelId === null ? undefined : channelId;
+
   const running = contextState === 'running';
 
   // Read through `getParam` rather than reached for by hand: the pad's Y target is chosen
@@ -289,17 +421,44 @@ export function SynthApp() {
     <div style={styles.app}>
       <header style={styles.header}>
         <span style={styles.logo}>SAG</span>
-        <span style={styles.patch}>{state.patch.name}</span>
-        <span style={styles.level} aria-label="output level">
-          {running ? (Number.isFinite(level) ? `${level.toFixed(0)} dB` : '−∞') : '—'}
-        </span>
+        {/* The patch name opens the library (C3b) — where every synth puts its browser. */}
+        {/*
+          * The sound of the selected channel, and the way into the library.
+          *
+          * On a KICK channel it is neither: a kick has no `presetSnapshot`, so a preset
+          * loaded here would have landed on the live patch instead — a sound changing
+          * somewhere the player is not looking. Disabled, and it says why.
+          */}
+        <button
+          type="button"
+          disabled={onKick}
+          onClick={() => setLibraryOpen(true)}
+          style={{ ...styles.patchButton, ...(onKick ? styles.patchButtonOff : null) }}
+          aria-label={
+            onKick
+              ? `${channel?.name ?? 'kick'} — a kick channel has no sound to load`
+              : `${channelState.patch.name} — open the library`
+          }
+        >
+          {onKick ? channel?.name : channelState.patch.name}
+        </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={view === 'seq'}
+          onClick={() => setView((current) => (current === 'seq' ? 'synth' : 'seq'))}
+          style={{ ...styles.bay, color: view === 'seq' ? COLOR.accentText : COLOR.textDim }}
+          aria-label={view === 'seq' ? 'show the synth panels' : 'show the sequencer'}
+        >
+          {view === 'seq' ? 'SYNTH' : 'SEQ'}
+        </button>
         <button
           type="button"
           onClick={() => setBayOpen(true)}
           style={styles.bay}
           aria-label="open the routing bay"
         >
-          ROUTING
+          MOD
         </button>
         <button
           type="button"
@@ -312,6 +471,15 @@ export function SynthApp() {
           {running ? '● live' : '▶ start'}
         </button>
       </header>
+
+      <ChannelBar
+        tracks={state.song.tracks}
+        selectedId={channelId}
+        onSelect={selectChannel}
+        onCommand={onSongCommand}
+        startingPresetId={channelState.patch.id}
+        trailing={<LevelReadout runtime={runtime} running={running} />}
+      />
 
       {!running && (
         /*
@@ -330,8 +498,20 @@ export function SynthApp() {
         </button>
       )}
 
-      <main style={styles.main}>
-        <SynthPanels state={state} onChange={onChange} onCommand={onCommand} />
+      <main style={view === 'seq' ? styles.seqMain : styles.main}>
+        {view === 'seq' ? (
+          <SeqView
+            state={state}
+            dispatch={onSongCommand}
+            getPlayhead={getPlayhead}
+            unlock={unlock}
+            channelId={channelId}
+          />
+        ) : onKick && channel !== undefined ? (
+          <KickPanel track={channel} onCommand={onSongCommand} />
+        ) : (
+          <SynthPanels state={channelState} onChange={onChange} onCommand={onCommand} />
+        )}
       </main>
 
       {bayOpen && (
@@ -349,14 +529,34 @@ export function SynthApp() {
           </header>
           <div style={styles.overlayBody}>
             <RouteList
-              context={surfaceContext(state, onChange)}
+              context={surfaceContext(channelState, onChange)}
               onCommand={onCommand}
             />
           </div>
         </div>
       )}
 
-      <footer style={styles.footer}>
+      {libraryOpen && (
+        <div style={styles.overlay} role="dialog" aria-modal="true" aria-label="library">
+          <header style={styles.overlayHead}>
+            <h2 style={styles.overlayTitle}>LIBRARY</h2>
+            <button
+              type="button"
+              onClick={() => setLibraryOpen(false)}
+              style={styles.close}
+              aria-label="close the library"
+            >
+              ✕
+            </button>
+          </header>
+          <div style={styles.overlayBody}>
+            <LibrarySheet state={channelState} onCommand={onCommand} />
+          </div>
+        </div>
+      )}
+
+      {/* The roll needs the height; its own keys column auditions, so the keyboard waits. */}
+      {view === 'synth' && !onKick && <footer style={styles.footer}>
         <label style={styles.velocity}>
           <span>vel</span>
           <input
@@ -435,8 +635,34 @@ export function SynthApp() {
             />
           </div>
         )}
-      </footer>
+      </footer>}
     </div>
+  );
+}
+
+/**
+ * Output level in dB, polled — the only honest answer to "is it making a sound".
+ *
+ * Its own component with its own timer, so the four updates a second re-render one span and
+ * not the instrument. While the sequencer plays nothing else re-renders at all (the pump
+ * dispatches nothing per note), which is the point: a render is main-thread time, and the
+ * Transport's tick callback runs on the main thread (`pump-stats.ts`).
+ */
+function LevelReadout({ runtime, running }: { runtime: { getLevel(): number }; running: boolean }) {
+  const [level, setLevel] = useState(Number.NEGATIVE_INFINITY);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => {
+      const next = runtime.getLevel();
+      // Whole-dB steps are all the readout shows; don't render for a sub-dB wobble.
+      setLevel((previous) => (Math.round(previous) === Math.round(next) ? previous : next));
+    }, 250);
+    return () => clearInterval(timer);
+  }, [runtime, running]);
+  return (
+    <span style={styles.level} aria-label="output level">
+      {running ? (Number.isFinite(level) ? `${level.toFixed(0)} dB` : '−∞') : '—'}
+    </span>
   );
 }
 
@@ -468,7 +694,23 @@ const styles = {
     letterSpacing: '0.2em',
     color: COLOR.accent,
   },
-  patch: { flex: 1, fontSize: '0.75rem', color: COLOR.textDim },
+  patchButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: TOUCH_MIN,
+    padding: '0 0.4rem',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: `1px dashed ${COLOR.border}`,
+    color: COLOR.text,
+    fontSize: '0.75rem',
+    textAlign: 'left',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+  },
+  patchButtonOff: { opacity: 0.5, cursor: 'default', borderBottomStyle: 'none' },
   level: {
     fontFamily: FONT.mono,
     fontSize: '0.7rem',
@@ -552,6 +794,7 @@ const styles = {
   // The panels scroll; the header and the keyboard do not, so the keys are always under
   // a thumb no matter how far down a tab runs.
   main: { flex: 1, overflowY: 'auto', minHeight: 0 },
+  seqMain: { flex: 1, minHeight: 0, overflow: 'hidden' },
   footer: {
     background: COLOR.surfaceLowest,
     borderTop: `1px solid ${COLOR.border}`,

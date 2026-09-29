@@ -11,13 +11,15 @@
  * because they record a diagnosis, not a design.
  */
 
-import { ToneRuntime } from '../runtime';
+import { ToneRuntime, TRANSPORT_LOOKAHEAD } from '../runtime';
 import { createEngine } from '../app/create-engine';
 import { connectHotCommandBridge } from '../app/hot-command-bridge';
 import { HttpSagObserver } from '../app/http-observer';
 import { nativeChannel, NativeSagObserver } from '../app/native-bridge';
 import { releaseNotesWhenHidden } from '../app/release-on-hide';
 import { MemorySagJournal } from '../core/sag/events';
+import { IdbPersistence } from '../app/persistence';
+import { startSessionSync, type SessionSync } from '../app/session-sync';
 import type { Dispatcher } from '../app/dispatcher';
 
 /**
@@ -67,7 +69,15 @@ export type EngineHandle = {
   instanceId: string;
   /** Detaches the release-on-hide listeners; null where there is no document. */
   releaseOnHide: (() => void) | null;
+  /**
+   * The session mirror (C3b): restores the saved sound, song and library at startup, then
+   * autosaves. Null where there is no IndexedDB (a Node test importing this module).
+   */
+  session: SessionSync | null;
 };
+
+/** One database per origin. The shell serves a fixed origin, so this survives restarts. */
+const DB_NAME = 'sag-synth';
 
 type EngineSlot = typeof globalThis & { [ENGINE_KEY]?: EngineHandle | null };
 
@@ -79,6 +89,7 @@ function disposeEngine(): void {
   const live = slot()[ENGINE_KEY];
   if (live == null) return;
   live.releaseOnHide?.();
+  live.session?.dispose();
   live.dispatcher.dispose();
   if (live.observer instanceof HttpSagObserver) live.observer.dispose();
   slot()[ENGINE_KEY] = null;
@@ -94,7 +105,7 @@ export function getEngine(): EngineHandle {
   const existing = slot()[ENGINE_KEY];
   if (existing != null) return existing;
 
-  const runtime = new ToneRuntime();
+  const runtime = new ToneRuntime({ lookAhead: TRANSPORT_LOOKAHEAD });
   const journal = new MemorySagJournal();
   // A native shell, when present, is preferred over the dev-server channel: it is the one
   // that is actually reachable in a production bundle, and `nativeChannel()` is null in
@@ -107,13 +118,45 @@ export function getEngine(): EngineHandle {
     instanceId: crypto.randomUUID().slice(0, 8),
     dispatcher: createEngine({ runtime, overrides: { journal } }),
     releaseOnHide: null,
+    session: null,
   };
+  // `__sagNoPersistence__` is set by the browser test setup only (see
+  // test-harness/no-app-persistence.ts); nothing in the app sets it.
+  const persistenceOff = (globalThis as { __sagNoPersistence__?: boolean }).__sagNoPersistence__ === true;
+  if (typeof indexedDB !== 'undefined' && !persistenceOff) {
+    built.session = startSessionSync({
+      dispatcher: built.dispatcher,
+      persistence: new IdbPersistence(DB_NAME),
+      now: () => Date.now(),
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+      // Surfaced, not swallowed: a storage failure is data loss in waiting, and the shell
+      // serves console lines at /__sag/diagnostics.
+      onError: (error) => console.error('[sag.session]', error),
+    });
+    void built.session.ready.then((report) => console.info(`[sag.session] ${JSON.stringify(report)}`));
+  }
   // Swiping to the background mid-press never delivers pointerup, so a held note stayed
   // stuck for the life of the process. See app/release-on-hide.ts.
   if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     built.releaseOnHide = releaseNotesWhenHidden({ window, document }, (command) =>
       built.dispatcher.dispatch(command),
     );
+    // Android may kill a backgrounded app without warning, so the pending autosave is
+    // written the moment the page is hidden rather than 800 ms later.
+    const flushOnHide = () => {
+      if (document.visibilityState === 'hidden') void built.session?.flush();
+    };
+    // `pagehide` means the page is going whatever the visibility state says.
+    const flushOnPageHide = () => void built.session?.flush();
+    document.addEventListener('visibilitychange', flushOnHide);
+    window.addEventListener('pagehide', flushOnPageHide);
+    const detachRelease = built.releaseOnHide;
+    built.releaseOnHide = () => {
+      detachRelease();
+      document.removeEventListener('visibilitychange', flushOnHide);
+      window.removeEventListener('pagehide', flushOnPageHide);
+    };
   }
   slot()[ENGINE_KEY] = built;
   return built;

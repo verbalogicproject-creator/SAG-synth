@@ -3,7 +3,7 @@
  *
  * The controls are where five decoys have been born, so the gates here are about reaching
  * a screen and dispatching a legal command, not about looking right. The strongest one
- * renders all 119 declared controls: a widget that disagrees with its spec throws by
+ * renders all 125 declared controls: a widget that disagrees with its spec throws by
  * construction, so this is the check that the registry's derivation and the components'
  * expectations are the same opinion.
  *
@@ -47,7 +47,7 @@ async function draw(element: React.ReactNode): Promise<void> {
 const ALL_PATHS = CONTROLS.map((control) => control.path);
 
 describe('every declared control can be drawn', () => {
-  it('renders all 119 without a widget disagreeing with its spec', async () => {
+  it('renders all 125 without a widget disagreeing with its spec', async () => {
     // Each component throws when handed the wrong spec kind, so this passing means the
     // registry's widget derivation and the components' expectations agree for every
     // address — including the four that carry `choices` and must never get a knob.

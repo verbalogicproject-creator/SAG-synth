@@ -281,6 +281,19 @@ export const CONTROLS: readonly ParamControl[] = [
   c('ctl-116', 'voice.modRoutes.7.source', 'route 8', 'source'),
   c('ctl-117', 'voice.modRoutes.7.destination', 'route 8', 'destination'),
   c('ctl-118', 'voice.modRoutes.7.depth', 'route 8', 'depth'),
+
+  // schema_version 5 — AHDSR. Appended, as the mint requires: the hold and the decay
+  // shape of both envelopes.
+  c('ctl-119', 'voice.envelope.hold', 'amp env', 'hold', 'slider'),
+  c('ctl-120', 'voice.envelope.decayCurve', 'amp env', 'decay curve'),
+  c('ctl-121', 'voice.filterEnvelope.hold', 'filter env', 'hold', 'slider'),
+  c('ctl-122', 'voice.filterEnvelope.decayCurve', 'filter env', 'decay curve'),
+
+  // schema_version 6 — the filter envelope follows the amp's stages.
+  c('ctl-123', 'voice.filterEnvelope.linked', 'filter env', 'link amp'),
+
+  // schema_version 7 — per-voice saturation into the filter.
+  c('ctl-124', 'voice.filter.drive', 'filter', 'drive'),
 ];
 
 /**

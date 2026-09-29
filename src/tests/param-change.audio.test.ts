@@ -49,7 +49,7 @@ function steadyTone(): SynthPreset {
       amplitude: 1,
       pan: 0,
       oscillators: [{ ...slot, type: 'sine', count: 1, detune: 0, spread: 0, level: 1, pan: 0 }],
-      envelope: { attack: 0.01, decay: 0.01, sustain: 1, release: 0.5 },
+      envelope: { attack: 0.01, hold: 0, decay: 0.01, decayCurve: 'exponential', sustain: 1, release: 0.5 },
       filterEnvelope: {
         ...base.voice.filterEnvelope,
         attack: 0.001,

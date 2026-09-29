@@ -17,7 +17,7 @@
 
 import { describeDepth } from '../../core/params';
 import { describeLoad, modulationLoad } from '../../core/modulation';
-import { MAX_ROUTES, isDestinationWired, type ParamPath } from '../../core/types';
+import { MAX_ROUTES, isDestinationWired, lfoSlotOf, type ParamPath } from '../../core/types';
 import { defaultRoute } from '../../core/state';
 import type { SynthCommand } from '../../core/commands';
 import { renderControl } from './controls';
@@ -51,12 +51,12 @@ export function RouteList({ context, onCommand }: RouteListProps) {
 
       {routes.length === 0 && (
         <p style={styles.empty}>
-          No routes. A route takes one LFO or the velocity you played with, and moves a
-          parameter with it.
+          No routes. A route takes an LFO, an envelope (each note's own amp or filter
+          contour) or the velocity you played with, and moves a parameter with it.
         </p>
       )}
 
-      {lfos.length === 0 && (
+      {lfos.length === 0 && (routes.length === 0 || routes.some((r) => lfoSlotOf(r.source) !== null)) && (
         // Sources are declared for four LFOs whether or not the patch holds any, so a
         // route can point at `lfo.0` when there is no lfo.0 to point at. Saying so beats
         // drawing a route that looks connected.
@@ -66,7 +66,7 @@ export function RouteList({ context, onCommand }: RouteListProps) {
         // about the one fact that decided what the button below would do.
         <p style={styles.warn}>
           {routes.length > 0
-            ? 'This patch has no LFOs, so every route below has no source.'
+            ? 'This patch has no LFOs, so the LFO routes below have no source.'
             : 'No LFOs in this patch, so a new route will use velocity as its source.'}
         </p>
       )}

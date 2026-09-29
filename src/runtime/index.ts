@@ -1,7 +1,8 @@
-export type { PatchSection } from './tone-runtime';
+export type { PatchSection, ToneRuntimeOptions } from './tone-runtime';
+export { PATCH_SECTIONS, ToneRuntime, TRANSPORT_LOOKAHEAD } from './tone-runtime';
+export type { SynthInstrumentOptions } from './synth-instrument';
 export {
-  PATCH_SECTIONS,
-  ToneRuntime,
+  SynthInstrument,
   frequencyEnvelopeOptions,
   oscillatorOptions,
   slotDetune,
@@ -9,4 +10,5 @@ export {
   unsupportedOscillatorFeatures,
   UNMAPPED_PARAMS,
   SHARED_LFO_PHASE_DEPARTURE,
-} from './tone-runtime';
+} from './synth-instrument';
+export { renderSong, RENDER_LOOKAHEAD, type RenderedSong } from './render-song';
